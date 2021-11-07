@@ -286,6 +286,30 @@ class P8MPAudioOutput(P8MPBayBase):
     async def async_turn_off(self):
         return await self.async_mute_volume(True)
 
+class P8MPVideoAudioOutput(P8MPAudioOutput):
+    @property
+    def source(self):
+        vs = self.mx_bay.video_source
+        if vs is not None:
+            return vs.user_name
+        return STATE_UNKNOWN
+
+    @property
+    def source_list(self):
+        if not self.available:
+            return []
+        tmp = [bay.user_name for _, bay in self.mx_dev.inputs.items()]
+        return tmp
+
+    @property
+    def supported_features(self):
+        return SUPPORT_BAY_AUDIO_OUTPUT | SUPPORT_SELECT_SOURCE
+
+    @property
+    def supported_features(self):
+        return SUPPORT_BAY_VIDEO_AUDIO_OUTPUT
+
+
 class P8MPDevice(MediaPlayerEntity):
     ''' pulse-eight device (matrix, splitter, amp, ...) '''
 

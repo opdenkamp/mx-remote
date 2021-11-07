@@ -267,7 +267,11 @@ class P8Device(Entity):
 
                 if self.dev.is_video_matrix:
                     if bay.is_output:
-                        nbay.append(P8MPVideoBayOutput(self, bay))
+                        # treat as audio output if the name contains 'audio'
+                        if bay.user_name.lower().find('audio') >= 0:
+                            nbay.append(P8MPAudioOutput(self, bay))
+                        else:
+                            nbay.append(P8MPVideoBayOutput(self, bay))
                         nbay.append(P8Sensor(self.hass, bay.dev, bay, None, "Source {}".format(bay.user_name), source_value, None, None))
                     else:
                         nbay.append(P8MPVideoBayInput(self, bay))
