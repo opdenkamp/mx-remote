@@ -132,7 +132,7 @@ class Device:
 	@property
 	def has_bays(self) -> bool:
 		# check whether the configuration for all bays has been received
-		return len(self.bays) == (self.nb_inputs + self.nb_outputs)
+		return len(self.bays) >= (self.nb_inputs + self.nb_outputs)
 
 	@property
 	def inputs(self) -> Dict[str, Bay]:
@@ -155,6 +155,8 @@ class Device:
 		if self.name == 'FFMB44' or self.name == 'FFMS44':
 			return 4
 		if self.name[0:4] == 'SP14':
+			return 1
+		if self.name == 'V2IP':
 			return 1
 		#unknown model
 		return 0
@@ -181,6 +183,8 @@ class Device:
 			return 6
 		if self.name[0:4] == 'SP14':
 			return 4
+		if self.name == 'V2IP':
+			return 1
 		#unknown model
 		return 0
 
