@@ -30,6 +30,7 @@ def process_mxr_frame(mxr:'mx_remote.Remote.Remote', data:bytes, addr:Tuple[str,
 def _mxr_frame_factory(hdr:FrameHeader) -> FrameBase:
 	# create a new frame from a decoded mx_remote header
 	from .FrameBayConfig import FrameBayConfig
+	from .FrameBayConfigSecondary import FrameBayConfigSecondary
 	from .FrameHello import FrameHello
 	from .FrameLinks import FrameLinks
 	from .FrameRoutingChange import FrameRoutingChange
@@ -69,5 +70,7 @@ def _mxr_frame_factory(hdr:FrameHeader) -> FrameBase:
 		return FrameSysTemperature(hdr)
 	if hdr.opcode == 22:
 		return FramePDUState(hdr)
+	if hdr.opcode == 35:
+		return FrameBayConfigSecondary(hdr)
 	return None
 
