@@ -195,7 +195,7 @@ class Device:
 			return 8
 		if self.name == 'PROAMP8':
 			return 0
-		if (self.name == 'FFMB44') or (self.name == 'FFMS44') or (self.name[0:4] == 'SP14'):
+		if (self.name == 'FFMB44') or (self.name == 'FFMS44') or (self.name == 'SP14'):
 			return 4
 		#unknown model
 		return 0
