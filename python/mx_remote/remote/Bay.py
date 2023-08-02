@@ -109,6 +109,20 @@ class Bay:
         return None
 
     @property
+    def is_v2ip_remote_sink(self) -> bool:
+        features = self.features_mask
+        return (features & proto.MX_BAY_FEATURE_V2IP_SINK_REMOTE)
+
+    @property
+    def is_v2ip_remote_source(self) -> bool:
+        features = self.features_mask
+        return (features & proto.MX_BAY_FEATURE_V2IP_SOURCE_REMOTE)
+
+    @property
+    def is_v2ip_remote(self) -> bool:
+        return self.is_v2ip_remote_sink or self.is_v2ip_remote_source
+
+    @property
     def dolby_input_bay(self) -> Bay:
         db = self.dolby_input
         if db is None:
@@ -142,6 +156,14 @@ class Bay:
             rv.append('remote control out')
         if (mask & proto.MX_BAY_FEATURE_RC_IN):
             rv.append('remote control in')
+        if (mask & proto.MX_BAY_FEATURE_V2IP_SOURCE_REMOTE):
+            rv.append('V2IP remote source')
+        if (mask & proto.MX_BAY_FEATURE_V2IP_SINK_REMOTE):
+            rv.append('V2IP remote sink')
+        if (mask & proto.MX_BAY_FEATURE_V2IP_SOURCE_LOCAL):
+            rv.append('V2IP source')
+        if (mask & proto.MX_BAY_FEATURE_V2IP_SINK_LOCAL):
+            rv.append('V2IP sink')
         if (mask & proto.MX_BAY_FEATURE_DOLBY):
             rv.append('dolby')
         if (mask & proto.MX_BAY_FEATURE_AUTO_OFF):
