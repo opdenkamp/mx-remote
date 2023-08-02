@@ -5,6 +5,6 @@
   "documentation": "https://www.pulse-eight.com",
   "dependencies": [],
   "codeowners": ["@opdenkamp"],
-  "requirements": ["mx_remote>=0.1.0"],
+  "requirements": ["mx_remote>=1.0.1"],
   "version": "0.1.0"
 }
