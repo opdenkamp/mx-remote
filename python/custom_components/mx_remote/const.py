@@ -12,6 +12,7 @@ from homeassistant.components.media_player.const import (
 DOMAIN = "mx_remote"
 CONF_SERIAL = "serial"
 SIGNAL_MXR_REGISTER = "mxr_new_player"
+SIGNAL_MXR_REGISTER_VOLUME = "mxr_new_volume"
 SIGNAL_MXR_DEV_UPDATE = "mxr_device_update"
 SIGNAL_MXR_DEV_TEMPERATURE_UPDATE = "mxr_device_temperature_update"
 SIGNAL_MXR_BAY_UPDATE = "mxr_bay_update"

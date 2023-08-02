@@ -2,10 +2,12 @@
 
 from .const import *
 from .media_player import *
+from .number import *
 from .sensor import *
 
 from homeassistant.components.binary_sensor import DOMAIN as BINARY_SENSOR_DOMAIN
 from homeassistant.components.media_player import DOMAIN as MEDIA_PLAYER_DOMAIN
+from homeassistant.components.number import DOMAIN as NUMBER_DOMAIN
 from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntry
@@ -141,7 +143,7 @@ async def async_setup(hass: HomeAssistantType, config: ConfigEntry) -> bool:
         'config': config[DOMAIN],
     }
 
-    if not hass.config_entries.async_entries(DOMAIN):
+    if True: #not hass.config_entries.async_entries(DOMAIN):
         # import devices that are defined in configuration.yaml
         for entry in config[DOMAIN]:
             hass.async_create_task(
@@ -180,12 +182,14 @@ async def async_setup_entry(hass: HomeAssistantType, entry: ConfigEntry) -> bool
         'mp_device': None,
         'sensors': False,
         'binary_sensors': False,
-        'bays': {}
+        'bays': {},
+        'numbers': [],
     }
     await platform.async_add_entities([mp])
 
     hass.async_create_task(hass.config_entries.async_forward_entry_setup(entry, SENSOR_DOMAIN))
     hass.async_create_task(hass.config_entries.async_forward_entry_setup(entry, BINARY_SENSOR_DOMAIN))
+    hass.async_create_task(hass.config_entries.async_forward_entry_setup(entry, NUMBER_DOMAIN))
     hass.async_create_task(hass.config_entries.async_forward_entry_setup(entry, MEDIA_PLAYER_DOMAIN))
 
     return True
@@ -242,11 +246,11 @@ class P8Device(Entity):
                 return vs.user_name
             return STATE_UNKNOWN
 
-        if self.hass.data[DOMAIN]['devices'][self.dev.serial]['mp_device'] is None:
-            # register media_player for the device
-            dev = P8MPDevice(self)
-            self.hass.data[DOMAIN]['devices'][self.dev.serial]['mp_device'] = dev
-            dispatcher_send(self.hass, SIGNAL_MXR_REGISTER, [dev])
+        #if self.hass.data[DOMAIN]['devices'][self.dev.serial]['mp_device'] is None:
+        #    # register media_player for the device
+        #    dev = P8MPDevice(self)
+        #    self.hass.data[DOMAIN]['devices'][self.dev.serial]['mp_device'] = dev
+        #    dispatcher_send(self.hass, SIGNAL_MXR_REGISTER, [dev])
 
         for _, bay in self.dev.bays.items():
             if (not bay.hidden) and (not bay.bay_name in self._bays.keys()):
@@ -265,6 +269,9 @@ class P8Device(Entity):
                 if bay.bay_name in self.hass.data[DOMAIN]['devices'][self.dev.serial]['bays'].keys():
                     continue
 
+                if bay.is_v2ip_remote:
+                    continue
+
                 if self.dev.is_video_matrix:
                     if bay.is_output:
                         # treat as audio output if the name contains 'audio'
@@ -272,7 +279,7 @@ class P8Device(Entity):
                             nbay.append(P8MPAudioOutput(self, bay))
                         else:
                             nbay.append(P8MPVideoBayOutput(self, bay))
-                        nbay.append(P8Sensor(self.hass, bay.dev, bay, None, "Source {}".format(bay.user_name), source_value, None, None))
+                        #nbay.append(P8Sensor(self.hass, bay.dev, bay, None, "Source {}".format(bay.user_name), source_value, None, None))
                     else:
                         nbay.append(P8MPVideoBayInput(self, bay))
                 elif self.dev.is_amp and bay.is_output: # ignore amp inputs
@@ -283,7 +290,15 @@ class P8Device(Entity):
                     self._bays[bay.bay_name] = nbay
                     self.hass.data[DOMAIN]['devices'][self.dev.serial]['bays'][bay.bay_name] = nbay[0]
                     if nbay[0].unique_id:
-                        dispatcher_send(self.hass, "mxr_new_player", nbay)
+                        dispatcher_send(self.hass, SIGNAL_MXR_REGISTER, nbay)
+
+        for _, bay in self.dev.bays.items():
+            if bay.bay_name in self.hass.data[DOMAIN]['devices'][self.dev.serial]['numbers']:
+                continue
+            if not bay.hidden and ((self.dev.is_amp and (bay.bay == 0 or (bay.bay >= self.dev.amp_dolby_channels)))) and bay.is_output:
+                nvolume = P8VolumeControl(self.hass, bay.dev, bay)
+                dispatcher_send(self.hass, SIGNAL_MXR_REGISTER_VOLUME, [nvolume])
+
 
     async def _mxr_update(self, dev):
         if isinstance(dev, str):
@@ -302,7 +317,7 @@ class P8Device(Entity):
         return self._name
 
     @property
-    def device_state_attributes(self):
+    def extra_state_attributes(self):
         data = {}
         data['serial'] = self.serial
         dev = self.dev
@@ -327,7 +342,7 @@ class P8Device(Entity):
     def device_info(self):
         info = {
             'identifiers': {
-                ("mx_remote", self.serial)
+                (DOMAIN, self.serial)
              },
             'name': self.name,
             'manufacturer': 'Pulse-Eight',

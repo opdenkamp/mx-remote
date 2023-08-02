@@ -38,12 +38,11 @@ def _register_binary_sensors(hass, dev, async_add_entities):
     devs = []
     if dev.is_video_matrix:
         for _, bay in dev.bays.items():
-            if not bay.hidden:
-                if not bay.dev.is_amp:
-                    devs.append(P8BinarySensor(hass, dev, bay, "CEC", cec_detected, None))
-                    devs.append(P8BinarySensor(hass, dev, bay, "signal", signal_detected, None))
-                    if bay.is_hdbaset:
-                        devs.append(P8BinarySensor(hass, dev, bay, "link", hdbt_connected, None))
+            if not bay.hidden and not bay.is_v2ip_remote and not bay.dev.is_amp:
+                devs.append(P8BinarySensor(hass, dev, bay, "CEC", cec_detected, None))
+                devs.append(P8BinarySensor(hass, dev, bay, "signal", signal_detected, None))
+                if bay.is_hdbaset:
+                    devs.append(P8BinarySensor(hass, dev, bay, "link", hdbt_connected, None))
     async_add_entities(devs)
 
 class P8BinarySensor(Entity):
@@ -54,6 +53,7 @@ class P8BinarySensor(Entity):
         self._sensor_name = sensor_name
         self._sensor_value = sensor_value
         self._sensor_type = sensor_type
+        self._update = False
         async_dispatcher_connect(hass, SIGNAL_MXR_DEV_UPDATE, self._mxr_update)
 
     @property
@@ -69,7 +69,7 @@ class P8BinarySensor(Entity):
         return "{} {} {}".format(self._sensor_name, self._bay.mode, self._bay.user_name)
 
     @property
-    def device_state_attributes(self):
+    def extra_state_attributes(self):
         data = {}
         data['controller'] = self._dev.serial
         return data
@@ -78,7 +78,7 @@ class P8BinarySensor(Entity):
     def device_info(self):
         return {
             'identifiers': {
-                (BINARY_SENSOR_DOMAIN, DOMAIN, self._dev.serial, self._bay.bay_name, self._sensor_name)
+                (DOMAIN, self._dev.serial, self._bay.bay_name)
              },
             'name': self.name,
             'manufacturer': 'Pulse-Eight',
@@ -98,7 +98,10 @@ class P8BinarySensor(Entity):
         """Return the device class of the sensor."""
         return self._sensor_type
 
+    async def async_added_to_hass(self) -> None:
+        self._update = True
+
     async def _mxr_update(self, dev):
-        if (self.entity_id is not None) and (self._dev == dev):
+        if self._update and (self._dev == dev):
             self.async_write_ha_state()
 

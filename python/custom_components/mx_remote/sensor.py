@@ -52,6 +52,7 @@ class P8Sensor(Entity):
         self._sensor_value = sensor_value
         self._sensor_type = sensor_type
         self._sensor_unit = sensor_unit
+        self._update = False
         async_dispatcher_connect(hass, SIGNAL_MXR_DEV_UPDATE, self._mxr_update)
 
     @property
@@ -67,7 +68,7 @@ class P8Sensor(Entity):
         return "{} {} {}".format(self._sensor_name, self._bay.mode, self._bay.user_name) if self._bay is not None else self.unique_id
 
     @property
-    def device_state_attributes(self):
+    def extra_state_attributes(self):
         data = {}
         data['controller'] = self._dev.serial
         return data
@@ -76,7 +77,7 @@ class P8Sensor(Entity):
     def device_info(self):
         return {
             'identifiers': {
-                (SENSOR_DOMAIN, DOMAIN, self._dev.serial, self._sensor_name, self._param)
+                (DOMAIN, self._dev.serial)
              },
             'name': self.name,
             'manufacturer': 'Pulse-Eight',
@@ -101,7 +102,10 @@ class P8Sensor(Entity):
         """Return the unit this state is expressed in."""
         return self._sensor_unit
 
+    async def async_added_to_hass(self) -> None:
+        self._update = True
+
     async def _mxr_update(self, dev):
-        if (self.entity_id is not None) and (self._dev == dev):
+        if self._update and (self._dev == dev):
             self.async_write_ha_state()
 

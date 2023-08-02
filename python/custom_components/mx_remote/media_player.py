@@ -67,10 +67,14 @@ class P8MPBayBase(MediaPlayerEntity):
         self.dev = dev
         self.hass = dev.hass
         self.mx_bay = mx_bay
+        self._update = False
         async_dispatcher_connect(self.hass, SIGNAL_MXR_BAY_UPDATE, self._mxr_update)
 
+    async def async_added_to_hass(self) -> None:
+        self._update = True
+
     async def _mxr_update(self, serial, bay_name):
-        if (self.entity_id is not None) and (bay_name == self.mx_bay.bay_name) and (serial == self.mx_bay.dev.serial):
+        if self._update and (bay_name == self.mx_bay.bay_name) and (serial == self.mx_bay.dev.serial):
             self.async_write_ha_state()
 
     @property
@@ -96,7 +100,7 @@ class P8MPBayBase(MediaPlayerEntity):
         return self.dev.serial
 
     @property
-    def device_state_attributes(self):
+    def extra_state_attributes(self):
         return {
             'serial': self.dev.serial,
             'features': self.mx_bay.features,
@@ -106,7 +110,7 @@ class P8MPBayBase(MediaPlayerEntity):
     def device_info(self):
         info = {
             'identifiers': {
-                (MEDIA_PLAYER_DOMAIN, DOMAIN, self.dev.serial, self.mx_bay.bay_name)
+                (DOMAIN, self.dev.serial, self.mx_bay.bay_name)
              },
             'name': self.name,
             'manufacturer': 'Pulse-Eight',
@@ -147,10 +151,11 @@ class P8MPBayBase(MediaPlayerEntity):
         return await self.mx_bay.mute_set(mute)
 
     @property
-    def device_state_attributes(self):
+    def extra_state_attributes(self):
         return {
             'serial': self.dev.serial,
             'bay': self.mx_bay.bay_name,
+            'bay_id': self.mx_bay.bay,
             'features': self.mx_bay.features,
         }
 
@@ -163,14 +168,14 @@ class P8MPVideoBayBase(P8MPBayBase):
         return "Video {} {}".format(self.mx_bay.mode, self.mx_bay.user_name)
 
     @property
-    def device_state_attributes(self):
-        data = P8MPBayBase.device_state_attributes.fget(self)
+    def extra_state_attributes(self):
+        data = P8MPBayBase.extra_state_attributes.fget(self)
         data['signal'] = self.mx_bay.signal_detected
         data['signal_type'] = self.mx_bay.signal_type
         data['cec'] = self.mx_bay.cec_detected
         if self.mx_bay.is_hdbaset:
-            data['hbaset_link'] = self.mx_bay.hdbt_connected
-            data['hbaset_poe'] = self.mx_bay.poe_powered
+            data['hdbaset_link'] = self.mx_bay.hdbt_connected
+            data['hdbaset_poe'] = self.mx_bay.poe_powered
         return data
 
     @property
@@ -217,8 +222,8 @@ class P8MPVideoBayOutput(P8MPVideoBayBase):
         return SUPPORT_BAY_VIDEO_OUTPUT
 
     @property
-    def device_state_attributes(self):
-        data = P8MPVideoBayBase.device_state_attributes.fget(self)
+    def extra_state_attributes(self):
+        data = P8MPVideoBayBase.extra_state_attributes.fget(self)
         data['hotplug'] = self.mx_bay.hpd_detected
         if self.mx_bay.is_output:
             data['source'] = self.source
@@ -338,8 +343,8 @@ class P8MPDevice(MediaPlayerEntity):
         return self.main_entity.serial
 
     @property
-    def device_state_attributes(self):
-        return self.main_entity.device_state_attributes
+    def extra_state_attributes(self):
+        return self.main_entity.extra_state_attributes
 
     @property
     def device_info(self):
