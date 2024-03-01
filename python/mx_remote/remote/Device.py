@@ -38,6 +38,10 @@ class Device:
 		return not self.need_link_config and self.has_bays
 
 	@property
+	def protocol(self) -> int:
+		return self._mxr_hello.supported_protocol
+
+	@property
 	def name(self) -> str:
 		# remote device name
 		return self._mxr_hello.device_name
