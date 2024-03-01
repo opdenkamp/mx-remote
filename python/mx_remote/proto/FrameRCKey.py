@@ -6,21 +6,23 @@ class FrameRCKey(FrameBase):
     ''' power status changed of a device connected to a bay '''
     def __init__(self, header:FrameHeader):
         super().__init__(header)
-        self.dev = None
 
     @property
     def bay(self) -> 'mx_remote.remote.Bay.Bay':
         # bay that received the key press
-        portnum = self.payload[0]
         dev = self.remote_device
         if dev is None:
-            return
+            return None
+        portnum = ((int(self.payload[1]) << 8) | int(self.payload[0])) if (dev.protocol >= 6) else self.payload[0]
         return dev.get_by_portnum(portnum)
 
     @property
     def key(self) -> RCKey:
         # key that was received
-        return RCKey((int(self.payload[2]) << 8) | int(self.payload[1]))
+        dev = self.remote_device
+        if dev is None:
+            return None
+        return RCKey((int(self.payload[3]) << 8) | int(self.payload[2])) if (dev.protocol >= 6) else RCKey((int(self.payload[2]) << 8) | int(self.payload[1]))
 
     def process(self) -> None:
         bay = self.bay
