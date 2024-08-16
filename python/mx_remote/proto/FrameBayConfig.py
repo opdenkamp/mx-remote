@@ -35,4 +35,4 @@ class FrameBayConfig(FrameBase):
             dev.on_mxr_bay_config(bayconfig)
 
     def __str__(self) -> str:
-        return "{} bay config".format(str(self.remote_device))
+        return f"{self.remote_device} bay config: {len(self.bays)} bays"

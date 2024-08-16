@@ -36,4 +36,4 @@ class FrameLinks(FrameBase):
         dev.on_link_config_received()
 
     def __str__(self) -> str:
-        return "{} links config".format(str(self.remote_dev))
+        return "{} links config".format(str(self.remote_device))

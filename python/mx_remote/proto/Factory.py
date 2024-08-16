@@ -43,6 +43,7 @@ def _mxr_frame_factory(hdr:FrameHeader) -> FrameBase:
 	from .FrameVolume import FrameVolume
 	from .FrameVolumeUp import FrameVolumeUp
 	from .FrameVolumeDown import FrameVolumeDown
+	from .FrameV2IPSources import FrameV2IPSources
 
 	if hdr.opcode == 0:
 		return FrameHello(hdr)
@@ -72,5 +73,7 @@ def _mxr_frame_factory(hdr:FrameHeader) -> FrameBase:
 		return FramePDUState(hdr)
 	if hdr.opcode == 35:
 		return FrameBayConfigSecondary(hdr)
+	if hdr.opcode == 38:
+		return FrameV2IPSources(hdr)
 	return None
 

@@ -639,10 +639,13 @@ class Bay:
         self.signal_detected = data.status.signal_detected
 
         if data.status.powered_on:
+            print(f"on_mxr_bay_config {self.bay_label} on")
             self.power_status = 'on'
         elif data.status.powered_off:
+            print(f"on_mxr_bay_config {self.bay_label} off")
             self.power_status = 'off'
         else:
+            print(f"on_mxr_bay_config {self.bay_label} not on or off")
             self.power_status = 'unknown'
         if data.status.audio_arc_hdmi:
             self.arc = self.ARC_HDMI

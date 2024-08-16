@@ -86,6 +86,7 @@ class Remote(remote.Devices):
         frame = proto.process_mxr_frame(self, data, addr)
         if frame is not None:
            frame.process()
+           logging.debug(f"rx: {str(frame)}")
 
     def on_device_config_changed(self, dev):
         logging.debug("%s updated", str(dev))

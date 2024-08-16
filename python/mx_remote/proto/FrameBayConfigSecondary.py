@@ -10,6 +10,11 @@ class FrameBayConfigSecondary(FrameBase):
         super().__init__(header)
 
     @property
+    def nb_bays(self) -> int:
+        # total number of bay descriptors in this frame
+        return len(self) / 61
+
+    @property
     def bays(self) -> List[BayConfig]:
         # get a list of bay configurations defined in this frame
         rv = []
@@ -29,4 +34,4 @@ class FrameBayConfigSecondary(FrameBase):
         dev.on_mxr_bay_config(BayConfig(self.payload))
 
     def __str__(self) -> str:
-        return "{} secondary bay config".format(str(self.remote_device))
+        return f"{self.remote_device} secondary bay config: {len(self.bays)} bays"

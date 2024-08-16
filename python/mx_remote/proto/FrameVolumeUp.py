@@ -18,4 +18,4 @@ class FrameVolumeUp(FrameBase):
         pass
 
     def __str__(self):
-        return "volume up bay:".format(str(self.bay))
+        return f"volume up bay: {self.bay} (port {self.payload[0]})"

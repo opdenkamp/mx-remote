@@ -18,4 +18,4 @@ class FrameVolumeDown(FrameBase):
         pass
 
     def __str__(self):
-        return "volume down bay:".format(str(self.bay))
+        return f"volume down bay: {self.bay} (port {self.payload[0]})"

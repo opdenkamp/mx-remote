@@ -82,6 +82,9 @@ class MuteStatus:
         # left or right channel muted (or both)
         return (self._val != 0)
 
+    def __str__(self) -> str:
+        return f"left:{self.left} right:{self.right}"
+
 class FrameVolume(FrameBase):
     ''' bay volume change information frame '''
     def __init__(self, header:FrameHeader):
@@ -130,4 +133,4 @@ class FrameVolume(FrameBase):
         bay.on_mxr_volume_update(VolumeMuteStatus(self.volume_left, self.volume_right, muted_left, muted_right))
 
     def __str__(self) -> str:
-        return "volume bay:{} volume:{}".format(str(self.bay), str(self.volume_left_right))
+        return f"volume bay:{str(self.bay)} volume:{self.volume_left}/{self.volume_right} muted:{self.muted}"

@@ -34,4 +34,4 @@ class FrameSignalStatus(FrameBase):
         bay.signal_type = self.signal
 
     def __str__(self) -> str:
-        return "signal status {}: {}".format(str(self.bay), str(self.signal))
+        return f"signal status {str(self.bay)} - detected={self.signal} type={self.signal_type}"
