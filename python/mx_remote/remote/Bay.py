@@ -332,6 +332,8 @@ class Bay:
         if self.is_hdmi:
             if self.is_input:
                 return "on" if self.signal_detected else "off"
+            if self.is_output and not self.hpd_detected:
+                return "off"
             if not self.signal_detected:
                 return "off"
             if self.is_hdbaset and not self.hdbt_connected:
