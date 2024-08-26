@@ -45,4 +45,4 @@ class FrameBase:
         return self.header.payload_len
 
     def __str__(self) -> str:
-        return "unknown frame"
+        return f"unknown frame opcode {self.header.opcode}"
