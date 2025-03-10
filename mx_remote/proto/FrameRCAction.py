@@ -8,8 +8,7 @@
 from .FrameBase import FrameBase
 from .FrameHeader import FrameHeader
 from .Constants import RCAction
-from ..Interface import BayBase, DeviceBase, DeviceRegistry
-from ..Uid import MxrDeviceUid
+from ..Interface import BayBase, DeviceRegistry
 import logging
 
 _LOGGER = logging.getLogger(__name__)
