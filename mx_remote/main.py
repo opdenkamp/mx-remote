@@ -28,7 +28,7 @@ def proto_parser(logger:logging.Logger, file:str, filter:str|None) -> None:
         file (str): path to the file to process
         filter (str): IP address filter (optional)
     """
-    if os.path.isfile(file):
+    if not os.path.isfile(file):
         raise Exception(f"cannot find '{file}'")
 
     with open(file, "r") as f:

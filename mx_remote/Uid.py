@@ -12,6 +12,9 @@ class MxrDeviceUid:
     ''' Unique ID of an mx_remote device on the network'''
 
     def __init__(self, value: object) -> None:
+        if value is None:
+            self._value = [ 0 for _ in range(16)]
+            return
         if isinstance(value, MxrDeviceUid):
             self._value = value._value
             return
