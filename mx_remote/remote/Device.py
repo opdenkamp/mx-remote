@@ -213,12 +213,12 @@ class Device(DeviceBase):
 	@property
 	def has_local_source(self) -> bool:
 		'''True if this device has at least 1 local source'''
-		return self.first_input.is_local
+		return self.first_input.is_local if self.first_input is not None else False
 
 	@property
 	def has_local_sink(self) -> bool:
 		'''True if this device has at least 1 local sink'''
-		return self.first_output.is_local
+		return self.first_output.is_local if self.first_output is not None else False
 
 	@property
 	def is_video_matrix(self) -> bool:
