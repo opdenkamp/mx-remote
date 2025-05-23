@@ -8,6 +8,7 @@
 from .FrameBase import FrameBase
 from .FrameHeader import FrameHeader
 from ..Uid import MxrDeviceUid
+import struct
 
 class TopologyEntry:
     def __init__(self, uid:MxrDeviceUid, mask:int):
