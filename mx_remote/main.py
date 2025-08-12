@@ -10,7 +10,7 @@ import asyncio
 import logging
 import mx_remote
 import os
-from typing import Any
+from typing import Any, Callable
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,9 +49,9 @@ def proto_parser(logger:logging.Logger, file:str, filter:str|None) -> None:
                 except Exception as e:
                     logger.warning(f"source: {source}    frame FAILED: {e}")
 
-def mxr_main( extra_args_callback:callable=None,
-              log_level_callback:callable=None,
-              entry_callback:callable=None,
+def mxr_main( extra_args_callback:Callable[[Any,argparse.ArgumentParser],None]|None=None,
+              log_level_callback:Callable[[Any,argparse.Namespace],int]|None=None,
+              entry_callback:Callable[[Any,argparse.Namespace],bool]|None=None,
               callback_param:Any=None) -> None:
     """
     mx_remote main entry point for stand alone applications
@@ -83,6 +83,8 @@ def mxr_main( extra_args_callback:callable=None,
     if (args.output is None):
         # console
         logging.basicConfig(level=default_level, format='%(asctime)s [%(levelname)s] %(message)s', force=True)
+        _LOGGER.info(f"logging enabled")
+        _LOGGER.debug(f"debug logging enabled")
     else:
         # file
         logging.basicConfig(
@@ -104,8 +106,8 @@ def mxr_main( extra_args_callback:callable=None,
 
         # run the console app
         loop = asyncio.get_event_loop()
+        mx = mx_remote.Remote(local_ip=args.local_ip, broadcast=(args.broadcast is not None and args.broadcast))
         try:
-            mx = mx_remote.Remote(local_ip=args.local_ip, broadcast=(args.broadcast is not None and args.broadcast))
             loop.run_until_complete(mx.start_async())
             loop.run_forever()
         except KeyboardInterrupt:

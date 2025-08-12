@@ -33,7 +33,7 @@ class DeviceV2IPDetails(DeviceV2IPDetailsBase):
 			self._video = source
 
 	@property
-	def audio(self) -> V2IPStreamSource:
+	def audio(self) -> V2IPStreamSource|None:
 		return self._audio
 
 	@audio.setter
@@ -43,7 +43,7 @@ class DeviceV2IPDetails(DeviceV2IPDetailsBase):
 			self._audio = source
 
 	@property
-	def anc(self) -> V2IPStreamSource:
+	def anc(self) -> V2IPStreamSource|None:
 		return self._anc
 
 	@anc.setter
@@ -53,7 +53,7 @@ class DeviceV2IPDetails(DeviceV2IPDetailsBase):
 			self._anc = source
 
 	@property
-	def arc(self) -> V2IPStreamSource:
+	def arc(self) -> V2IPStreamSource|None:
 		return self._arc
 
 	@arc.setter
@@ -63,7 +63,7 @@ class DeviceV2IPDetails(DeviceV2IPDetailsBase):
 			self._arc = source
 
 	@property
-	def tx_rate(self) -> int:
+	def tx_rate(self) -> int|None:
 		return self._tx_rate
 
 	@tx_rate.setter
@@ -73,7 +73,9 @@ class DeviceV2IPDetails(DeviceV2IPDetailsBase):
 	def __eq__(self, value: object) -> bool:
 		if not isinstance(value, DeviceV2IPDetailsBase):
 			return False
-		return (self.video == value.video) \
+		return self.has_config \
+			and value.has_config \
+			and (self.video == value.video) \
 			and (self.audio == value.audio) \
 			and (self.anc == value.anc) \
 			and (self.arc == value.arc) \

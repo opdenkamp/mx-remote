@@ -6,17 +6,18 @@
 ##################################################
 
 from abc import ABC, abstractmethod
+from functools import cached_property
+import aiohttp
 import ipaddress
 import logging
 import netifaces
 from .proto import RCKey
 from .proto.Constants import *
 from .proto.Data import VolumeMuteStatus
-from .proto.PDUState import PDUState
 from .proto.V2IPStats import V2IPDeviceStats
-import socket
-import struct
-from typing import Any
+from .proto.Multiviewer import MultiviewerConfig
+from .proto.Svd import SvdMap
+from typing import Any, Callable
 from .Uid import MxrDeviceUid, MxrBayUid
 
 _LOGGER = logging.getLogger(__name__)
@@ -72,6 +73,90 @@ class DeviceStatus(Enum):
     def __repr__(self) -> str:
         return str(self)
 
+class PowerStatus(Enum):
+    UNKNOWN = 0
+    ON = 1
+    OFF = 2
+
+    def __str__(self) -> str:
+        if self.value == PowerStatus.ON.value:
+            return 'on'
+        if self.value == PowerStatus.OFF.value:
+            return 'off'
+        return 'unknown'
+
+    def __repr__(self) -> str:
+        return str(self)
+
+class HiddenStatus(Enum):
+    UNKNOWN = 0
+    HIDDEN = 1
+    VISIBLE = 2
+
+    def __str__(self) -> str:
+        if self.value == HiddenStatus.HIDDEN.value:
+            return 'hidden'
+        if self.value == HiddenStatus.VISIBLE.value:
+            return 'visible'
+        return 'unknown'
+
+    def __repr__(self) -> str:
+        return str(self)
+
+class FirmwareVersion:
+    def __init__(self, type:FirmwareType, timestamp:int, version:str, hash:int) -> None:
+        self._firmware_type = type
+        self._timestamp = timestamp
+        self._version = version
+        self._hash = hash
+
+    @property
+    def firmware_type(self) -> FirmwareType:
+        return self._firmware_type
+
+    @property
+    def timestamp(self) -> int:
+        return self._timestamp
+
+    @property
+    def version(self) -> str:
+        return self._version
+
+    @property
+    def hash(self) -> int:
+        return self._hash
+
+    def __repr__(self) -> str:
+        return f"firmware {self.firmware_type} version {self.version} hash {self.hash}"
+
+class ConnectStatus(Enum):
+    UNKNOWN = 0
+    CONNECTED = 1
+    DISCONNECTED = 2
+
+    def __str__(self) -> str:
+        if self.value == ConnectStatus.CONNECTED.value:
+            return 'connected'
+        if self.value == ConnectStatus.DISCONNECTED.value:
+            return 'disconnected'
+        return 'unknown'
+
+    def __repr__(self) -> str:
+        return str(self)
+
+class SignalStatus:
+    def __init__(self, detected:bool, description:str|None=None) -> None:
+        self._detected = detected
+        self._description = description
+
+    @property
+    def detected(self) -> bool:
+        return self._detected
+
+    @property
+    def description(self) -> str|None:
+        return self._description
+
 class AmpDolbySettings:
     """
     Dolby Digital settings for an amplifier
@@ -82,6 +167,12 @@ class AmpDolbySettings:
 
     pcm_upmix:bool
     """ PCM upmixing enabled """
+
+    dolby_detected:bool
+    """ Dolby 5.1 signal detected """
+
+    pcm_upmix_active:bool
+    """ PCM upmixing active """
 
 class AmpZoneSettings:
     """
@@ -130,40 +221,30 @@ class AmpZoneSettings:
     eq_right: list[int]
     """ equalizer right channel """
 
-class V2IPStreamSource:
-    """
-    V2IP multicast IP address and port number
-    """
-    def __init__(self, label:str, data:bytes) -> None:
-        if len(data) < 6:
-            raise Exception(f"invalid size: {len(data)}")
-        self._label = label
-        self._ip = int.from_bytes(data[0:4], "big")
-        self._port = int(data[5]) << 8 | int(data[4])
-
-    @property
-    def label(self) -> str:
-        """ user friendly description of this stream """
-        return self._label
-
-    @property
-    def ip(self) -> str:
-        """ multicast IP address """
-        return socket.inet_ntoa(struct.pack('!L', self._ip))
-
-    @property
-    def port(self) -> int:
-        """ UDP port number """
-        return self._port
-
-    def __eq__(self, value: object) -> bool:
-        return (str(self) == str(value))
-
     def __str__(self) -> str:
-        return f"{self.label}={self.ip}:{self.port}"
+        return f"gain:{self.gain_left}/{self.gain_left} volume:{self.volume_min}/{self.volume_max} delay:{self.delay_left}/{self.delay_right} bass:{self.bass} treble:{self.treble} bridged:{self.bridged} eqleft:{self.eq_left} eqright:{self.eq_right} power:{self.power_mode} pwrlevel:{self.power_level} pwrtimeout:{self.power_timeout}"
 
     def __repr__(self) -> str:
         return str(self)
+
+class V2IPStreamSource(ABC):
+    """
+    V2IP multicast IP address and port number
+    """
+    @property
+    @abstractmethod
+    def label(self) -> str:
+        """ user friendly description of this stream """
+
+    @property
+    @abstractmethod
+    def ip(self) -> str:
+        """ multicast IP address """
+
+    @property
+    @abstractmethod
+    def port(self) -> int:
+        """ UDP port number """
 
 class V2IPStreamSources:
     """
@@ -187,8 +268,50 @@ class V2IPStreamSources:
 
     @property
     @abstractmethod
-    def arc(self) -> V2IPStreamSource:
+    def arc(self) -> V2IPStreamSource|None:
         ''' audio return stream source '''
+
+class V2IPStreamSourcesList(list[V2IPStreamSources]):
+    ''' list of V2IP sources '''
+
+class DeviceList(list[MxrDeviceUid]):
+    def __init__(self, data:bytes|None=None):
+        super().__init__(self)
+        if (data is None):
+            return
+        while len(data) >= 16:
+            self.append(MxrDeviceUid(data[0:16]))
+            data = data[16:]
+
+class FilteredDevices(DeviceList):
+    ''' list of filtered devices '''
+
+class BayMirrorStatus:
+    def __init__(self, target:MxrBayUid|None=None) -> None:
+        self._target = target
+
+    @property
+    def target(self) -> MxrBayUid|None:
+        return self._target
+
+    @property
+    def is_mirroring(self) -> bool:
+        return (self._target is not None)
+
+    def __eq__(self, value: object) -> bool:
+        if (self._target is None):
+            return (value is None)
+        if (not isinstance(value, BayMirrorStatus)):
+            return False
+        if (value.target is None):
+            return False
+        return (value.target == self.target)
+
+    def __str__(self) -> str:
+        return f"target={self.target}"
+
+    def __repr__(self) -> str:
+        return str(self)
 
 class BayBase(ABC):
     """
@@ -247,7 +370,7 @@ class BayBase(ABC):
 
     @property
     @abstractmethod
-    def edid_profile(self) -> EdidProfile:
+    def edid_profile(self) -> EdidProfile|None:
         ''' edid profile used by the source '''
 
     @property
@@ -257,28 +380,8 @@ class BayBase(ABC):
 
     @property
     @abstractmethod
-    def features_mask(self) -> BayStatusMask:
-        ''' features/status '''
-
-    @property
-    @abstractmethod
-    def is_v2ip_source(self) -> bool:
-        '''V2IP source device'''
-
-    @property
-    @abstractmethod
-    def is_v2ip_sink(self) -> bool:
-        '''V2IP sink device'''
-
-    @property
-    @abstractmethod
-    def is_v2ip_remote_sink(self) -> bool:
-        '''V2IP remote sink bay'''
-
-    @property
-    @abstractmethod
-    def is_v2ip_remote_source(self) -> bool:
-        '''V2IP remote source bay'''
+    def features(self) -> BayFeaturesMask:
+        '''List of supported features as strings'''
 
     @property
     @abstractmethod
@@ -287,17 +390,22 @@ class BayBase(ABC):
 
     @property
     @abstractmethod
-    def dolby_input(self) -> int:
-        '''Dolby Digital input'''
-
-    @property
-    def dolby_input_bay(self) -> 'BayBase':
-        '''Dolby Digital input bay used by this audio output bay'''
+    def is_v2ip_source(self) -> bool:
+        pass
 
     @property
     @abstractmethod
-    def features(self) -> list[str]:
-        '''List of supported features as strings'''
+    def is_v2ip_sink(self) -> bool:
+        pass
+
+    @property
+    @abstractmethod
+    def dolby_input(self) -> str|None:
+        '''Dolby Digital input'''
+
+    @property
+    def dolby_input_bay(self) -> 'BayBase|None':
+        '''Dolby Digital input bay used by this audio output bay'''
 
     @property
     @abstractmethod
@@ -320,7 +428,7 @@ class BayBase(ABC):
         '''Bay mode name'''
 
     @property
-    def other_mode(self) -> str:
+    def other_mode(self) -> str|None:
         '''Bay mode name of the opposite side (so Output if this bay is an Input)'''
 
     @property
@@ -350,12 +458,12 @@ class BayBase(ABC):
 
     @property
     @abstractmethod
-    def video_source(self) -> 'BayBase':
+    def video_source(self) -> 'BayBase|None':
         '''Current video source (output only)'''
 
     @property
     @abstractmethod
-    def audio_source(self) -> 'BayBase':
+    def audio_source(self) -> 'BayBase|None':
         '''Current audio source (output only)'''
 
     @property
@@ -370,8 +478,8 @@ class BayBase(ABC):
 
     @property
     @abstractmethod
-    def power_status(self) -> str:
-        '''Power status as string'''
+    def power_status(self) -> PowerStatus:
+        '''Power status'''
 
     @property
     @abstractmethod
@@ -415,13 +523,18 @@ class BayBase(ABC):
 
     @property
     @abstractmethod
-    def mirroring(self) -> str:
-        '''The name of the bay if mirroring has been set up'''
+    def mirroring(self) -> BayMirrorStatus:
+        '''Bay mirroring status'''
 
     @property
     @abstractmethod
-    def filtered(self) -> str:
+    def filtered(self) -> FilteredDevices:
         '''Filtered bays'''
+
+    @property
+    @abstractmethod
+    def link_online(self) -> bool:
+        pass
 
     @property
     @abstractmethod
@@ -430,12 +543,12 @@ class BayBase(ABC):
 
     @property
     @abstractmethod
-    def volume(self) -> int:
+    def volume(self) -> int|None:
         '''Current volume level (percentage)'''
 
     @property
     @abstractmethod
-    def muted(self) -> bool:
+    def muted(self) -> bool|None:
         '''True if audio has been muted'''
 
     @property
@@ -470,12 +583,22 @@ class BayBase(ABC):
 
     @property
     @abstractmethod
-    def link(self) -> 'BayLink':
+    def v2ip_uid(self) -> MxrDeviceUid|None:
+        '''Remote V2IP device uid'''
+
+    @property
+    @abstractmethod
+    def v2ip_device(self) -> DeviceBase|None:
+        '''Remote V2IP device'''
+
+    @property
+    @abstractmethod
+    def link(self) -> 'BayLink|None':
         '''mx-remote virtual link configuration (proamp<->matrix)'''
 
     @property
     @abstractmethod
-    def linked_bay(self) -> 'BayBase':
+    def linked_bay(self) -> 'BayBase|None':
         '''linked bay if an mx-remote virtual link has been set up'''
 
     @property
@@ -490,13 +613,17 @@ class BayBase(ABC):
 
     @property
     @abstractmethod
-    def volume_status(self) -> VolumeMuteStatus:
+    def volume_status(self) -> VolumeMuteStatus|None:
         '''volume and mute status'''
 
     @property
     @abstractmethod
     def amp_settings(self) -> AmpZoneSettings|None:
         '''proamp zone settings'''
+
+    @abstractmethod
+    def set_zone_settings(self, settings:AmpZoneSettings) -> bool:
+        pass
 
     @property
     @abstractmethod
@@ -508,9 +635,18 @@ class BayBase(ABC):
     def decoder_disabled(self) -> bool:
         ''' video/audio decoder disabled '''
 
+    @property
+    @abstractmethod
+    def rc_type(self) -> RCType|None:
+        pass
+
     @abstractmethod
     async def set_name(self, name:str) -> bool:
         '''change the name of abay'''
+
+    @abstractmethod
+    async def tx_action(self, action:RCAction) -> bool:
+        pass
 
     @abstractmethod
     async def select_video_source(self, port:int, opt:bool=True) -> bool:
@@ -549,7 +685,7 @@ class BayBase(ABC):
         '''change the volume if supported'''
 
     @abstractmethod
-    def volume_set(self, volume:int) -> bool:
+    def volume_set(self, volume:int, muted:bool|None=None) -> bool:
         '''change the volume if supported'''
 
     @abstractmethod
@@ -561,20 +697,33 @@ class BayBase(ABC):
         '''send a remote control key press to the device'''
 
     @abstractmethod
-    def on_mxr_bay_status(self, data:BayStatusMask) -> None:
-        '''internal callback'''
-
-    @abstractmethod
-    def register_callback(self, callback:callable) -> None:
+    def register_callback(self, callback:Callable[[BayBase], None]) -> None:
          '''register a callback, called when the bay state changed'''
 
     @abstractmethod
-    def unregister_callback(self, callback:callable) -> None:
+    def unregister_callback(self, callback:Callable[[BayBase], None]) -> None:
          '''unregister a callback'''
 
     @abstractmethod
     def call_callbacks(self) -> None:
         '''notify callbacks that this bay has changed'''
+
+    @abstractmethod
+    def on_mxr_update(self, data:Any) -> None:
+        pass
+
+class SelectedBays:
+    def __init__(self, video:BayBase|None, audio:BayBase|None) -> None:
+        self._video = video
+        self._audio = audio
+
+    @property
+    def video(self) -> BayBase|None:
+        return self._video
+
+    @property
+    def audio(self) -> BayBase|None:
+        return self._audio
 
 class DeviceFeatures:
     """
@@ -689,6 +838,26 @@ class DeviceFeatures:
         return ((self._features & MXR_DEVICE_FEATURE_MANAGER) != 0)
 
     @property
+    def power_save(self) -> bool:
+        """ device is in power saving mode """
+        return ((self._features & MXR_DEVICE_FEATURE_STATUS_POWER_SAVE) != 0)
+
+    @property
+    def mesh_support(self) -> bool:
+        """ device supports mesh operations """
+        return ((self._features & MXR_DEVICE_FEATURE_MESH) != 0)
+
+    @property
+    def multiviewer(self) -> bool:
+        """ device is a multiviewer """
+        return ((self._features & MXR_DEVICE_FEATURE_MULTIVIEWER) != 0)
+
+    @property
+    def crashed_recently(self) -> bool:
+        """ device crash caused this boot """
+        return ((self._features & MXR_DEVICE_FEATURE_STATUS_CRASHED) != 0)
+
+    @property
     def boot_bit(self) -> bool:
         """ bit that is flipped every time the device reboots """
         return ((self._features & MXR_DEVICE_FEATURE_BOOT_BIT) != 0)
@@ -698,7 +867,7 @@ class DeviceFeatures:
             return False
         return self._features == value._features
 
-    @property
+    @cached_property
     def features(self) -> list[str]:
         """ supported features as list of string descriptions """
         ft:list[str] = []
@@ -750,121 +919,101 @@ class DeviceFeatures:
     def __repr__(self) -> str:
         return str(self)
 
-class DeviceV2IPDetailsBase(ABC):
+class DeviceV2IPScalingSettings(ABC):
+    @property
+    @abstractmethod
+    def mode(self) -> int:
+        pass
+
+    @property
+    @abstractmethod
+    def refresh(self) -> int:
+        pass
+
+    @property
+    @abstractmethod
+    def flags(self) -> int:
+        pass
+
+class DeviceV2IPDetails:
     """ V2IP stream source details for a device """
+    def __init__(self, video:V2IPStreamSource|None, audio:V2IPStreamSource|None, anc:V2IPStreamSource|None, arc:V2IPStreamSource|None, tx_rate:int|None, scaling:DeviceV2IPScalingSettings|None) -> None:
+        self._video = video
+        self._audio = audio
+        self._anc = anc
+        self._arc = arc
+        self._tx_rate = tx_rate
+        self._scaling = scaling
 
     @property
-    @abstractmethod
     def has_config(self) -> bool:
-        """ configuation known """
-
-    @property
-    @abstractmethod
-    def video(self) -> V2IPStreamSource|None:
-        """ video stream source """
-
-    @property
-    @abstractmethod
-    def audio(self) -> V2IPStreamSource:
-        """ audio stream source """
-
-    @property
-    @abstractmethod
-    def anc(self) -> V2IPStreamSource:
-        """ ancillary stream source """
-
-    @property
-    @abstractmethod
-    def arc(self) -> V2IPStreamSource:
-        """ audio return channel stream source """
-
-    @property
-    @abstractmethod
-    def tx_rate(self) -> int:
-        """ transmit rate in Mbit/s """
-
-    def __eq__(self, value: object) -> bool:
-        if isinstance(value, DeviceV2IPDetailsBase):
-            return (self.video == value.video) \
-                and (self.audio == value.audio) \
-                and (self.anc == value.anc) \
-                and (self.arc == value.arc) \
-                and (self.tx_rate == value.tx_rate)
         return False
 
-class UtpLinkSpeed(Enum):
-    ''' UTP link speed '''
+    @property
+    def video(self) -> V2IPStreamSource|None:
+        return self._video
 
-    UNKNOWN = 0
-    ''' unknown speed '''
+    @property
+    def audio(self) -> V2IPStreamSource|None:
+        return self._audio
 
-    L_10M = 1
-    ''' 10Mbit/s '''
+    @property
+    def anc(self) -> V2IPStreamSource|None:
+        return self._anc
 
-    L_100M = 2
-    ''' 100Mbit/s '''
+    @property
+    def arc(self) -> V2IPStreamSource|None:
+        return self._arc
 
-    L_200M = 3
-    ''' 200Mbit/s '''
+    @property
+    def tx_rate(self) -> int|None:
+        return self._tx_rate
 
-    L_1G = 4
-    ''' 1Gbit/s '''
-
-    def __str__(self) -> str:
-        if self.value == 1:
-            return '10Mbit/s'
-        if self.value == 2:
-            return '100Mbit/s'
-        if self.value == 3:
-            return '200Mbit/s'
-        if self.value == 4:
-            return '1Gbit/s'
-        return 'Unknown'
-
-    def __repr__(self) -> str:
-        return str(self)
+    @property
+    def scaling(self) -> DeviceV2IPScalingSettings|None:
+        return self._scaling
 
 class UtpLinkErrorStatus(ABC):
     ''' UTP link error status bits '''
 
     @property
     @abstractmethod
-    def in_error(self):
+    def in_error(self) -> bool:
         ''' rx errors detected '''
 
     @property
     @abstractmethod
-    def in_fcs_error(self):
+    def in_fcs_error(self) -> bool:
         ''' rx FCS errors detected '''
 
     @property
     @abstractmethod
-    def in_collision(self):
+    def in_collision(self) -> bool:
         ''' rx collisions detected '''
 
     @property
     @abstractmethod
-    def out_deferred(self):
+    def out_deferred(self) -> bool:
         ''' tx deferred detected '''
 
     @property
     @abstractmethod
-    def out_excessive(self):
+    def out_excessive(self) -> bool:
         ''' tx excessive detected '''
 
     @property
     @abstractmethod
-    def polarity_error(self):
+    def polarity_error(self) -> bool:
         ''' polarity differences between pairs detected '''
 
     @property
     @abstractmethod
-    def skew_warning(self):
+    def skew_warning(self) -> bool:
         ''' clock skew > 8 detected '''
 
     @property
     @abstractmethod
-    def length_warning(self):
+    def length_warning(self) -> bool:
         ''' different pair lengths detected '''
 
 class UtpCableStatus(ABC):
@@ -893,50 +1042,53 @@ class UtpCableStatus(ABC):
 class NetworkPortStatus(ABC):
     ''' detailed status of a network port'''
     
-    @property
+    @cached_property
     @abstractmethod
     def port(self) -> int:
         '''port number'''
 
-    @property
+    @cached_property
     @abstractmethod
     def errors(self) -> UtpLinkErrorStatus:
         ''' link error status '''
 
-    @property
+    @cached_property
     @abstractmethod
     def vct_status(self) -> list[str]:
         ''' virtual cable test results '''
 
-    @property
+    @cached_property
     @abstractmethod
     def link_speed(self) -> UtpLinkSpeed:
         ''' link speed '''
 
-    @property
+    @cached_property
     @abstractmethod
     def link_full_duplex(self) -> bool:
         ''' full duplex or half duplex '''
 
-    @property
+    @cached_property
     @abstractmethod
     def name(self) -> str:
         ''' description of the port '''
 
-    @property
+    @cached_property
     @abstractmethod
     def ip(self) -> str:
         ''' IP address '''
 
-    @property
+    @cached_property
     @abstractmethod
     def querier(self) -> str:
         ''' detected IGMP querier or 0.0.0.0 if not detected'''
 
-    @property
+    @cached_property
     @abstractmethod
-    def cable_status(self) -> UtpCableStatus:
+    def cable_status(self) -> list[UtpCableStatus]:
         ''' utp cable pair status '''
+
+class SystemTemperature(list[int]):
+    ''' system temperature '''
 
 class DeviceBase(ABC):
     ''' an mx_remote device on the network '''
@@ -951,6 +1103,7 @@ class DeviceBase(ABC):
     def name(self) -> str:
         '''device name'''
 
+    @property
     @abstractmethod
     def registry(self) -> 'DeviceRegistry':
         '''local device information registry'''
@@ -987,7 +1140,7 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
-    def features(self) -> DeviceFeatures:
+    def features(self) -> DeviceFeatures|None:
         '''supported features'''
 
     @property
@@ -997,7 +1150,7 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
-    def bays(self) -> dict[str, BayBase]:
+    def bays(self) -> dict[int, BayBase]:
         '''device inputs and outputs'''
 
     @property
@@ -1005,13 +1158,14 @@ class DeviceBase(ABC):
     def inputs(self) -> dict[str, BayBase]:
         '''device inputs'''
 
+    @property
     @abstractmethod
     def nb_inputs(self) -> int:
         '''number of inputs'''
 
     @property
     @abstractmethod
-    def first_input(self) -> BayBase:
+    def first_input(self) -> BayBase|None:
         '''the first local input'''
 
     @property
@@ -1019,13 +1173,14 @@ class DeviceBase(ABC):
     def outputs(self) -> dict[str, BayBase]:
         '''device outputs'''
 
+    @property
     @abstractmethod
     def nb_outputs(self) -> int:
         '''number of outputs'''
 
     @property
     @abstractmethod
-    def first_output(self) -> BayBase:
+    def first_output(self) -> BayBase|None:
         '''the first local output'''
 
     @property
@@ -1060,11 +1215,6 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
-    def registry(self) -> 'DeviceRegistry':
-        '''local device registry'''
-
-    @property
-    @abstractmethod
     def is_v2ip(self) -> bool:
         '''True if this a OneIP device'''
 
@@ -1095,17 +1245,17 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
-    def v2ip_sources(self) -> list[V2IPStreamSources]:
+    def v2ip_sources(self) -> V2IPStreamSourcesList|None:
         '''V2IP stream source addresses'''
 
     @property
     @abstractmethod
-    def v2ip_stats(self) -> V2IPDeviceStats:
+    def v2ip_stats(self) -> V2IPDeviceStats|None:
          '''V2IP encoder/decoder statistics'''
 
     @property
     @abstractmethod
-    def v2ip_details(self) -> DeviceV2IPDetailsBase:
+    def v2ip_details(self) -> DeviceV2IPDetails|None:
         '''V2IP encoder/decoder configuration'''
 
     @property
@@ -1115,7 +1265,7 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
-    def mesh_master(self) -> 'DeviceBase':
+    def mesh_master(self) -> 'DeviceBase|None':
         '''The device that is the master device in the V2IP mesh to which this device belongs'''
 
     @mesh_master.setter
@@ -1125,34 +1275,79 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
+    def protocol(self) -> int:
+        pass
+
+    @property
+    @abstractmethod
     def is_mesh_master(self) -> bool:
         '''True if this device is the master device of a V2IP mesh'''
+
+    @property
+    @abstractmethod
+    def is_mesh_member(self) -> bool:
+        '''True if this device is a member of a V2IP mesh'''
+
+    @property
+    @abstractmethod
+    def is_oneip_multiviewer(self) -> bool:
+        '''True if this device is a OneIP Multiviewer'''
+
+    @property
+    @abstractmethod
+    def is_oneip_tz(self) -> bool:
+        '''True if this device is a OneIP Transceiver'''
+
+    @property
+    @abstractmethod
+    def is_oneip_tx(self) -> bool:
+        '''True if this device is a OneIP Transmitter'''
+
+    @property
+    @abstractmethod
+    def is_oneip_rx(self) -> bool:
+        '''True if this device is a OneIP Receiver'''
+
+    @property
+    @abstractmethod
+    def crashed_recently(self) -> bool:
+        ''' True if a crash caused this device to reboot '''
 
     @property
     @abstractmethod
     def dolby_settings(self) -> AmpDolbySettings|None:
         '''Dolby Digital settings (proamp)'''
 
+    @property
+    @abstractmethod
+    def v2ip_firmware_versions(self) -> dict[FirmwareType,FirmwareVersion]|None:
+        '''V2IP FPGA firmware versions'''
+
     @abstractmethod
     def v2ip_source(self, bay:BayBase) -> V2IPStreamSources|None:
         '''Get the V2IP source addresses for the given bay'''
 
     @abstractmethod
-    def get_by_portnum(self, portnum: int) -> BayBase:
+    def get_by_portnum(self, portnum: int) -> BayBase|None:
         '''Get the bay with the given number on this device'''
 
     @abstractmethod
-    def get_by_portname(self, portname: str) -> BayBase:
+    def get_by_portname(self, portname: str) -> BayBase|None:
         '''Get the bay with the given port name (not user set name) on this device'''
+
+    @abstractmethod
+    def get_by_mode_bay(self, mode:str, bay: int) -> BayBase|None:
+        pass
 
     @property
     @abstractmethod
     def network_status(self) -> dict[int, NetworkPortStatus]:
         '''network status for all ports'''
 
+    @property
     @abstractmethod
-    def update_network_status(self, status:NetworkPortStatus):
-        '''internal callback'''
+    def status_message(self) -> str:
+        '''system health status'''
 
     @abstractmethod
     def on_link_config_received(self) -> None:
@@ -1163,11 +1358,11 @@ class DeviceBase(ABC):
         '''call an HTTP API method and return the result'''
 
     @abstractmethod
-    def register_callback(self, callback:callable) -> None:
+    def register_callback(self, callback:Callable[[DeviceBase],None]) -> None:
          '''register a callback, called when the device state changed'''
 
     @abstractmethod
-    def unregister_callback(self, callback:callable) -> None:
+    def unregister_callback(self, callback:Callable[[DeviceBase],None]) -> None:
          '''unregister a callback'''
 
     @abstractmethod
@@ -1189,6 +1384,15 @@ class DeviceBase(ABC):
     @abstractmethod
     async def get_log(self) -> str|None:
         '''read the log from the device and return it as string'''
+
+    @abstractmethod
+    def on_mxr_update(self, data:Any) -> None:
+        pass
+
+    @property
+    @abstractmethod
+    def multiviewer(self) -> MultiviewerConfig|None:
+        pass
 
 class BayLink:
     ''' a virtual mx_remote link between bays, like an amp output that's linked to a oneip sink '''
@@ -1241,7 +1445,7 @@ class BayLink:
     @property
     def online(self) -> bool:
         ''' True if both sides are online '''
-        if self.connected:
+        if self.connected and (self.other_link is not None):
             return self.bay.device.online and self.other_link.bay.device.online
         return False
 
@@ -1280,8 +1484,8 @@ class BayLink:
         ''' supported link features as bitmask '''
         if not self.connected:
             return 0
-        left = self.bay.features_mask
-        right = self.linked_bay.features_mask
+        left = self.bay.features.mask
+        right = self.linked_bay.features.mask if (self.linked_bay is not None) else 0
         rv = 0
         if (left & MX_BAY_FEATURE_HDMI_OUT):
             if (right & MX_BAY_FEATURE_HDMI_IN):
@@ -1343,10 +1547,10 @@ class BayLinks:
 
     def _on_link(self, bay:BayBase, new_link:BayLink) -> None:
         if new_link.linked:
-            self.callbacks.on_bay_linked(bay, new_link.serial, new_link.bay, new_link.features),
+            self.callbacks.on_bay_linked(bay, new_link.serial, new_link.bay.bay_name, new_link.features_mask)
             other_bay = new_link.linked_bay
             if other_bay is not None:
-                self.callbacks.on_bay_linked(other_bay, bay.device.serial, bay.bay_name, new_link.features)
+                self.callbacks.on_bay_linked(other_bay, bay.device.serial, bay.bay_name, new_link.features_mask)
 
     def is_primary(self, bay:BayBase) -> bool:
         if not bay.bay_uid in self._links.keys():
@@ -1366,7 +1570,7 @@ class BayLinks:
             old = self._links[bay.bay_uid]
             if old != new_link:
                 if old.linked:
-                    self.callbacks.on_bay_unlinked(bay, old.serial, old.bay)
+                    self.callbacks.on_bay_unlinked(bay, old.serial, old.bay.bay_name)
                     old_bay = old.linked_bay
                     if old_bay is not None:
                         self.callbacks.on_bay_unlinked(old_bay, bay.device.serial, bay.bay_name)
@@ -1388,7 +1592,7 @@ class DeviceRegistry(ABC):
 
     @property
     @abstractmethod
-    def local_ip(self) -> str:
+    def local_ip(self) -> str|None:
          '''local ip address'''
 
     @property
@@ -1418,10 +1622,10 @@ class DeviceRegistry(ABC):
 
     @property
     @abstractmethod
-    def uid_raw(self) -> bytes:
+    def uid_raw(self) -> bytes|None:
         ''' uid of this device as bytes '''
 
-    @property
+    @cached_property
     @abstractmethod
     def uid(self) -> MxrDeviceUid:
         ''' uid of this device '''
@@ -1450,7 +1654,7 @@ class DeviceRegistry(ABC):
         ''' get a device by its serial number '''
 
     @abstractmethod
-    def get_by_uid(self, remote_id:str|MxrDeviceUid) -> DeviceBase|None:
+    def get_by_uid(self, remote_id:str|MxrDeviceUid|None) -> DeviceBase|None:
         ''' get a device by its unique id '''
 
     @abstractmethod
@@ -1465,8 +1669,22 @@ class DeviceRegistry(ABC):
     def get_by_stream_ip(self, ip:str, audio:bool=False) -> BayBase|None:
         ''' get a bay of a device by its V2IP stream address '''
 
-class ConnectionCallbacks(ABC):
     @property
+    @abstractmethod
+    def http_session(self) -> aiohttp.ClientSession:
+        pass
+
+    @property
+    @abstractmethod
+    def svd_map(self) -> SvdMap:
+        pass
+
+    @abstractmethod
+    def on_mxr_update(self, data:Any) -> None:
+        pass
+
+class ConnectionCallbacks(ABC):
+    @cached_property
     @abstractmethod
     def target_ip(self) -> str:
          '''target ip address'''
@@ -1514,7 +1732,7 @@ class MxrCallbacks:
         _LOGGER.debug(f"{dev} temperature: {dev.temperatures}")
         self.on_device_update(dev)
 
-    def on_power_changed(self, bay:BayBase, power:str) -> None:
+    def on_power_changed(self, bay:BayBase, power:PowerStatus) -> None:
         ''' called when the power status of 'bay' changed '''
         _LOGGER.debug(f"{bay} power status {power}")
         self.on_bay_update(bay)
@@ -1576,13 +1794,13 @@ class MxrCallbacks:
         _LOGGER.info(f"{bay} ARC: {val}")
         self.on_bay_update(bay)
 
-    def on_volume_changed(self, bay:BayBase, volume:VolumeMuteStatus) -> None:
+    def on_volume_changed(self, bay:BayBase, volume:VolumeMuteStatus|None) -> None:
         ''' called when the volume/mute status of 'bay' changed '''
         muted_str = ""
         volume_str = ""
-        if volume.muted is not None:
+        if (volume is not None) and (volume.muted is not None):
             muted_str = " not muted" if not volume.muted else " muted"
-        if volume.volume is not None:
+        if (volume is not None) and (volume.volume is not None):
             volume_str = " volume {}%".format(volume.volume)
         _LOGGER.debug(f"{bay}{volume_str}{muted_str}")
         self.on_bay_update(bay)
@@ -1595,23 +1813,15 @@ class MxrCallbacks:
         ''' called when a remote control action was detected on 'bay' '''
         _LOGGER.debug(f"{bay} action: {action}")
 
-    def on_video_source_changed(self, bay:BayBase, video_source:BayBase) -> None:
+    def on_video_source_changed(self, bay:BayBase, video_source:BayBase|None) -> None:
         ''' called when a video source changed was detected on 'bay' '''
         _LOGGER.debug(f"{bay} video routed to {video_source}")
         self.on_bay_update(bay)
 
-    def on_audio_source_changed(self, bay:BayBase, audio_source:BayBase) -> None:
+    def on_audio_source_changed(self, bay:BayBase, audio_source:BayBase|None) -> None:
         ''' called when an audio source changed was detected on 'bay' '''
         _LOGGER.debug(f"{bay} audio routed to {audio_source}")
         self.on_bay_update(bay)
-
-    def on_pdu_registered(self, pdu:PDUState) -> None:
-        ''' called when a Pulse-Eight PDU was detected that's connected to an mx_remote device '''
-        _LOGGER.debug(f"{pdu.dev} pdu registered: {pdu}")
-
-    def on_pdu_changed(self, pdu:PDUState) -> None:
-        ''' called when a state of 'pdu' changed '''
-        _LOGGER.debug(f"{pdu.dev} pdu: {pdu}")
 
     def on_bay_linked(self, bay:BayBase, linked_serial:str, linked_bay:str, features:int) -> None:
         ''' called when a bay link was detected '''
@@ -1625,7 +1835,7 @@ class MxrCallbacks:
         self.on_device_update(bay.device)
         self.on_bay_update(bay)
 
-    def on_mirror_status_changed(self, bay:BayBase, mirror:MxrDeviceUid|None) -> None:
+    def on_mirror_status_changed(self, bay:BayBase, mirror:BayMirrorStatus) -> None:
         ''' called when a bay mirroring setup change was detected '''
         _LOGGER.debug(f"{bay} mirror {mirror}")
         self.on_bay_update(bay)
@@ -1635,12 +1845,12 @@ class MxrCallbacks:
         _LOGGER.debug(f"{bay} filtered {filtered}")
         self.on_bay_update(bay)
 
-    def on_edid_profile_changed(self, bay:BayBase, profile:EdidProfile) -> None:
+    def on_edid_profile_changed(self, bay:BayBase, profile:EdidProfile|None) -> None:
         ''' called when a source EDID profile was changed '''
         _LOGGER.debug(f"{bay} edid profile changed to {profile}")
         self.on_bay_update(bay)
 
-    def on_rc_type_changed(self, bay:BayBase, rc_type:RCType) -> None:
+    def on_rc_type_changed(self, bay:BayBase, rc_type:RCType|None) -> None:
         ''' called when a source remote control type was changed '''
         _LOGGER.debug(f"{bay} rc type changed to {rc_type}")
         self.on_bay_update(bay)

@@ -5,40 +5,60 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from functools import cached_property
+import warnings
 from .FrameBase import FrameBase
-from .FrameHeader import FrameHeader
 from .V2IPStats import V2IPRxStats, V2IPTxStats, V2IPDeviceStats
 from ..Interface import DeviceBase, DeviceRegistry
 
 class FrameV2IPStats(FrameBase):
     ''' V2IP encoder/decoder statistics '''
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
-
-    def construct(registry:DeviceRegistry, device:DeviceBase, enable:bool) -> FrameBase:
+    @staticmethod
+    def construct(registry:DeviceRegistry, device:DeviceBase, enable:bool) -> FrameBase|None:
         payload = device.remote_id.byte_value
         payload += bytes([1]) if enable else bytes([0])
-        frame:FrameBase = FrameBase.construct_frame(mxr=registry, opcode=0x3F)
-        frame.payload = payload
-        return frame
+        return FrameBase.construct_base(mxr=registry, opcode=0x3F, payload=payload)
 
-    @property
+    @cached_property
+    def is_request(self) -> bool:
+        return (self.payload is not None) and (len(self.payload) == 17)
+
+    @cached_property
+    def stats_enabled(self) -> bool:
+        pl = self.payload_bool(16)
+        if (pl is None):
+            return True #XXX
+        return pl
+
+    @cached_property
     def tx(self) -> V2IPTxStats:
-        return V2IPTxStats(self.payload[0:20])
+        pl = self.payload_idx(start=0, end=20)
+        if (pl is None):
+            raise Exception("invalid FrameV2IPStats size")
+        return V2IPTxStats(pl)
 
-    @property
+    @cached_property
     def tx_per_minute(self) -> V2IPTxStats:
-        return V2IPTxStats(self.payload[20:40])
+        pl = self.payload_idx(start=20, end=40)
+        if (pl is None):
+            raise Exception("invalid FrameV2IPStats size")
+        return V2IPTxStats(pl)
 
-    @property
+    @cached_property
     def rx(self) -> V2IPRxStats:
-        return V2IPRxStats(self.payload[40:84])
+        pl = self.payload_idx(start=40, end=84)
+        if (pl is None):
+            raise Exception("invalid FrameV2IPStats size")
+        return V2IPRxStats(pl)
 
-    @property
+    @cached_property
     def rx_per_minute(self) -> V2IPRxStats:
-        return V2IPRxStats(self.payload[84:128])
+        pl = self.payload_idx(start=84, end=128)
+        if (pl is None):
+            raise Exception("invalid FrameV2IPStats size")
+        return V2IPRxStats(pl)
 
-    @property
+    @cached_property
     def stats(self) -> V2IPDeviceStats:
         rv = V2IPDeviceStats()
         rv.tx = self.tx
@@ -48,8 +68,14 @@ class FrameV2IPStats(FrameBase):
         return rv
 
     def process(self) -> None:
-        if self.remote_device is not None:
-            self.remote_device.v2ip_stats = self.stats
+        if (not self.is_request) and ((dev := self.remote_device) is not None):
+            dev.on_mxr_update(self.stats)
 
     def __str__(self) -> str:
+        if self.is_request:
+            return f"{str(self.remote_device)} v2ip stats request: {self.stats_enabled}"
         return f"{str(self.remote_device)} v2ip stats: {self.stats}"
+
+def constructFrameV2IPStats(registry:DeviceRegistry, device:DeviceBase, enable:bool) -> FrameBase|None:
+    warnings.warn("use FrameHello.construct() instead", DeprecationWarning)
+    return FrameV2IPStats.construct(registry=registry, device=device, enable=enable)

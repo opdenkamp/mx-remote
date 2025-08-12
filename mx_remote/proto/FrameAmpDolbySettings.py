@@ -18,27 +18,46 @@ class FrameAmpDolbySettings(FrameBase):
         super().__init__(header)
 
     @property
-    def target_device(self) -> DeviceBase:
-        if self.target_uid.empty:
+    def target_device(self) -> DeviceBase|None:
+        if (self.target_uid is None) or self.target_uid.empty:
             return self.mxr.get_by_uid(self.header.remote_id)
         return self.mxr.get_by_uid(self.target_uid)
 
     @property
-    def target_uid(self) -> MxrDeviceUid:
-        return MxrDeviceUid(self.payload[0:16])
+    def target_uid(self) -> MxrDeviceUid|None:
+        return self.payload_uuid(0)
 
     @property
-    def dolby_mode(self) -> int:
-        return self.payload[16]
+    def dolby_mode(self) -> int|None:
+        return self.payload_u8(16)
 
     @property
-    def pcm_upmix(self) -> bool:
-        return (self.payload[17] != 0)
+    def pcm_upmix(self) -> bool|None:
+        payload = self.payload_u8(17)
+        if payload is None:
+            return None
+        return ((payload & 0x1) != 0)
+
+    @property
+    def dolby_detected(self) -> bool|None:
+        payload = self.payload_u8(17)
+        if payload is None:
+            return None
+        return ((payload & 0x2) != 0)
+
+    @property
+    def pcm_upmix_active(self) -> bool|None:
+        payload = self.payload_u8(17)
+        if payload is None:
+            return None
+        return ((payload & 0x4) != 0)
 
     def as_settings(self) -> AmpDolbySettings:
         settings = AmpDolbySettings()
-        settings.mode = self.dolby_mode
-        settings.pcm_upmix = self.pcm_upmix
+        settings.mode = self.dolby_mode if (self.dolby_mode is not None) else 0
+        settings.pcm_upmix = self.pcm_upmix if (self.pcm_upmix is not None) else False
+        settings.pcm_upmix_active = self.pcm_upmix_active if (self.pcm_upmix_active is not None) else False
+        settings.dolby_detected = self.dolby_detected if (self.dolby_detected is not None) else False
         return settings
 
     def process(self):
@@ -48,4 +67,4 @@ class FrameAmpDolbySettings(FrameBase):
             device.dolby_settings = self.as_settings()
 
     def __str__(self) -> str:
-        return f"amp dolby settings {self.target_device}: mode={self.dolby_mode} upmix={self.pcm_upmix}"
+        return f"amp dolby settings {self.target_device}: mode={self.dolby_mode} upmix={self.pcm_upmix} dolby detected={self.dolby_detected} upmix active={self.pcm_upmix_active}"

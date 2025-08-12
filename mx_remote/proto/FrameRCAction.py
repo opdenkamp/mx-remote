@@ -5,8 +5,8 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from functools import cached_property
 from .FrameBase import FrameBase
-from .FrameHeader import FrameHeader
 from .Constants import RCAction
 from ..Interface import BayBase, DeviceRegistry
 import logging
@@ -14,36 +14,26 @@ import logging
 _LOGGER = logging.getLogger(__name__)
 
 class FrameRCAction(FrameBase):
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
-
-    def construct(mxr:DeviceRegistry, target:BayBase, action:RCAction) -> FrameBase:
+    @staticmethod
+    def construct(mxr:DeviceRegistry, target:BayBase, action:RCAction) -> FrameBase|None:
         payload = target.device.remote_id.byte_value
         payload += bytes([(target.port & 0xFF), ((target.port >> 8) & 0xFF), (int(action.value) & 0xFF), ((int(action.value) >> 8) & 0xFF)])
-        frame:FrameBase = FrameBase.construct_frame(mxr=mxr, opcode=0x0E)
-        frame.payload = payload
-        return frame
+        return FrameBase.construct_base(mxr=mxr, opcode=0x0E, payload=payload)
 
-    @property
-    def bay(self) -> BayBase:
-        # bay that received the key press
-        dev = self.remote_device
-        if dev is None:
-            return None
-        portnum = ((int(self.payload[1]) << 8) | int(self.payload[0])) if (dev.protocol >= 6) else self.payload[0]
-        return dev.get_by_portnum(portnum)
+    @cached_property
+    def bay(self) -> BayBase|None:
+        return self.payload_bay(device=self.remote_device, idx=0, u16=(self.device_protocol >= 6))
 
-    @property
-    def action(self) -> RCAction:
-        dev = self.remote_device
-        if dev is None:
+    @cached_property
+    def action(self) -> RCAction|None:
+        pl = self.payload_u8(2)
+        if (pl is None):
             return None
-        return RCAction(int(self.payload[2]))
+        return RCAction(pl)
 
     def process(self) -> None:
-        bay = self.bay
-        if bay is not None:
-            bay.on_action_received(self.action)
+        if ((bay := self.bay) is not None) and ((action := self.action) is not None):
+            bay.on_mxr_update(action)
 
     def __str__(self) -> str:
         return f"{self.bay} action receive: {self.action}"

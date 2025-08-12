@@ -5,30 +5,30 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from functools import cached_property
 from .LinkConfig import LinkConfig
 from .FrameBase import FrameBase
-from .FrameHeader import FrameHeader
 import logging
 
 class FrameLinks(FrameBase):
     ''' All configured links for the device that sent this frame '''
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
-
-    @property
+    @cached_property
     def nb_links(self) -> int:
         # number of links defined in this frame
-        return len(self) / 38
+        return int(len(self) / 38)
 
-    @property
+    @cached_property
     def links(self) -> list[LinkConfig]:
         # list of all links defined in this frame
         rv = []
         linknum = 0
+        if (self.payload is None):
+            return []
         while linknum < self.nb_links:
-            link = LinkConfig(self, self.payload[(linknum*38):((linknum+1)*38)])
-            rv.append(link)
-            linknum += 1
+            if (len(self.payload) >= ((linknum+1)*38)):
+                link = LinkConfig(self, self.payload[(linknum*38):((linknum+1)*38)])
+                rv.append(link)
+                linknum += 1
         return rv
 
     def process(self) -> None:

@@ -5,45 +5,34 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from functools import cached_property
 from .FrameBase import FrameBase
-from .FrameHeader import FrameHeader
-from typing import Any
+from ..Interface import SystemTemperature
 
 class FrameSysTemperature(FrameBase):
     ''' system temperature frame, sent every minute by devices on the network '''
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
-
-    @property
-    def nb_sensors(self) -> int:
+    @cached_property
+    def nb_sensors(self) -> int|None:
         # number of temperature sensor readings
-        return int(self.payload[0])
+        return self.payload_u8(0)
 
-    @property
-    def temperature(self) -> list[int]:
+    @cached_property
+    def temperature(self) -> SystemTemperature:
         # list of all readings in this frame
-        rv = []
+        rv = SystemTemperature([])
         ptr = 0
+        if (self.nb_sensors is None):
+            return rv
         while ptr < self.nb_sensors:
             ptr = ptr + 1
-            rv.append(int(self.payload[ptr]))
+            pl = self.payload_u8(ptr)
+            if (pl is not None):
+                rv.append(pl)
         return rv
 
     def process(self) -> None:
-        # update the local cache
-        dev = self.mxr.get_by_uid(self.remote_id)
-        if dev is not None:
-            dev.on_mxr_temperature(self)
-
-    def __eq__(self, other: Any) -> bool:
-        return isinstance(other, FrameSysTemperature) and \
-                (self.nb_sensors == other.nb_sensors) and \
-                (self.temperature == other.temperature)
-
-    def __ne__(self, other: Any) -> bool:
-        return not isinstance(other, FrameSysTemperature) or \
-                (self.nb_sensors != other.nb_sensors) or \
-                (self.temperature != other.temperature)
+        if ((dev := self.remote_device) is not None):
+            dev.on_mxr_update(self.temperature)
 
     def __str__(self) -> str:
         return "temperature: {}".format(str(self.temperature))

@@ -6,11 +6,7 @@
 ##################################################
 
 from .FrameBase import FrameBase
-from .FrameHeader import FrameHeader
 
 class FrameV2IPSetMaster(FrameBase):
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
-
     def __str__(self) -> str:
         return f"v2ip master status"

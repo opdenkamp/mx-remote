@@ -5,34 +5,29 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from functools import cached_property
 from .FrameBase import FrameBase
-from .FrameHeader import FrameHeader
-from ..Interface import BayBase
+from ..Interface import BayBase, ConnectStatus
 
 class FrameConnectStatus(FrameBase):
     ''' Device was connected or disconnected. For sources, this means that an input signal was detected '''
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
+    @cached_property
+    def bay(self) -> BayBase|None:
+        return self.payload_bay(device=self.remote_device, idx=0)
 
-    @property
-    def bay(self) -> BayBase:
-        # bay that changed
-        portnum = self.payload[0]
-        dev = self.remote_device
-        if dev is None:
-            return None
-        return dev.get_by_portnum(portnum)
-
-    @property
-    def connected(self) -> bool:
+    @cached_property
+    def connected(self) -> ConnectStatus:
         # new connected / signal detect status
-        return (self.payload[1] == 1)
+        pl = self.payload_bool(1)
+        if (pl is not None):
+            return ConnectStatus.CONNECTED if pl else ConnectStatus.DISCONNECTED
+        return ConnectStatus.UNKNOWN
 
     def process(self) -> None:
         # update the cached connected status for this bay
         bay = self.bay
-        if bay is not None:
-            bay.connected = self.connected
+        if (bay is not None):
+            bay.on_mxr_update(self.connected)
 
     def __str__(self) -> str:
-        return "connect status {}: {}".format(str(self.bay), str(self.connected))
+        return f"connect status {self.bay}: {self.connected}"

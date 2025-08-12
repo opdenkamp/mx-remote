@@ -14,37 +14,32 @@ import traceback
 
 logging.basicConfig(level=logging.DEBUG)
 
-def create_mxr_frame(uid:bytes, opcode:int, payload:bytes=None) -> bytes:
+def create_mxr_frame(uid:bytes, opcode:int, payload:bytes|None=None) -> bytes:
 	# create a new mx_remote frame for transmission
 	pkt = [80, 56, 1, 0 ]
 	pkt.extend(uid)
 	pkt.extend([(opcode & 0xFF), ((opcode >> 8) & 0xFF)])
-	if payload is None or len(payload) == 0:
+	if (payload is None) or (len(payload) == 0):
 		pkt.extend([0, 0])
 	else:
 		l = len(payload)
 		pkt.extend([(l & 0xFF), ((l >> 8) & 0xFF)])
-		pkt.extend([payload])
+		pkt.extend(list(payload))
 	return bytes(pkt)
 
-def process_mxr_frame(mxr:DeviceRegistry, data:bytes, addr:tuple[str,int]) -> FrameBase:
+def process_mxr_frame(mxr:DeviceRegistry, data:bytes, addr:tuple[str,int]) -> FrameBase|None:
 	# decode a (received) mx_remote frame
 	from .FrameHeader import FrameHeader
 	hdr = FrameHeader(mxr, data, addr)
-	if hdr is not None:
+	if (hdr is not None):
 		try:
-			# valid frame
-			if hdr.remote_id == mxr.uid:
-				logging.debug("ignore frame sent by myself")
-				return None
-			# not one of my own, process the incoming frame
 			return _mxr_frame_factory(hdr)
 		except Exception:
 			print(f"failed to process frame: {traceback.format_exc()}")
 			raise
 	logging.warning("frame header missing")
 
-def _mxr_frame_factory(hdr:FrameHeader) -> FrameBase:
+def _mxr_frame_factory(hdr:FrameHeader) -> FrameBase|None:
 	# create a new frame from a decoded mx_remote header
 	if hdr.opcode == 0x00:
 		from .FrameHello import FrameHello
@@ -163,6 +158,31 @@ def _mxr_frame_factory(hdr:FrameHeader) -> FrameBase:
 	if hdr.opcode == 0x3F:
 		from .FrameV2IPStats import FrameV2IPStats
 		return FrameV2IPStats(hdr)
-	logging.warning(f"opcode {hdr.opcode:02X} is not processed")
+	if hdr.opcode == 0x40:
+		from .FrameV2IPTiling import FrameV2IPTiling
+		return FrameV2IPTiling(hdr)
+	if hdr.opcode == 0x41:
+		from .FrameV2IPPowerSave import FrameV2IPPowerSave
+		return FrameV2IPPowerSave(hdr)
+	if hdr.opcode == 0x42:
+		from .FrameV2IPMultiviewer import FrameV2IPMultiviewer
+		return FrameV2IPMultiviewer(hdr)
+	if hdr.opcode == 0x43:
+		from .FrameV2IPAudio import FrameV2IPAudio
+		return FrameV2IPAudio(hdr)
+	if hdr.opcode == 0x44:
+		from .FrameV2IPBayMapping import FrameV2IPBayMapping
+		return FrameV2IPBayMapping(hdr)
+	if hdr.opcode == 0x45:
+		from .FrameRCSettings import FrameRCSettings
+		return FrameRCSettings(hdr)
+	if hdr.opcode == 0x46:
+		from .FrameSystemStatus import FrameSystemStatus
+		return FrameSystemStatus(hdr)
+	if hdr.opcode == 0x47:
+		from .FrameDebug import FrameDebug
+		return FrameDebug(hdr)
+
+	logging.debug(f"opcode {hdr.opcode:02X} is not processed")
 	return None
 

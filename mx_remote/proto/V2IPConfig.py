@@ -5,8 +5,35 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from typing import override
 from ..Uid import MxrDeviceUid
 from ..Interface import V2IPStreamSource, V2IPStreamSources
+import socket
+import struct
+
+class V2IPStreamSourceImpl(V2IPStreamSource):
+    def __init__(self, label, data):
+        self._label = label
+        self._ip = int.from_bytes(data[0:4], "big")
+        self._port = int(data[5]) << 8 | int(data[4])
+
+    @property
+    @override
+    def label(self) -> str:
+        return self._label
+
+    @property
+    @override
+    def ip(self) -> str:
+        return socket.inet_ntoa(struct.pack('!L', self._ip))
+
+    @property
+    @override
+    def port(self) -> int:
+        return self._port
+
+    def __str__(self):
+        return f"{self.label}={self.ip}:{self.port}"
 
 class V2IPConfig:
     ''' Single source configuration '''
@@ -16,9 +43,9 @@ class V2IPConfig:
         self.frame = frame
         self.port = port
         self.payload = payload
-        self.video = V2IPStreamSource("video", self.payload[16:22])
-        self.audio = V2IPStreamSource("audio", self.payload[24:30])
-        self.anc = V2IPStreamSource("anc", self.payload[32:38])
+        self.video = V2IPStreamSourceImpl("video", self.payload[16:22])
+        self.audio = V2IPStreamSourceImpl("audio", self.payload[24:30])
+        self.anc = V2IPStreamSourceImpl("anc", self.payload[32:38])
 
     def process(self) -> None:
         # register or update this link in the local cache
@@ -34,13 +61,15 @@ class V2IPConfig:
     def __str__(self) -> str:
         return f"V2IP port {self.port} source uid {self.uid} - {self.video} {self.audio} {self.anc}"
 
-class V2IPStreamSourcesData(V2IPStreamSources):
-    def __init__(self, video:V2IPStreamSource, audio:V2IPStreamSource, anc:V2IPStreamSource) -> None:
+class V2IPStreamSourcesImpl(V2IPStreamSources):
+    def __init__(self, video:V2IPStreamSource, audio:V2IPStreamSource, anc:V2IPStreamSource, arc:V2IPStreamSource|None=None) -> None:
         self._video = video
         self._audio = audio
         self._anc = anc
+        self._arc = arc
 
     @property
+    @override
     def video(self) -> V2IPStreamSource:
         return self._video
 
@@ -49,6 +78,7 @@ class V2IPStreamSourcesData(V2IPStreamSources):
         self._video = stream
 
     @property
+    @override
     def audio(self) -> V2IPStreamSource:
         return self._audio
 
@@ -57,12 +87,22 @@ class V2IPStreamSourcesData(V2IPStreamSources):
         self._audio = stream
 
     @property
+    @override
     def anc(self) -> V2IPStreamSource:
         return self._anc
 
     @anc.setter
     def anc(self, stream:V2IPStreamSource) -> None:
         self._anc = stream
+
+    @property
+    @override
+    def arc(self) -> V2IPStreamSource|None:
+        return self._arc
+
+    @arc.setter
+    def arc(self, stream:V2IPStreamSource|None) -> None:
+        self._arc = stream
 
     def __str__(self) -> str:
         return f"video:{self.video} audio:{self.audio} anc:{self.anc}"

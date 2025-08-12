@@ -5,24 +5,19 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from functools import cached_property
 from .FrameBase import FrameBase
 from .FrameHeader import FrameHeader
+from ..Interface import BayBase
 
 class FrameVolumeUp(FrameBase):
     ''' volume up pressed frame '''
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
-
-    @property
-    def bay(self):
-        portnum = self.payload[0]
-        dev = self.remote_device
-        if dev is None:
-            return
-        return dev.get_by_portnum(portnum)
+    @cached_property
+    def bay(self) -> BayBase|None:
+        return self.payload_bay(device=self.remote_device, idx=0)
 
     def process(self):
         pass
 
     def __str__(self):
-        return f"volume up bay: {self.bay} (port {self.payload[0]})"
+        return f"volume up bay: {self.bay}"

@@ -5,18 +5,23 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
-import aiohttp
 from .Bay import Bay
-from ..Interface import MxrCallbacks, V2IPStreamSources, AmpDolbySettings, DeviceStatus, DeviceV2IPDetailsBase
-from .PDU import PDU
+from ..Interface import MxrCallbacks, V2IPStreamSources, AmpDolbySettings, DeviceStatus, DeviceV2IPDetails, SystemTemperature, V2IPStreamSourcesList
 from ..proto.BayConfig import BayConfig
 from ..proto.FrameHello import FrameHello
-from ..proto.FrameSysTemperature import FrameSysTemperature
+from ..proto.FrameMeshOperation import constructFrameMeshOperation, MeshOperation, FrameMeshOperation
+from ..proto.FrameV2IPStats import constructFrameV2IPStats
 from ..proto.FrameNetworkStatus import NetworkPortStatus
-from ..proto.PDUState import PDUState
+from ..proto.FrameReboot import constructFrameReboot
+from ..proto.FrameV2IPBayMapping import FrameV2IPBayMapping
 from ..proto.V2IPStats import V2IPDeviceStats
+from ..proto.FrameSystemStatus import FrameSystemStatus
+from ..proto.Multiviewer import MultiviewerConfig
+from ..proto.FrameV2IPMultiviewer import V2IPMultiviewerConfig
+from ..proto.FrameFirmwareVersion import FirmwareType,FirmwareVersion
+from ..proto.FrameTopology import FrameTopology, TopologyEntry
 from ..Uid import MxrDeviceUid
-from typing import Any
+from typing import Any, Callable, override
 from datetime import datetime
 import logging
 import time
@@ -30,30 +35,36 @@ class Device(DeviceBase):
 
 	def __init__(self, registry:DeviceRegistry, hello:FrameHello) -> None:
 		# initialise a new device after receiving a hello frame
-		self._bays:dict[str, BayBase] = {}
+		self._bays:dict[int, BayBase] = {}
 		self._registry = registry
 		self._hello = hello
-		self._temperature = None
-		self._pdu = None
+		self._temperatures:SystemTemperature = SystemTemperature([])
 		self._link_config_received = False
 		self._last_ping = datetime.now()
 		self._online = True
 		self._have_config = False
 		self._dolby_settings:AmpDolbySettings|None = None
-		self._v2ip_sources:list[V2IPStreamSources] = None
 		self._network:dict[int, NetworkPortStatus] = {}
-		self._v2ip_stats:V2IPDeviceStats = None
-		self._v2ip_details:DeviceV2IPDetailsBase = None
-		self._mesh_master_uid:MxrDeviceUid = None
+		self._v2ip_sources:V2IPStreamSourcesList|None = None
+		self._v2ip_stats:V2IPDeviceStats|None = None
+		self._v2ip_details:DeviceV2IPDetails|None = None
+		self._mesh_master_uid:MxrDeviceUid|None = None
+		self._v2ip_in_mapping:list[MxrDeviceUid]|None = None
+		self._v2ip_out_mapping:list[MxrDeviceUid]|None = None
+		self._v2ip_versions:dict[FirmwareType,FirmwareVersion] = {}
+		self._sys_status:int|None = None
+		self._sys_message:str|None = None
+		self._topology:list[TopologyEntry]|None = None
 		self._rebooting = False
+		self._multiviewer:MultiviewerConfig|None = None
 		self._hello_received = time.time()
-		self._dev_callbacks:list[callable] = []
+		self._dev_callbacks:list[Callable[[DeviceBase], None]] = []
 
-	def register_callback(self, callback:callable) -> None:
+	def register_callback(self, callback:Callable[[DeviceBase], None]) -> None:
 		'''register a callback, called when the device state changed'''
 		self._dev_callbacks.append(callback)
 
-	def unregister_callback(self, callback:callable) -> None:
+	def unregister_callback(self, callback:Callable[[DeviceBase], None]) -> None:
 		'''unregister a callback'''
 		if callback in self._dev_callbacks:
 			self._dev_callbacks.remove(callback)
@@ -73,7 +84,7 @@ class Device(DeviceBase):
 		return DeviceStatus.OFFLINE
 
 	@property
-	def bays(self) -> dict[str, BayBase]:
+	def bays(self) -> dict[int, BayBase]:
 		return self._bays
 
 	@property
@@ -87,17 +98,58 @@ class Device(DeviceBase):
 	@property
 	def online(self) -> bool:
 		# check whether this device has pinged in the last minute
-		return (datetime.now() - self._last_ping).total_seconds() < 120
+		if (self.protocol >= 0x20):
+			return ((datetime.now() - self._last_ping).total_seconds() < 15)
+		return ((datetime.now() - self._last_ping).total_seconds() < 120)
 
 	@property
 	def rebooting(self) -> bool:
 		if self._rebooting:
 			return True
-		return self.online and self._hello.features.status_rebooting
+		return self.online and \
+			(self._hello is not None) and \
+			(self._hello.features is not None) and \
+			self._hello.features.status_rebooting
 
 	@property
 	def booting(self) -> bool:
-		return self.online and not self._hello.features.status_rebooting and self.features.booting
+		return self.online \
+			and not self.rebooting \
+			and (self.features is not None) \
+			and self.features.booting
+
+	@property
+	def power_save(self) -> bool:
+		return (self.features is not None) \
+			and self.features.power_save
+
+	@property
+	def mesh_support(self) -> bool:
+		return (self.features is not None) \
+			and self.features.mesh_support
+
+	@property
+	def is_multiviewer(self) -> bool:
+		return (self.features is not None) \
+			and self.features.multiviewer
+
+	@property
+	def crashed_recently(self) -> bool:
+		return (self.features is not None) \
+			and self.features.crashed_recently
+
+	@property
+	def status_message(self) -> str:
+		con_status = self.status
+		if (con_status == DeviceStatus.OFFLINE) or (con_status == DeviceStatus.REBOOTING) or (con_status == DeviceStatus.INACTIVE):
+			return str(con_status)
+		if (con_status == DeviceStatus.ONLINE) and (not self.crashed_recently):
+			return 'Healthy'
+		if (con_status != DeviceStatus.ONLINE) and (self._sys_message is None):
+			return str(con_status)
+		def_message = 'Crashed Recently' if (self.crashed_recently) else 'Healthy'
+		sys_message = def_message if (self._sys_message is None) else self._sys_message
+		return f'{str(con_status)} - {sys_message}'
 
 	def check_online(self) -> None:
 		if self.online != self._online:
@@ -112,11 +164,11 @@ class Device(DeviceBase):
 		self._check_config_complete()
 
 	@property
-	def v2ip_sources(self) -> list[V2IPStreamSources]:
+	def v2ip_sources(self) -> V2IPStreamSourcesList|None:
 		return self._v2ip_sources
 
 	@v2ip_sources.setter
-	def v2ip_sources(self, sources:list[V2IPStreamSources]) -> None:
+	def v2ip_sources(self, sources:V2IPStreamSourcesList) -> None:
 		if (self._v2ip_sources is None) or (self._v2ip_sources != sources):
 			self._v2ip_sources = sources
 			self.call_callbacks()
@@ -131,7 +183,7 @@ class Device(DeviceBase):
 		return self._v2ip_sources[bay.bay]
 
 	@property
-	def v2ip_stats(self) -> V2IPDeviceStats:
+	def v2ip_stats(self) -> V2IPDeviceStats|None:
 		return self._v2ip_stats
 
 	@v2ip_stats.setter
@@ -140,11 +192,11 @@ class Device(DeviceBase):
 		self.call_callbacks()
 
 	@property
-	def v2ip_details(self) -> DeviceV2IPDetailsBase:
+	def v2ip_details(self) -> DeviceV2IPDetails|None:
 		return self._v2ip_details
 
 	@v2ip_details.setter
-	def v2ip_details(self, details:DeviceV2IPDetailsBase) -> None:
+	def v2ip_details(self, details:DeviceV2IPDetails) -> None:
 		self._v2ip_details = details
 		self.call_callbacks()
 
@@ -176,12 +228,16 @@ class Device(DeviceBase):
 
 	@property
 	def protocol(self) -> int:
+		if (self._hello is None) or (self._hello.supported_protocol is None):
+			return 0
 		return self._hello.supported_protocol
 
 	@property
 	def name(self) -> str:
 		# remote device name
 		name = self._hello.device_name
+		if (name is None):
+			return "Unknown"
 		if (len(name.strip()) == 0):
 			return "<unnamed>"
 		return name
@@ -194,6 +250,8 @@ class Device(DeviceBase):
 	@property
 	def serial(self) -> str:
 		# device serial number
+		if (self._hello is None) or (self._hello.serial is None):
+			return "Unknown"
 		return self._hello.serial
 
 	@property
@@ -204,11 +262,14 @@ class Device(DeviceBase):
 	@property
 	def version(self) -> str:
 		# remote firwmare version
+		if (self._hello is None) or (self._hello.version is None):
+			return "Unknown"
 		return self._hello.version
 
 	@property
 	def is_v2ip(self) -> bool:
-		return self.features.v2ip_sink or self.features.v2ip_source
+		return (self.features is not None) \
+			and (self.features.v2ip_sink or self.features.v2ip_source)
 
 	@property
 	def has_local_source(self) -> bool:
@@ -223,49 +284,40 @@ class Device(DeviceBase):
 	@property
 	def is_video_matrix(self) -> bool:
 		# video matrix or not
-		return self.features.video_routing
+		return (self.features is not None) and self.features.video_routing
 
 	@property
 	def is_audio_matrix(self) -> bool:
 		# audio matrix or not
-		return self.features.audio_routing and not self.features.video_routing
+		return (self.features is not None) \
+			and self.features.audio_routing \
+			and not self.features.video_routing
 
 	@property
 	def is_amp(self) -> bool:
 		# amp or not
-		return self.features.volume_control and self.features.audio_routing and not self.features.video_routing
+		return (self.features is not None) \
+			and self.features.volume_control \
+			and self.features.audio_routing \
+			and not self.features.video_routing
 
 	@property
 	def temperatures(self) -> dict[str,int]:
-		if self._temperature is None:
-			return {}
-		temperatures = self._temperature.temperature
 		if self.is_v2ip:
 			return {
-				'System': temperatures[0] if len(temperatures) > 0 else -1,
-				'FPGA': temperatures[1] if len(temperatures) > 1 else -1,
-				'Switch': temperatures[2] if len(temperatures) > 2 else -1,
+				'System': self._temperatures[0] if len(self._temperatures) > 0 else -1,
+				'FPGA': self._temperatures[1] if len(self._temperatures) > 1 else -1,
+				'Switch': self._temperatures[2] if len(self._temperatures) > 2 else -1,
 			}
 		rv = {}
 		cnt = 1
-		for temperature in temperatures:
+		for temperature in self._temperatures:
 			rv[f'Sensor {cnt}'] = temperature
 			cnt += 1
 		return rv
 
 	@property
-	def pdu(self) -> PDU:
-		return self._pdu
-
-	@property
-	def pdu_connected(self) -> bool:
-		pdu = self.pdu
-		if pdu is not None:
-			return pdu.connected
-		return False
-
-	@property
-	def features(self) -> DeviceFeatures:
+	def features(self) -> DeviceFeatures|None:
 		return self._hello.features
 
 	@property
@@ -283,7 +335,7 @@ class Device(DeviceBase):
 		return rv
 
 	@property
-	def first_input(self) -> BayBase:
+	def first_input(self) -> BayBase|None:
 		for _, bay in self.bays.items():
 			if bay.is_input:
 				return bay
@@ -303,7 +355,7 @@ class Device(DeviceBase):
 		return rv
 
 	@property
-	def first_output(self) -> BayBase:
+	def first_output(self) -> BayBase|None:
 		for _, bay in self.bays.items():
 			if bay.is_output:
 				return bay
@@ -328,11 +380,13 @@ class Device(DeviceBase):
 	@property
 	def model_name(self) -> str:
 		if self.is_v2ip:
+			if self.is_multiviewer:
+				return 'OneIP Multiviewer'
 			if self.has_local_source and self.has_local_sink:
-				return 'OneIP TZ'
+				return 'OneIP Transceiver'
 			if self.has_local_source:
-				return 'OneIP TX'
-			return 'OneIP RX'
+				return 'OneIP Transmitter'
+			return 'OneIP Receiver'
 		if (self.name == 'PROAMP8'):
 			return 'ProAmp8'
 		if (self.name == 'FFMB44'):
@@ -350,20 +404,46 @@ class Device(DeviceBase):
 		return self.name
 
 	@property
-	def mesh_master(self) -> 'DeviceBase':
+	def mesh_master(self) -> 'DeviceBase|None':
 		if not self.is_v2ip or (self._mesh_master_uid is None):
 			return self
 		return self.registry.get_by_uid(remote_id=self._mesh_master_uid)
 
 	@mesh_master.setter
-	def mesh_master(self, master:MxrDeviceUid) -> None:
+	def mesh_master(self, master:MxrDeviceUid|None) -> None:
 		if (self._mesh_master_uid is None) or (self._mesh_master_uid != master):
 			self._mesh_master_uid = master
 			self.call_callbacks()
 
 	@property
+	@override
 	def is_mesh_master(self) -> bool:
-		return self.features.mesh_master
+		return (self.features is not None) and self.features.mesh_master
+
+	@property
+	@override
+	def is_mesh_member(self) -> bool:
+		return (self.features is not None) and self.features.mesh_member
+
+	@property
+	@override
+	def is_oneip_multiviewer(self) -> bool:
+		return self.is_v2ip and (self.features is not None) and self.features.multiviewer
+
+	@property
+	@override
+	def is_oneip_tz(self) -> bool:
+		return self.is_v2ip and self.has_local_sink and self.has_local_source
+
+	@property
+	@override
+	def is_oneip_tx(self) -> bool:
+		return self.is_v2ip and self.has_local_source and not self.has_local_sink
+
+	@property
+	@override
+	def is_oneip_rx(self) -> bool:
+		return self.is_v2ip and self.has_local_sink and not self.has_local_source
 
 	@property
 	def need_link_config(self) -> bool:
@@ -372,20 +452,29 @@ class Device(DeviceBase):
 			return not self._link_config_received
 		return False
 
-	def get_by_portnum(self, portnum: int) -> BayBase:
+	@override
+	def get_by_portnum(self, portnum: int) -> BayBase|None:
 		# get a bay given its port number
 		if portnum in self.bays.keys():
 			return self.bays[portnum]
 		return None
 
-	def get_by_portname(self, portname: str) -> BayBase:
+	@override
+	def get_by_portname(self, portname: str) -> BayBase|None:
 		# get a bay given its port name
 		for _, bay in self.bays.items():
 			if bay.bay_name == portname:
 				return bay
 		return None
 
-	def on_mxr_hello(self, hello_frame:FrameHello) -> None:
+	@override
+	def get_by_mode_bay(self, mode:str, bay: int) -> BayBase|None:
+		for _, b in self.bays.items():
+			if (b.mode == mode) and (b.bay == bay):
+				return b
+		return None
+
+	def _on_mxr_hello(self, hello_frame:FrameHello) -> None:
 		# received a new hello frame from this device. update local info
 		self._last_ping = datetime.now()
 		changed = (self._hello != hello_frame)
@@ -396,32 +485,30 @@ class Device(DeviceBase):
 			self.callbacks.on_device_config_changed(self)
 			self.call_callbacks()
 
-	def on_mxr_temperature(self, temperature_frame:FrameSysTemperature) -> None:
-		changed = self._temperature is None or (self._temperature != temperature_frame)
-		self._temperature = temperature_frame
+	def _on_mxr_temperature(self, temperature_frame:SystemTemperature) -> None:
+		changed = (self._temperatures != temperature_frame)
+		self._temperatures = temperature_frame
 		if changed:
 			# tell callbacks that this device changed
 			self.callbacks.on_device_temperature_changed(self)
 			self.call_callbacks()
 
-	def on_mxr_update_pdu(self, pdu_frame:PDUState) -> None:
-		self._last_ping = datetime.now()
-		if self._pdu is None:
-			self._pdu = PDU(self, pdu_frame)
-			self.callbacks.on_pdu_registered(self._pdu)
-			self.call_callbacks()
-		else:
-			self._pdu.on_mxr_update(pdu_frame)
-
 	@property
+	@override
 	def dolby_settings(self) -> AmpDolbySettings|None:
 		return self._dolby_settings
+
+	@property
+	@override
+	def multiviewer(self) -> MultiviewerConfig|None:
+		return self._multiviewer
 
 	@dolby_settings.setter
 	def dolby_settings(self, settings:AmpDolbySettings) -> None:
 		changed = (self._dolby_settings is None) or (self._dolby_settings != settings)
 		self._dolby_settings = settings
 		if changed:
+			_LOGGER.debug(f"dolby settings changed {self}: mode={settings.mode} upmix={settings.pcm_upmix} dolby detected={settings.dolby_detected} upmix active={settings.pcm_upmix_active}")
 			self.callbacks.on_amp_dolby_settings_changed(self, settings)
 			self.call_callbacks()
 
@@ -432,18 +519,74 @@ class Device(DeviceBase):
 			self.callbacks.on_device_config_complete(self)
 			self.call_callbacks()
 
-	def on_mxr_bay_config(self, data:BayConfig) -> None:
+	def _on_mxr_bay_config(self, data:BayConfig) -> None:
 		self._last_ping = datetime.now()
 		bay = self.get_by_portnum(data.port)
 		isnew = (bay is None)
 		if bay is None:
 			bay = Bay(dev=self, data=data)
 			self.bays[data.port] = bay
-		bay.on_mxr_bay_config(data)
+		bay.on_mxr_update(data)
 		if isnew:
 			self.callbacks.on_bay_registered(bay)
 			self._check_config_complete()
 			self.call_callbacks()
+
+	@override
+	def on_mxr_update(self, data:Any) -> None:
+		if isinstance(data, BayConfig):
+			self._on_mxr_bay_config(data)
+		elif isinstance(data, FrameHello):
+			self._on_mxr_hello(data)
+		elif isinstance(data, FrameMeshOperation):
+			if (data.operation == MeshOperation.REPORT_MEMBERSHIP):
+				self.mesh_master = data.target_uid
+		elif isinstance(data, NetworkPortStatus):
+			self.update_network_status(data)
+		elif isinstance(data, SystemTemperature):
+			self._on_mxr_temperature(data)
+		elif isinstance(data, DeviceV2IPDetails):
+			self.v2ip_details = data
+		elif isinstance(data, V2IPStreamSourcesList):
+			self.v2ip_sources = data
+		elif isinstance(data, V2IPDeviceStats):
+			self.v2ip_stats = data
+		elif isinstance(data, V2IPStreamSources):
+			if ((sources := self._v2ip_sources) is None):
+				self._v2ip_sources = V2IPStreamSourcesList()
+				sources = self._v2ip_sources
+			sources[0] = data
+		elif isinstance(data, FrameV2IPBayMapping):
+			if data.first_bay_id is None:
+				return
+			for idx in range(data.nb_bays):
+				if (idx == 0):
+					if data.is_input and self.is_oneip_rx:
+						continue
+					if data.is_output and (self.is_oneip_tx or self.is_oneip_multiviewer):
+						continue
+				bay = self.get_by_mode_bay(mode=('Input' if data.is_input else 'Output'), bay=idx)
+				if (bay is not None):
+					bay.v2ip_uid = data.bay(idx=idx) # pyright: ignore[reportAttributeAccessIssue]
+		elif isinstance(data, FrameSystemStatus):
+			if (self._sys_message is None) or (self._sys_status is None) or (self._sys_status != data.status) or (self._sys_message != data.message):
+				self._sys_status = data.status
+				self._sys_message = data.message
+				self.call_callbacks()
+		elif isinstance(data, V2IPMultiviewerConfig):
+			if (self._multiviewer is None) or (self._multiviewer != data):
+				self._multiviewer = data
+				self.call_callbacks()
+		elif isinstance(data, FirmwareVersion):
+			if (data.firmware_type not in self._v2ip_versions) or (self._v2ip_versions[data.firmware_type] != data):
+				self._v2ip_versions[data.firmware_type] = data
+				self.call_callbacks()
+		elif isinstance(data, FrameTopology):
+			if (self._topology is None) or (self._topology != data.topology):
+				self._topology = data.topology
+				self.call_callbacks()
+		else:
+			_LOGGER.warning(f"unknown update type {str(type(data))}: {str(data)}")
 
 	@property
 	def amp_dolby_channels(self) -> int:
@@ -452,6 +595,11 @@ class Device(DeviceBase):
 			if bay.dolby_input is not None:
 				rv += 1
 		return rv
+
+	@property
+	@override
+	def v2ip_firmware_versions(self) -> dict[FirmwareType,FirmwareVersion]|None:
+		return self._v2ip_versions
 
 	@property
 	def network_status(self) -> dict[int, NetworkPortStatus]:
@@ -477,8 +625,7 @@ class Device(DeviceBase):
 		cmd = f"http://{self.address}/system/log"
 		_LOGGER.debug(f"tx: {cmd}")
 		try:
-			session:aiohttp.ClientSession = self.registry.http_session
-			async with session.get(cmd) as resp:
+			async with self.registry.http_session.get(cmd) as resp:
 				data = await resp.read()
 				return data.decode('ascii', 'replace')
 		except Exception as err:
@@ -486,9 +633,7 @@ class Device(DeviceBase):
 		return None
 
 	async def reboot(self) -> bool:
-		from ..proto.FrameReboot import FrameReboot
-		from ..proto.FrameBase import FrameBase
-		frame:FrameBase = FrameReboot.construct(mxr=self.registry, target=self)
+		frame = constructFrameReboot(mxr=self.registry, target=self)
 		if frame is not None:
 			self.registry.transmit(frame.frame)
 			self._rebooting = True
@@ -496,31 +641,28 @@ class Device(DeviceBase):
 		return False
 
 	async def mesh_promote(self) -> bool:
-		from ..proto.FrameMeshOperation import FrameMeshOperation, MeshOperation
-		from ..proto.FrameBase import FrameBase
-		frame:FrameBase = FrameMeshOperation.construct(mxr=self.registry, target=self, operation=MeshOperation.PROMOTE_MASTER)
+		frame = constructFrameMeshOperation(mxr=self.registry, target=self, operation=MeshOperation.REPORT_MASTER)
 		if frame is not None:
 			self.registry.transmit(frame.frame)
 			return True
 		return False
 
 	async def mesh_remove(self) -> bool:
-		from ..proto.FrameMeshOperation import FrameMeshOperation, MeshOperation
-		from ..proto.FrameBase import FrameBase
-		frame:FrameBase = FrameMeshOperation.construct(mxr=self.registry, target=self, operation=MeshOperation.UNREGISTER)
+		frame = constructFrameMeshOperation(mxr=self.registry, target=self, operation=MeshOperation.UNREGISTER)
 		if frame is not None:
 			self.registry.transmit(frame.frame)
 			return True
 		return False
 
 	async def read_stats(self, enable:bool) -> bool:
-		from ..proto.FrameV2IPStats import FrameV2IPStats
-		from ..proto.FrameBase import FrameBase
-		frame:FrameBase = FrameV2IPStats.construct(registry=self.registry, device=self, enable=enable)
+		frame = constructFrameV2IPStats(registry=self.registry, device=self, enable=enable)
 		if frame is not None:
 			self.registry.transmit(frame.frame)
 			return True
 		return False
+
+	def __repr__(self) -> str:
+		return self.serial
 
 	def __str__(self) -> str:
 		return f"({self.serial} {self.name})"

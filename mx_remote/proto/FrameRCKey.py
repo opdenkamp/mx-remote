@@ -5,36 +5,26 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from functools import cached_property
 from .FrameBase import FrameBase
-from .FrameHeader import FrameHeader
 from .Constants import RCKey
 from ..Interface import BayBase
 class FrameRCKey(FrameBase):
     ''' remote control key press or action '''
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
+    @cached_property
+    def bay(self) -> BayBase|None:
+        return self.payload_bay(device=self.remote_device, idx=0, u16=(self.protocol >= 6))
 
-    @property
-    def bay(self) -> BayBase:
-        # bay that received the key press
-        dev = self.remote_device
-        if dev is None:
+    @cached_property
+    def key(self) -> RCKey|None:
+        key = self.payload_u16(idx=2) if (self.device_protocol >= 6) else self.payload_u16(1)
+        if (key is None):
             return None
-        portnum = ((int(self.payload[1]) << 8) | int(self.payload[0])) if (dev.protocol >= 6) else self.payload[0]
-        return dev.get_by_portnum(portnum)
-
-    @property
-    def key(self) -> RCKey:
-        # key that was received
-        dev = self.remote_device
-        if dev is None:
-            return None
-        return RCKey((int(self.payload[3]) << 8) | int(self.payload[2])) if (dev.protocol >= 6) else RCKey((int(self.payload[2]) << 8) | int(self.payload[1]))
+        return RCKey(key)
 
     def process(self) -> None:
-        bay = self.bay
-        if bay is not None:
-            bay.on_key_pressed(self.key)
+        if ((bay := self.bay) is not None) and ((key := self.key) is not None):
+            bay.on_mxr_update(key)
 
     def __str__(self) -> str:
         return "{} key pressed: {}".format(str(self.bay), repr(self.key))

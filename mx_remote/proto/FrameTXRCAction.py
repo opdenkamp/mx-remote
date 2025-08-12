@@ -5,54 +5,47 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from functools import cached_property
+import warnings
 from .FrameBase import FrameBase
-from .FrameHeader import FrameHeader
 from .Constants import RCAction
 from ..Interface import BayBase, DeviceBase, DeviceRegistry
 from ..Uid import MxrDeviceUid
-import logging
-
-_LOGGER = logging.getLogger(__name__)
 
 class FrameTXRCAction(FrameBase):
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
-
-    def construct(mxr:DeviceRegistry, target:BayBase, action:RCAction) -> FrameBase:
+    @staticmethod
+    def construct(mxr:DeviceRegistry, target:BayBase, action:RCAction) -> FrameBase|None:
         payload = target.device.remote_id.byte_value
         payload += bytes([(target.port & 0xFF), ((target.port >> 8) & 0xFF), (int(action.value) & 0xFF), ((int(action.value) >> 8) & 0xFF)])
-        frame:FrameBase = FrameBase.construct_frame(mxr=mxr, opcode=0x0E)
-        frame.payload = payload
-        return frame
+        return FrameBase.construct_base(mxr=mxr, opcode=0x0E, payload=payload)
 
-    @property
-    def target_device(self) -> DeviceBase:
+    @cached_property
+    def target_device(self) -> DeviceBase|None:
         return self.mxr.get_by_uid(self.target_uid)
 
-    @property
-    def target_uid(self) -> MxrDeviceUid:
-        return MxrDeviceUid(self.payload[0:16])
+    @cached_property
+    def target_uid(self) -> MxrDeviceUid|None:
+        return self.payload_uuid(0)
 
-    @property
-    def bay(self) -> BayBase:
+    @cached_property
+    def bay(self) -> BayBase|None:
         # bay that received the key press
-        dev = self.remote_device
-        if dev is None:
-            return None
-        portnum = ((int(self.payload[17]) << 8) | int(self.payload[16]))
-        return dev.get_by_portnum(portnum)
+        return self.payload_bay(device=self.target_device, idx=16, u16=True)
 
-    @property
-    def action(self) -> RCAction:
-        dev = self.remote_device
-        if dev is None:
+    @cached_property
+    def action(self) -> RCAction|None:
+        pl = self.payload_u8(idx=20)
+        if (pl is None):
             return None
-        return RCAction(int(self.payload[20]))
+        return RCAction(pl)
 
     def process(self) -> None:
-        bay = self.bay
-        if bay is not None:
-            bay.on_action_received(self.action)
+        if ((bay := self.bay) is not None):
+            bay.on_mxr_update(self.action)
 
     def __str__(self) -> str:
         return f"{self.bay} action receive: {self.action}"
+
+def constructFrameTXRCAction(mxr:DeviceRegistry, target:BayBase, action:RCAction) -> FrameBase|None:
+    warnings.warn("use FrameTXRCAction.construct() instead", DeprecationWarning)
+    return FrameTXRCAction.construct(mxr=mxr, target=target, action=action)

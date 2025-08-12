@@ -6,18 +6,35 @@
 ##################################################
 
 from __future__ import annotations
-import mx_remote.proto as proto
 import logging
-from typing import Any
-from ..proto.Constants import BayStatusMask, EdidProfile, RCType, RCAction, RCKey
+from typing import Any, Callable, override
+from ..proto.Constants import BayStatusMask, BayFeaturesMask, EdidProfile, RCType, RCAction, RCKey
 from ..proto.BayConfig import BayConfig
 from ..proto.Data import VolumeMuteStatus
-from ..proto.FrameBase import FrameBase
 from ..proto.FrameV2IPSourceSwitch import FrameV2IPSourceSwitch
 from ..proto.FrameEDIDProfile import FrameEDIDProfile
 from ..proto.FrameBayHide import FrameBayHide
 from ..proto.FrameSetName import FrameSetName
-from ..Interface import BayBase, DeviceBase, BayLink, MxrCallbacks, V2IPStreamSources, AmpZoneSettings, DeviceStatus
+from ..proto.FrameRCAction import FrameRCAction
+from ..proto.FrameVolumeSet import FrameVolumeSet
+from ..proto.FrameAmpZoneSettings import FrameAmpZoneSettings
+from ..Interface import (
+    BayBase,
+    DeviceBase,
+    BayLink,
+    MxrCallbacks,
+    V2IPStreamSources,
+    AmpZoneSettings,
+    DeviceStatus,
+    SelectedBays,
+    PowerStatus,
+    SignalStatus,
+    ConnectStatus,
+    FilteredDevices,
+    HiddenStatus,
+    BayMirrorStatus,
+    MxrDeviceUid,
+)
 from ..Uid import MxrBayUid
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,7 +54,7 @@ class Bay(BayBase):
         self._mbay_id = None
         self._video_source = None
         self._audio_source = None
-        self._power_status = None
+        self._power_status:PowerStatus|None = None
         self._faulty = None
         self._hidden = None
         self._poe_powered = None
@@ -50,19 +67,20 @@ class Bay(BayBase):
         self._audio_volume = None
         self._rc_type = None
         self._edid_profile = None
-        self._mirror = None
         self._decoder_disabled = None
         self._encoder_disabled = None
         self._status_mask = data.status
+        self._v2ip_uid:MxrDeviceUid|None = None
         self._amp_settings:AmpZoneSettings|None = None
-        self._filtered = []
-        self._bay_callbacks:list[callable] = []
+        self._filtered:FilteredDevices = FilteredDevices()
+        self._mirror:BayMirrorStatus = BayMirrorStatus()
+        self._bay_callbacks:list[Callable[[BayBase],None]] = []
 
-    def register_callback(self, callback:callable) -> None:
+    def register_callback(self, callback:Callable[[BayBase],None]) -> None:
          '''register a callback, called when the device state changed'''
          self._bay_callbacks.append(callback)
 
-    def unregister_callback(self, callback:callable) -> None:
+    def unregister_callback(self, callback:Callable[[BayBase],None]) -> None:
          '''unregister a callback'''
          if callback in self._bay_callbacks:
             self._bay_callbacks.remove(callback)
@@ -72,16 +90,19 @@ class Bay(BayBase):
             callback(self)
 
     @property
+    @override
     def rebooting(self) -> bool:
         '''True if rebooting'''
         return self.device.rebooting
 
     @property
+    @override
     def booting(self) -> bool:
         '''True if booting'''
         return self.device.booting
 
     @property
+    @override
     def status(self) -> DeviceStatus:
         if self.online:
             if self.rebooting:
@@ -94,38 +115,60 @@ class Bay(BayBase):
         return DeviceStatus.OFFLINE
 
     @property
+    @override
     def v2ip_source(self) -> V2IPStreamSources|None:
         return self.device.v2ip_source(self)
 
     @property
+    @override
     def callbacks(self) -> MxrCallbacks:
         return self.device.callbacks
 
     @property
+    @override
     def device(self) -> DeviceBase:
         # remote device
         return self._dev
 
     @property
+    @override
     def bay_uid(self) -> MxrBayUid:
         return MxrBayUid(self.device.remote_id, self.port)
 
     @property
+    @override
+    def v2ip_uid(self) -> MxrDeviceUid|None:
+        return self._v2ip_uid
+
+    @v2ip_uid.setter
+    def v2ip_uid(self, uid:MxrDeviceUid|None) -> None:
+        self._v2ip_uid = uid
+
+    @property
+    @override
+    def v2ip_device(self) -> DeviceBase|None:
+        return self.device.registry.get_by_uid(self._v2ip_uid)
+
+    @property
+    @override
     def online(self) -> bool:
         # check whether the device to which this bay belongs is online
         return self.device.online
 
     @property
+    @override
     def port(self) -> int:
         # port number used for mxremote operations
         return self._port_number
 
     @property
+    @override
     def bay_name(self) -> str:
         # mbay name
         return self._port_name
 
     @property
+    @override
     def user_name(self) -> str:
         # name set up by the user
         return self._user_name if (self._user_name is not None) \
@@ -140,11 +183,13 @@ class Bay(BayBase):
             self.call_callbacks()
 
     @property
+    @override
     def has_default_name(self) -> bool:
         # default name set or custom name set
         return (self.user_name == self.bay_name)
 
     @property
+    @override
     def bay_label(self) -> str:
         # bay name + user name, used for logging
         name = self.bay_name
@@ -154,128 +199,71 @@ class Bay(BayBase):
         return name
 
     @property
-    def features_mask(self) -> int:
-        # supported features for this bay (bitmask)
-        return self._features if self._features is not None else 0
-
-    @features_mask.setter
-    def features_mask(self, val:int) -> None:
-        self._features = val
-
-    @property
+    @override
     def is_local(self) -> bool:
         return not self.is_v2ip_remote
 
     @property
-    def is_v2ip_source(self) -> bool:
-        mask = self.features_mask
-        return ((mask & proto.MX_BAY_FEATURE_V2IP_SOURCE_REMOTE) != 0) \
-            or ((mask & proto.MX_BAY_FEATURE_V2IP_SOURCE_LOCAL) != 0)
-
-    @property
-    def is_v2ip_sink(self) -> bool:
-        mask = self.features_mask
-        return ((mask & proto.MX_BAY_FEATURE_V2IP_SINK_REMOTE) != 0) \
-            or ((mask & proto.MX_BAY_FEATURE_V2IP_SINK_LOCAL) != 0)
-
-    @property
-    def is_v2ip_remote_sink(self) -> bool:
-        return ((self.features_mask & proto.MX_BAY_FEATURE_V2IP_SINK_REMOTE) != 0)
-
-    @property
-    def is_v2ip_remote_source(self) -> bool:
-        return ((self.features_mask & proto.MX_BAY_FEATURE_V2IP_SOURCE_REMOTE) != 0)
-
-    @property
+    @override
     def is_v2ip_remote(self) -> bool:
-        return self.is_v2ip_remote_sink or self.is_v2ip_remote_source
+        return self.features.v2ip_sink_remote or self.features.v2ip_source_remote
 
     @property
-    def dolby_input(self) -> int:
+    @override
+    def is_v2ip_source(self) -> bool:
+        return self.features.v2ip_source_local \
+            or self.features.v2ip_source_remote
+
+    @property
+    @override
+    def is_v2ip_sink(self) -> bool:
+        return self.features.v2ip_sink_local \
+            or self.features.v2ip_sink_remote
+
+    @property
+    @override
+    def dolby_input(self) -> str|None:
         # if dolby mode is set, the input bay that provides the audio source
-        features = self.features_mask
-        if (features & proto.MX_BAY_FEATURE_DOLBY):
+        if self.features.dolby:
             # TODO fix mx_remote offset
             return 'Input {}'.format('9') #((features >> proto.MX_BAY_FEATURE_DOLBY_IN_POS) & 0xF)
         return None
 
     @property
-    def dolby_input_bay(self) -> BayBase:
+    @override
+    def dolby_input_bay(self) -> BayBase|None:
         db = self.dolby_input
         if db is None:
             return None
         return self.device.get_by_portname(db)
 
     @property
-    def features(self) -> list[str]:
-        # list of supported features for this bay
-        rv = []
-        mask = self.features_mask
-        if (mask & proto.MX_BAY_FEATURE_HDMI_OUT):
-            rv.append('HDMI output')
-        if (mask & proto.MX_BAY_FEATURE_HDMI_IN):
-            rv.append('HDMI input')
-        if (mask & proto.MX_BAY_FEATURE_AUDIO_DIG_OUT):
-            rv.append('digital audio output')
-        if (mask & proto.MX_BAY_FEATURE_AUDIO_DIG_IN):
-            rv.append('digital audio input')
-        if (mask & proto.MX_BAY_FEATURE_AUDIO_ANA_OUT):
-            rv.append('analog audio output')
-        if (mask & proto.MX_BAY_FEATURE_AUDIO_ANA_IN):
-            rv.append('analog audio input')
-        if (mask & proto.MX_BAY_FEATURE_IR_OUT):
-            rv.append('IR transmitter')
-        if (mask & proto.MX_BAY_FEATURE_IR_IN):
-            rv.append('IR receiver')
-        if (mask & proto.MX_BAY_FEATURE_AUDIO_AMP_OUT):
-            rv.append('amplifier audio output')
-        if (mask & proto.MX_BAY_FEATURE_RC_OUT):
-            rv.append('remote control out')
-        if (mask & proto.MX_BAY_FEATURE_RC_IN):
-            rv.append('remote control in')
-        if (mask & proto.MX_BAY_FEATURE_V2IP_SOURCE_REMOTE):
-            rv.append('V2IP remote source')
-        if (mask & proto.MX_BAY_FEATURE_V2IP_SINK_REMOTE):
-            rv.append('V2IP remote sink')
-        if (mask & proto.MX_BAY_FEATURE_V2IP_SOURCE_LOCAL):
-            rv.append('V2IP source')
-        if (mask & proto.MX_BAY_FEATURE_V2IP_SINK_LOCAL):
-            rv.append('V2IP sink')
-        if (mask & proto.MX_BAY_FEATURE_DOLBY):
-            rv.append('dolby')
-        if (mask & proto.MX_BAY_FEATURE_AUTO_OFF):
-            rv.append('auto off')
-        return rv
-
-    @property
+    @override
     def has_volume_control(self) -> bool:
-        mask = self.features_mask
-        if (mask & proto.MX_BAY_FEATURE_AUDIO_ANA_OUT):
-            return True
-        if (mask & proto.MX_BAY_FEATURE_AUDIO_AMP_OUT):
-            return True
-        return False
+        return self.features.audio_analog_out \
+            or self.features.audio_amp_out \
+            or self.features.audio_analog_in \
+            or self.features.audio_digital_in
 
     @property
+    @override
     def is_input(self) -> bool:
-        mask = self.features_mask
-        return ((mask & proto.MX_BAY_FEATURE_HDMI_IN) != 0) \
-            or ((mask & proto.MX_BAY_FEATURE_AUDIO_DIG_IN) != 0) \
-            or ((mask & proto.MX_BAY_FEATURE_AUDIO_ANA_IN) != 0) \
-            or ((mask & proto.MX_BAY_FEATURE_V2IP_SOURCE_REMOTE) != 0) \
-            or ((mask & proto.MX_BAY_FEATURE_V2IP_SOURCE_LOCAL) != 0)
+        return self.features.hdmi_in \
+            or self.features.audio_digital_in \
+            or self.features.audio_analog_in \
+            or self.is_v2ip_source
 
     @property
+    @override
     def is_output(self) -> bool:
-        mask = self.features_mask
-        return ((mask & proto.MX_BAY_FEATURE_HDMI_OUT) != 0) \
-            or ((mask & proto.MX_BAY_FEATURE_AUDIO_AMP_OUT) != 0) \
-            or ((mask & proto.MX_BAY_FEATURE_AUDIO_DIG_OUT) != 0) \
-            or ((mask & proto.MX_BAY_FEATURE_AUDIO_ANA_OUT) != 0) \
-            or ((mask & proto.MX_BAY_FEATURE_V2IP_SINK_REMOTE) != 0) \
-            or ((mask & proto.MX_BAY_FEATURE_V2IP_SINK_LOCAL) != 0)
+        return self.features.hdmi_out \
+            or self.features.audio_amp_out \
+            or self.features.audio_digital_out \
+            or self.features.audio_analog_out \
+            or self.is_v2ip_sink
 
     @property
+    @override
     def mode(self) -> str:
         # bay mode used by the web api and logging
         if self.is_output:
@@ -285,6 +273,7 @@ class Bay(BayBase):
         return 'unknown'
 
     @property
+    @override
     def other_mode(self) -> str:
         # bay mode used by the web api and logging
         if self.is_output:
@@ -294,6 +283,7 @@ class Bay(BayBase):
         return 'unknown'
 
     @property
+    @override
     def bay(self) -> int:
         # bay number used by the web api
         return self._mbay_id if (self._mbay_id is not None) \
@@ -305,6 +295,7 @@ class Bay(BayBase):
             self._mbay_id = val
 
     @property
+    @override
     def available(self) -> bool:
         if self.faulty or self.hidden or not self.online:
             return False
@@ -317,29 +308,32 @@ class Bay(BayBase):
         return True
 
     @property
+    @override
     def is_hdmi(self) -> bool:
-        # HDMI bay
-        mask = self.features_mask
-        return ((mask & proto.MX_BAY_FEATURE_HDMI_OUT) != 0) or ((mask & proto.MX_BAY_FEATURE_HDMI_IN) != 0)
+        return self.features.hdmi_in \
+            or self.features.hdmi_out
 
     @property
+    @override
     def is_hdbaset(self) -> bool:
         #HDBaseT bay
         # TODO add to proto
         return self.is_hdmi and self.is_output and (self.bay < self.device.nb_hdbt)
 
     @property
+    @override
     def is_audio(self) -> bool:
-        # audio bay
         if self.is_hdmi:
             return False
-        mask = self.features_mask
-        return ((mask & proto.MX_BAY_FEATURE_AUDIO_DIG_OUT) != 0) or ((mask & proto.MX_BAY_FEATURE_AUDIO_DIG_IN) != 0) or \
-            ((mask & proto.MX_BAY_FEATURE_AUDIO_ANA_OUT) != 0) or ((mask & proto.MX_BAY_FEATURE_AUDIO_ANA_IN) != 0) or \
-            ((mask & proto.MX_BAY_FEATURE_AUDIO_AMP_OUT) != 0)
+        return self.features.audio_amp_out \
+            or self.features.audio_analog_in \
+            or self.features.audio_analog_out \
+            or self.features.audio_digital_in \
+            or self.features.audio_digital_out
 
     @property
-    def edid_profile(self) -> EdidProfile:
+    @override
+    def edid_profile(self) -> EdidProfile|None:
         if not self.is_hdmi or not self.is_input:
             return None
         return EdidProfile(self._edid_profile)
@@ -354,7 +348,8 @@ class Bay(BayBase):
             self.call_callbacks()
 
     @property
-    def rc_type(self) -> RCType:
+    @override
+    def rc_type(self) -> RCType|None:
         if not self.is_hdmi or not self.is_input:
             return None
         return RCType(self._rc_type)
@@ -369,14 +364,15 @@ class Bay(BayBase):
             self.call_callbacks()
 
     @property
-    def video_source(self) -> BayBase:
+    @override
+    def video_source(self) -> BayBase|None:
         if not self.is_output:
             return None
         # current video source bay
         return self._video_source
 
     @video_source.setter
-    def video_source(self, source:BayBase) -> None:
+    def video_source(self, source:BayBase|None) -> None:
         # set the cached video source bay
         if not self.is_output:
             return
@@ -388,65 +384,9 @@ class Bay(BayBase):
             self.callbacks.on_video_source_changed(self, source)
             self.call_callbacks()
 
-    async def select_edid_profile(self, profile:EdidProfile) -> bool:
-        frame:FrameBase = FrameEDIDProfile.construct(mxr=self.device.registry, target=self.device, profile=profile)
-        if frame is not None:
-            self.device.registry.transmit(frame.frame)
-            self.edid_profile = profile
-            return True
-        return False
-
-    async def set_hidden(self, hidden:bool) -> bool:
-        frame:FrameBase = FrameBayHide.construct(mxr=self.device.registry, target=self, hidden=hidden)
-        if frame is not None:
-            self.device.registry.transmit(frame.frame)
-            self.hidden = hidden
-            return True
-        return False
-
-    async def select_audio_source(self, source:int|BayBase|str) -> bool:
-        if not self.is_v2ip_sink:
-            return False
-        if isinstance(source, int):
-            source = self.device.get_by_portnum(source)
-        frame:FrameBase = FrameV2IPSourceSwitch.construct(mxr=self.device.registry, target=self, audio=source)
-        if frame is not None:
-            self.device.registry.transmit(frame.frame)
-            return True
-        return False
-
-    async def select_video_source(self, port:int, opt:bool=True) -> bool:
-        if not self.is_output:
-            return False
-        if self.is_v2ip_sink:
-            source_bay = self.device.get_by_portnum(port)
-            if source_bay is not None:
-                frame:FrameBase = FrameV2IPSourceSwitch.construct(mxr=self.device.registry, target=self, video=source_bay)
-                if frame is not None:
-                    self.device.registry.transmit(frame.frame)
-                    return True
-        return await self.device.get_api(f"port/set/{port}/{self.bay}/{1 if opt else 0}") is not None
-
-    async def select_video_source_by_user_name(self, name:str, opt:bool=True) -> bool:
-        source = None
-        for _, bay in self.device.inputs.items():
-            if bay.user_name == name:
-                source = bay
-                break
-        if source is None:
-            return False
-        return await self.select_video_source(source.port, opt)
-
-    async def set_name(self, name:str) -> bool:
-        frame:FrameBase = FrameSetName.construct(mxr=self.device.registry, target=self, name=name)
-        if frame is not None:
-            self.device.registry.transmit(frame.frame)
-            self.user_name = name
-            return True
-        return False
-
     @property
-    def audio_source(self) -> BayBase:
+    @override
+    def audio_source(self) -> BayBase|None:
         if not self.is_output:
             return None
         # current audio source bay
@@ -455,7 +395,7 @@ class Bay(BayBase):
         return self._audio_source
 
     @audio_source.setter
-    def audio_source(self, source:BayBase) -> None:
+    def audio_source(self, source:BayBase|None) -> None:
         if not self.is_output:
             return
         # set the cached audio source bay
@@ -470,63 +410,52 @@ class Bay(BayBase):
             self.call_callbacks()
 
     @property
+    @override
     def powered_on(self) -> bool:
         # connected device powered on
-        return (self._power_status is not None) and (self._power_status == 'on')
+        # return (self._power_status is not None) and (self._power_status == PowerStatus.ON)
+        return (self._power_status == PowerStatus.ON)
 
     @property
+    @override
     def powered_off(self) -> bool:
         # connected device powered off
-        return (self._power_status is not None) and (self._power_status == 'off')
+        # return (self._power_status is not None) and (self._power_status == 'off')
+        return (self._power_status == PowerStatus.OFF)
 
     @property
-    def power_status(self) -> str:
+    @override
+    def power_status(self) -> PowerStatus:
         # device power status
         if not self.available or self.powered_off:
-            return "off"
+            return PowerStatus.OFF
         if self.powered_on:
-            return "on"
+            return PowerStatus.ON
         if self.is_hdmi:
             if self.is_input:
-                return "on" if self.signal_detected else "off"
+                return PowerStatus.ON if self.signal_detected else PowerStatus.OFF
             if self.is_output and not self.hpd_detected:
-                return "off"
+                return PowerStatus.OFF
             if not self.signal_detected:
-                return "off"
+                return PowerStatus.OFF
             if self.is_hdbaset and not self.hdbt_connected:
-                return "off"
+                return PowerStatus.OFF
         elif self.is_audio:
             if self.muted:
-                return "off"
-            return "on" if (self.signal_detected) else "off"
-        return "unknown"
+                return PowerStatus.OFF
+            return PowerStatus.ON if (self.signal_detected) else PowerStatus.OFF
+        return PowerStatus.UNKNOWN
 
     @power_status.setter
-    def power_status(self, power:str) -> None:
+    def power_status(self, power:PowerStatus) -> None:
         prev = self.power_status
         self._power_status = power
         if (self.power_status != prev):
             self.callbacks.on_power_changed(self, power)
             self.call_callbacks()
 
-    async def tx_action(self, action:RCAction) -> bool:
-        from ..proto.FrameRCAction import FrameRCAction
-        pkt:FrameBase = FrameRCAction.construct(mxr=self.device.registry, target=self, action=action)
-        return self.device.registry.transmit(pkt.frame)
-
-    async def power_on(self) -> bool:
-        if await self.tx_action(RCAction.ACTION_POWER_ON):
-            self.power_status = 'on'
-            return True
-        return False
-
-    async def power_off(self) -> bool:
-        if await self.tx_action(RCAction.ACTION_POWER_OFF):
-            self.power_status = 'off'
-            return True
-        return False
-
     @property
+    @override
     def faulty(self) -> bool:
         # bay is faulty
         return (self._faulty is not None) and self._faulty
@@ -540,6 +469,7 @@ class Bay(BayBase):
             self.call_callbacks()
 
     @property
+    @override
     def hidden(self) -> bool:
         # bay is hidden
         return (self._hidden is not None) and self._hidden
@@ -553,6 +483,7 @@ class Bay(BayBase):
             self.call_callbacks()
 
     @property
+    @override
     def poe_powered(self) -> bool:
         # bay poe is powered
         return (self._poe_powered is not None) and self._poe_powered
@@ -566,6 +497,7 @@ class Bay(BayBase):
             self.call_callbacks()
 
     @property
+    @override
     def hdbt_connected(self) -> bool:
         # hdbt link up
         return (self._hdbt_connected is not None) and self._hdbt_connected
@@ -579,6 +511,7 @@ class Bay(BayBase):
             self.call_callbacks()
 
     @property
+    @override
     def signal_detected(self) -> bool:
         # video/audio signal detected
         return (self._signal_detected is not None) and self._signal_detected
@@ -592,6 +525,7 @@ class Bay(BayBase):
             self.call_callbacks()
 
     @property
+    @override
     def encoder_disabled(self) -> bool:
         # video/audio encoder disabled
         return (self._encoder_disabled is not None) and self._encoder_disabled
@@ -605,6 +539,7 @@ class Bay(BayBase):
             self.call_callbacks()
 
     @property
+    @override
     def decoder_disabled(self) -> bool:
         # video/audio decoder disabled
         return (self._decoder_disabled is not None) and self._decoder_disabled
@@ -618,6 +553,7 @@ class Bay(BayBase):
             self.call_callbacks()
 
     @property
+    @override
     def signal_type(self) -> str:
         # video/audio signal type
         return self._signal_type if (self._signal_type is not None) else 'unknown'
@@ -631,6 +567,7 @@ class Bay(BayBase):
             self.call_callbacks()
 
     @property
+    @override
     def hpd_detected(self) -> bool:
         # hotplug detected
         return (self._hpd_detected is not None) and self._hpd_detected
@@ -657,11 +594,12 @@ class Bay(BayBase):
             self.call_callbacks()
 
     @property
-    def mirroring(self) -> str:
+    @override
+    def mirroring(self) -> BayMirrorStatus:
         return self._mirror
 
     @mirroring.setter
-    def mirroring(self, val) -> None:
+    def mirroring(self, val:BayMirrorStatus) -> None:
         prev = self.mirroring
         self._mirror = val
         if prev != val:
@@ -669,7 +607,8 @@ class Bay(BayBase):
             self.call_callbacks()
 
     @property
-    def filtered(self) -> str:
+    @override
+    def filtered(self) -> FilteredDevices:
         return self._filtered
 
     @filtered.setter
@@ -681,6 +620,7 @@ class Bay(BayBase):
             self.call_callbacks()
 
     @property
+    @override
     def arc(self) -> str:
         # audio return channel status
         return self._arc
@@ -694,20 +634,13 @@ class Bay(BayBase):
             self.call_callbacks()
 
     @property
-    def volume_status(self) -> VolumeMuteStatus:
+    @override
+    def volume_status(self) -> VolumeMuteStatus|None:
         # volume and mute status
-
-        # # handle amp dolby modes
-        # if self.device.is_amp:
-        #     if self.is_output:
-        #         if (self.bay >= self.device.amp_dolby_channels):
-        #             return self.device.get_by_portname('Input {}'.format(self.bay + 1)).volume_status
-        #         return self.device.get_by_portname('Input 9').volume_status
-
-        # check mx_remote links
-        primary = self.primary
-        if primary != self:
-            return primary.volume_status
+        if not self.has_volume_control:
+            if ((other := self.linked_bay) is not None) and other.has_volume_control:
+                return other.volume_status
+            return None
         return self._audio_volume
 
     @volume_status.setter
@@ -720,10 +653,9 @@ class Bay(BayBase):
         #             return
         #         self.device.get_by_portname('Input 9').volume_status = other
         #         return
-
-        primary = self.primary
-        if primary != self:
-            primary.volume_status = other
+        if not self.has_volume_control:
+            if ((other_bay := self.linked_bay) is not None) and other_bay.has_volume_control:
+                other_bay.on_mxr_update(other)
             return
 
         changed = False
@@ -745,26 +677,33 @@ class Bay(BayBase):
                 if (self.bay == 8):
                     nb = 0
                     while nb < self.device.amp_dolby_channels:
-                        self.callbacks.on_volume_changed(self.device.get_by_portname('Output {}'.format(nb + 1)), self.volume_status)
-                        self.device.get_by_portname('Output {}'.format(nb + 1)).call_callbacks()
+                        outbay = self.device.get_by_mode_bay('Output', nb)
+                        if (outbay is not None):
+                            self.callbacks.on_volume_changed(outbay, self.volume_status)
+                            outbay.call_callbacks()
                         nb = nb + 1
                     return
-                self.callbacks.on_volume_changed(self.device.get_by_portname('Output {}'.format(self.bay + 1)), self.volume_status)
-                self.device.get_by_portname('Output {}'.format(nb + 1)).call_callbacks()
+                outbay = self.device.get_by_mode_bay('Output', self.bay)
+                if (outbay is not None):
+                    self.callbacks.on_volume_changed(outbay, self.volume_status)
+                    outbay.call_callbacks()
 
     @property
-    def volume(self) -> int:
+    @override
+    def volume(self) -> int|None:
         # current volume
         vs = self.volume_status
         return vs.volume if vs is not None else None
 
     @property
-    def muted(self) -> bool:
+    @override
+    def muted(self) -> bool|None:
         # muted or not
         vs = self.volume_status
         return vs.muted if vs is not None else None
 
     @property
+    @override
     def amp_settings(self) -> AmpZoneSettings|None:
         return self._amp_settings
 
@@ -776,17 +715,100 @@ class Bay(BayBase):
             self.callbacks.on_amp_zone_settings_changed(self, settings)
             self.call_callbacks()
 
+    @override
+    async def select_edid_profile(self, profile:EdidProfile) -> bool:
+        frame = FrameEDIDProfile.construct(mxr=self.device.registry, target=self.device, profile=profile)
+        if frame is not None:
+            self.device.registry.transmit(frame.frame)
+            self.edid_profile = profile.value
+            return True
+        return False
+
+    @override
+    async def set_hidden(self, hidden:bool) -> bool:
+        frame = FrameBayHide.construct(mxr=self.device.registry, target=self, hidden=hidden)
+        if frame is not None:
+            self.device.registry.transmit(frame.frame)
+            self.hidden = hidden
+            return True
+        return False
+
+    @override
+    async def select_audio_source(self, source:int|BayBase|str|None) -> bool:
+        if not self.is_v2ip_sink:
+            return False
+        if isinstance(source, int):
+            source = self.device.get_by_portnum(source)
+        frame = FrameV2IPSourceSwitch.construct(mxr=self.device.registry, target=self, audio=source)
+        if frame is not None:
+            self.device.registry.transmit(frame.frame)
+            return True
+        return False
+
+    @override
+    async def select_video_source(self, port:int, opt:bool=True) -> bool:
+        if not self.is_output:
+            return False
+        if self.is_v2ip_sink:
+            source_bay = self.device.get_by_portnum(port)
+            if source_bay is not None:
+                frame = FrameV2IPSourceSwitch.construct(mxr=self.device.registry, target=self, video=source_bay)
+                if frame is not None:
+                    self.device.registry.transmit(frame.frame)
+                    return True
+        return await self.device.get_api(f"port/set/{port}/{self.bay}/{1 if opt else 0}") is not None
+
+    @override
+    async def select_video_source_by_user_name(self, name:str, opt:bool=True) -> bool:
+        source = None
+        for _, bay in self.device.inputs.items():
+            if bay.user_name == name:
+                source = bay
+                break
+        if source is None:
+            return False
+        return await self.select_video_source(source.port, opt)
+
+    @override
+    async def set_name(self, name:str) -> bool:
+        frame = FrameSetName.construct(mxr=self.device.registry, target=self, name=name)
+        if frame is not None:
+            self.device.registry.transmit(frame.frame)
+            self.user_name = name
+            return True
+        return False
+
+    @override
+    async def tx_action(self, action:RCAction) -> bool:
+        pkt = FrameRCAction.construct(mxr=self.device.registry, target=self, action=action)
+        if pkt is None:
+            return False
+        return self.device.registry.transmit(pkt.frame) == len(pkt)
+
+    @override
+    async def power_on(self) -> bool:
+        if await self.tx_action(RCAction.ACTION_POWER_ON):
+            self.power_status = PowerStatus.ON
+            return True
+        return False
+
+    @override
+    async def power_off(self) -> bool:
+        if await self.tx_action(RCAction.ACTION_POWER_OFF):
+            self.power_status = PowerStatus.OFF
+            return True
+        return False
+
+    @override
     def volume_up(self) -> bool:
-        return self.volume_set(self.volume + 1)
+        return self.volume_set(self.volume + 1) if self.volume is not None else False
 
+    @override
     def volume_down(self) -> bool:
-        return self.volume_set(self.volume - 1)
+        return self.volume_set(self.volume - 1) if self.volume is not None else False
 
-    def volume_set(self, volume:int, muted:bool=None) -> bool:
-        ''' Change the volume on the remote device '''
-        from ..proto.FrameVolumeSet import FrameVolumeSet
+    def _volume_set(self, volume:int, muted:bool|None=None) -> bool:
         if not self.has_volume_control:
-            # remote device doesn't support volume control
             return False
 
         new_value = self.volume_status
@@ -796,7 +818,14 @@ class Bay(BayBase):
         else:
             # update the volume
             new_value.volume = volume
+
         self.volume_status = new_value
+
+        if self.features.dolby and (self.bay == 0):
+                for b in range(1, 4):
+                    bay = self.device.get_by_mode_bay(mode=self.mode, bay=b)
+                    if (bay is not None) and (bay.features.dolby):
+                        bay.volume_status = new_value
 
         if (self.volume is None) or (volume > self.volume):
             # unmute
@@ -807,64 +836,89 @@ class Bay(BayBase):
             new_value.muted = muted
 
         # send the update to the remote device
-        pkt:FrameBase = FrameVolumeSet.construct(mxr=self.device.registry, target=self, volume=new_value)
+        pkt = FrameVolumeSet.construct(mxr=self.device.registry, target=self, volume=new_value)
+        if pkt is None:
+            return False
         if self.device.registry.transmit(pkt.frame):
             self.callbacks.on_volume_changed(bay=self, volume=new_value)
             return True
         return False
 
+    @override
+    def volume_set(self, volume:int, muted:bool|None=None) -> bool:
+        ''' Change the volume on the remote device '''
+        if self._volume_set(volume=volume, muted=muted):
+            return True
+
+        if ((other := self.linked_bay) is not None):
+            return other._volume_set(volume=volume, muted=muted)
+
+        _LOGGER.warning(f"volume control is not supported by {self.device.serial}")
+        return False
+
+    @override
     def mute_set(self, mute:bool) -> bool:
+        if (self.volume is None):
+            return False
         return self.volume_set(self.volume, mute)
 
+    @override
     async def send_key(self, key:int) -> bool:
         cmd = "key/sendkey/{}/{}/{}".format(str(key), self.mode, self.bay)
         _LOGGER.info(cmd)
         return await self.device.get_api(cmd) is not None
 
     @property
+    @override
     def is_primary(self) -> bool:
         return self.device.registry.links.is_primary(self)
 
     @property
+    @override
     def primary(self) -> BayBase:
         # primary bay if linked. this is the source type bay for linked bays. this bay is it's own primary if not linked
-        if self.link_configured and not self.is_primary:
+        if self.link_configured and not self.is_primary and self.link is not None and self.link.linked_bay is not None:
             return self.link.linked_bay
         return self
 
     @property
-    def linked_bay(self) -> BayBase:
+    @override
+    def linked_bay(self) -> BayBase|None:
         # linked bay if linked, None if not linked
-        if self.link_configured:
+        if self.link_configured and self.link is not None:
             return self.link.linked_bay
         return None
 
     @property
+    @override
     def link(self) -> BayLink|None:
         return self.device.registry.links.get(self)
 
     @property
+    @override
     def link_configured(self) -> bool:
         link = self.link
         return (link is not None) and (link.linked)
 
     @property
+    @override
     def link_connected(self) -> bool:
-        return self.link.connected
+        return self.link.connected if self.link is not None else False
 
     @property
+    @override
     def link_online(self) -> bool:
-        return self.link.online
+        return self.link.online if self.link is not None else False
 
-    def on_key_pressed(self, key:RCKey) -> None:
-        self.callbacks.on_key_pressed(self, key)
-        self.call_callbacks()
+    @property
+    @override
+    def features(self) -> BayFeaturesMask:
+        return self._features
 
-    def on_action_received(self, action:RCAction) -> None:
-        self.callbacks.on_action_received(self, action)
-        self.call_callbacks()
-
-    def on_mxr_bay_status(self, data:BayStatusMask) -> None:
+    def _on_mxr_bay_status(self, data:BayStatusMask|None) -> None:
+        if (data is None):
+            #TODO
+            return
         self.faulty = data.fault
         self.hidden = data.hidden
         self.poe_powered = data.powered
@@ -876,13 +930,13 @@ class Bay(BayBase):
         self.decoder_disabled = data.decoder_disabled
 
         if not data.cec_detected:
-            self.power_status = 'unknown'
+            self.power_status = PowerStatus.UNKNOWN
         elif data.powered_on:
-            self.power_status = 'on'
+            self.power_status = PowerStatus.ON
         elif data.powered_off:
-            self.power_status = 'off'
+            self.power_status = PowerStatus.OFF
         else:
-            self.power_status = 'unknown'
+            self.power_status = PowerStatus.UNKNOWN
         if data.audio_arc_hdmi:
             self.arc = self.ARC_HDMI
         elif data.audio_arc_optical:
@@ -892,12 +946,12 @@ class Bay(BayBase):
         else:
             self.arc = self.ARC_NONE
 
-    def on_mxr_bay_config(self, data:BayConfig) -> None:
-        self.features_mask = data.features
+    def _on_mxr_bay_config(self, data:BayConfig) -> None:
+        self._features = data.features
         self.status_mask = data.status
         self.user_name = data.user_name
         self.bay = data.bay
-        self.on_mxr_bay_status(data.status)
+        self._on_mxr_bay_status(data.status)
         if not data.status.signal_detected or not self.device.is_v2ip:
             self.signal_type = data.signal_type
         if self.is_output:
@@ -907,8 +961,67 @@ class Bay(BayBase):
             self.rc_type = data.rc_type
             self.edid_profile = data.edid_profile
 
-    def on_mxr_volume_update(self, data:VolumeMuteStatus) -> None:
-        self.volume_status = data
+    @property
+    def is_dolby(self) -> bool:
+        if (not self.is_output):
+            return False
+        return self.features.dolby
+
+    @override
+    def set_zone_settings(self, settings:AmpZoneSettings) -> bool:
+        frame = FrameAmpZoneSettings.construct(mxr=self.device.registry, target=self, settings=settings)
+        if (frame is not None):
+            self.device.registry.transmit(frame.frame)
+            self.amp_settings = settings
+            return True
+        return False
+
+    @override
+    def on_mxr_update(self, data:Any) -> None:
+        if (data is None):
+            return
+        if isinstance(data, VolumeMuteStatus):
+            self.volume_status = data
+            if self.features.dolby and (self.bay == 0):
+                for b in range(1, 4):
+                    bay = self.device.get_by_mode_bay(mode=self.mode, bay=b)
+                    if (bay is not None) and (bay.features.dolby):
+                        bay.on_mxr_update(data=data)
+        elif isinstance(data, BayStatusMask):
+            self._on_mxr_bay_status(data)
+        elif isinstance(data, BayConfig):
+            self._on_mxr_bay_config(data)
+        elif isinstance(data, BayFeaturesMask):
+            self._features = data
+        elif isinstance(data, SelectedBays):
+            if (data.video is not None):
+                self.video_source = data.video
+            if (data.audio is not None):
+                self.audio_source = data.audio
+        elif isinstance(data, PowerStatus):
+            self.power_status = data
+        elif isinstance(data, SignalStatus):
+            self.signal_detected = data.detected
+            if (data.description is not None):
+                self.signal_type = data.description
+        elif isinstance(data, RCAction):
+            self.callbacks.on_action_received(self, data)
+            self.call_callbacks()
+        elif isinstance(data, RCKey):
+            self.callbacks.on_key_pressed(self, data)
+            self.call_callbacks()
+        elif isinstance(data, ConnectStatus):
+            if self.is_input:
+                self.signal_detected = (data == ConnectStatus.CONNECTED)
+            else:
+                self.hpd_detected =  (data == ConnectStatus.CONNECTED)
+        elif isinstance(data, FilteredDevices):
+            self.filtered = data
+        elif isinstance(data, HiddenStatus):
+            if (data != HiddenStatus.UNKNOWN):
+                self.hidden = (data == HiddenStatus.HIDDEN)
+        elif isinstance(data, BayMirrorStatus):
+            self.mirroring = data
 
     def __str__(self) -> str:
         if self.is_v2ip_source:

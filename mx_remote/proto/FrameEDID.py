@@ -5,16 +5,16 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from functools import cached_property
 from .FrameBase import FrameBase
-from .FrameHeader import FrameHeader
 
 class FrameEDID(FrameBase):
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
-
-    @property
-    def port(self):
-        return "Output" if self.payload[0] == 1 else "Input"
+    @cached_property
+    def port(self) -> str|None:
+        pl = self.payload_bool(0)
+        if (pl is None):
+            return None
+        return "Output" if pl else "Input"
 
     def __str__(self) -> str:
         return f"EDID data {self.port}"

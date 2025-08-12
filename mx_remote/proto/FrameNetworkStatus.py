@@ -5,8 +5,8 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from functools import cached_property
 from .FrameBase import FrameBase
-from .FrameHeader import FrameHeader
 from ..Interface import NetworkPortStatus, UtpLinkErrorStatus, UtpLinkSpeed, UtpCableStatus
 import socket
 import struct
@@ -99,15 +99,15 @@ class NetworkPortStatusImpl(NetworkPortStatus):
     def __init__(self, data:bytes) -> None:
         self.data = data
 
-    @property
+    @cached_property
     def port(self) -> int:
         return int(self.data[0])
 
-    @property
+    @cached_property
     def errors(self) -> UtpLinkErrorStatus:
         return UtpLinkErrorStatusImpl(self.data[1])
 
-    @property
+    @cached_property
     def vct_status(self) -> list[str]:
         rv = []
         for x in range(4):
@@ -117,29 +117,29 @@ class NetworkPortStatusImpl(NetworkPortStatus):
                 rv.append("healthy")
         return rv
 
-    @property
+    @cached_property
     def link_speed(self) -> UtpLinkSpeed:
         return UtpLinkSpeed(self.data[3] & 0x7)
 
-    @property
+    @cached_property
     def link_full_duplex(self) -> bool:
         return ((self.data[3] & (1 << 3)) != 0)
 
-    @property
+    @cached_property
     def name(self) -> str:
         return self.data[112:128].split(b'\0',1)[0].decode('ascii')
 
-    @property
+    @cached_property
     def ip(self) -> str:
         ip = int.from_bytes(self.data[132:136], "big")
         return socket.inet_ntoa(struct.pack('!L', ip))
 
-    @property
+    @cached_property
     def querier(self) -> str:
         ip = int.from_bytes(self.data[136:140], "big")
         return socket.inet_ntoa(struct.pack('!L', ip))
 
-    @property
+    @cached_property
     def cable_status(self) -> list[UtpCableStatus]:
         return [UtpCableStatusImpl(self.data[8:20]), UtpCableStatusImpl(self.data[20:32]), UtpCableStatusImpl(self.data[32:44]), UtpCableStatusImpl(self.data[44:56])]
 
@@ -147,17 +147,16 @@ class NetworkPortStatusImpl(NetworkPortStatus):
         return f"network status port {self.name} status: {self.errors} ip: {self.ip} vct: {self.vct_status} speed: {self.link_speed} full duplex: {self.link_full_duplex} cable: {str(self.cable_status)}"
 
 class FrameNetworkStatus(FrameBase):
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
-
     @property
-    def status(self) -> NetworkPortStatus:
+    def status(self) -> NetworkPortStatus|None:
+        if (self.payload is None):
+            return None
         return NetworkPortStatusImpl(data=self.payload)
 
     def process(self) -> None:
         dev = self.remote_device
-        if dev is not None:
-            dev.update_network_status(self.status)
+        if (dev is not None) and (self.status is not None):
+            dev.on_mxr_update(self.status)
 
     def __str__(self) -> str:
         return str(self.status)

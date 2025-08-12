@@ -5,8 +5,10 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from functools import cached_property
 import logging
 import asyncio
+from typing import Any, override
 import aiofiles
 import aiohttp
 import os
@@ -18,10 +20,10 @@ from ..const import __version__
 from .Device import Device
 from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks
 from ..proto.Constants import MXR_PROTOCOL_VERSION
-from ..proto.FrameDiscover import FrameDiscover
+from ..proto.FrameDiscover import constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
-from ..proto.FrameBase import FrameBase
-from ..proto.FrameHello import FrameHello
+from ..proto.FrameHello import FrameHello, constructFrameHello
+from ..proto.Svd import SvdMap
 from ..Uid import MxrDeviceUid
 from .State import State
 
@@ -39,7 +41,6 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         ConnectionCallbacks.__init__(self)
         self._name = name
         self._close_session = False
-        self._http_session = None
         self._callbacks = State(callbacks, http_session)
         self.remotes:dict[MxrDeviceUid,Device] = {}
         self._links = BayLinks(self)
@@ -51,6 +52,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._target_ip = target_ip
         self._port = port
         self._discover_timeout = 0
+        self._svd = SvdMap()
         if open_connection:
             self.conn = ConnectionAsync(callbacks=self, target_ip=self.target_ip, port=self.port, local_ip=self._local_ip)
         else:
@@ -84,14 +86,14 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 proto = device.protocol
         return proto
 
-    @property
+    @cached_property
     def target_ip(self):
         if self._target_ip is None:
             return MX_MCAST_UDP_IP if (self._broadcast is None or not self._broadcast) else MX_BCAST_UDP_IP
         return self._target_ip
 
     @property
-    def local_ip(self) -> str:
+    def local_ip(self) -> str|None:
         return self._local_ip
 
     @property
@@ -118,10 +120,10 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 await f.write(self._uid)
 
     @property
-    def uid_raw(self) -> bytes:
+    def uid_raw(self) -> bytes|None:
         return self._uid
 
-    @property
+    @cached_property
     def uid(self) -> MxrDeviceUid:
         return MxrDeviceUid(self.uid_raw)
 
@@ -138,9 +140,13 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         ''' Active HTTP client session for API commands '''
         return self._callbacks.http_session
 
+    @property
+    def svd_map(self) -> SvdMap:
+        return self._svd
+
     async def update_config(self, callbacks:MxrCallbacks|None=None, name:str|None=None, target_ip:str|None=None, port:int|None=None, local_ip:str|None=None, broadcast:bool|None=None):
         if (callbacks is not None):
-            self._callbacks = callbacks
+            self._callbacks = State(callbacks, self.http_session)
         if (name is not None):
             self._name = name
         if (target_ip is not None) or (port is not None) or (local_ip is not None) or (broadcast is not None):
@@ -148,6 +154,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             if (target_ip is not None) and (self._target_ip != target_ip):
                 _LOGGER.debug(f"updating target ip to {target_ip}")
                 self._target_ip = target_ip
+                del self.target_ip
                 changed = True
             if (port is not None) and (self._port != port):
                 _LOGGER.debug(f"updating target port to {port}")
@@ -191,6 +198,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
 
     async def start_async(self) -> None:
         # start the server that listens for mx_remote frames from other devices
+        if (self.conn is None):
+            raise Exception("connection not open")
         await self._load_uid()
         await self.conn.start_srv()
         checker = asyncio.create_task(self._background_probe())
@@ -212,8 +221,10 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 return remote
         return None
 
-    def get_by_uid(self, remote_id:str|MxrDeviceUid) -> DeviceBase|None:
+    def get_by_uid(self, remote_id:str|MxrDeviceUid|None) -> DeviceBase|None:
         # get the local cache for a device, given it's unique id
+        if (remote_id is None):
+            return None
         remote_id = MxrDeviceUid(remote_id)
         if remote_id in self.remotes.keys():
             return self.remotes[remote_id]
@@ -225,9 +236,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         for _, dev in self.remotes.items():
             if not dev.is_v2ip or dev.v2ip_sources is None or dev.first_input is None:
                 continue
-            if not audio and (dev.first_input.v2ip_source.video.ip == ip):
+            if not audio and (dev.first_input.v2ip_source is not None) and (dev.first_input.v2ip_source.video.ip == ip):
                 return dev.first_input
-            if audio and (dev.first_input.v2ip_source.audio.ip == ip):
+            if audio and (dev.first_input.v2ip_source is not None) and (dev.first_input.v2ip_source.audio.ip == ip):
                 return dev.first_input
         return None
     
@@ -249,52 +260,64 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         return self._links
 
     def transmit(self, data: bytes) -> int:
+        if (self.conn is None):
+            raise Exception("connection closed")
         return self.conn.transmit(data=data)
 
     def tx_discover(self) -> int:
         # transmit a discover frame. all remotes will send a hello frame as response
-        pkt:FrameBase = FrameDiscover.construct(self)
+        pkt = constructFrameDiscover(self)
+        if (pkt is None):
+            return 0
         self._discover_timeout = time.time()
         _LOGGER.debug("discovering devices")
         return self.transmit(pkt.frame)
 
-    def tx_hello(self):
-        pkt:FrameBase = FrameHello.construct(self)
+    def tx_hello(self) -> int:
+        pkt = constructFrameHello(self)
+        if (pkt is None):
+            return 0
         _LOGGER.debug("sending hello")
         self._last_hello = time.time()
         return self.transmit(pkt.frame)
 
     def on_connection_made(self) -> None:
         # callback called after the server got started by ConnectionAsync
-        self.tx_discover()
         self.tx_hello()
+        self.tx_discover()
 
     def on_datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
         # called when a udp frame was received
+        proc = False
         try:
             frame = process_mxr_frame(self, data, addr)
-            if frame is not None:
+            if (frame is not None) and (frame.header.remote_id != self.uid):
+                proc = True
                 _LOGGER.debug(f"rx {addr[0]}: {frame.header.opcode:02X}({len(frame)}) - {str(frame)}")
         except Exception as e:
             _LOGGER.warning(f"failed to decode frame {traceback.format_exc()}")
             raise
         try:
-            if frame is not None:
+            if (frame is not None) and proc:
                 frame.process()
         except Exception as e:
             _LOGGER.warning(f"failed to process frame: {traceback.format_exc()}")
             raise
 
-        if self.conn is not None:
+        if (self.conn is not None):
             now = time.time()
             if (now - self._last_hello >= 30):
                 self.tx_hello()
 
-    def on_mxr_hello(self, hello_frame:FrameHello) -> Device:
+    @override
+    def on_mxr_update(self, data:Any) -> None:
+        if isinstance(data, FrameHello):
+            self._on_mxr_hello(data)
+
+    def _on_mxr_hello(self, hello_frame:FrameHello) -> None:
         # hello frame received. register or update the local device cache
         d = self.get_by_uid(hello_frame.remote_id)
         if d is None:
             d = Device(self, hello_frame)
             self.remotes[hello_frame.remote_id] = d
-        d.on_mxr_hello(hello_frame)
-        return d
+        d.on_mxr_update(hello_frame)

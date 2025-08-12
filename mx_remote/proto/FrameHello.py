@@ -5,56 +5,57 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from functools import cached_property
+import warnings
 from ..const import __version__
 from .Constants import MXR_PROTOCOL_VERSION, MXR_DEVICE_FEATURE_MANAGER
 from .FrameBase import FrameBase, append_payload_str
-from .FrameHeader import FrameHeader
 from ..Interface import DeviceRegistry, DeviceFeatures
 import struct
 from typing import Any
 
 class FrameHello(FrameBase):
-    ''' Hello frame, sent by devices to advertise themselves on the network '''
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
-
-    def construct(mxr:DeviceRegistry) -> FrameBase:
+    @staticmethod
+    def construct(mxr:DeviceRegistry) -> FrameBase|None:
         payload = [ (MXR_PROTOCOL_VERSION & 0xFF), ((MXR_PROTOCOL_VERSION >> 8) & 0xFF) ]
         payload = append_payload_str(payload=payload, value=mxr.name, sz=16)
         payload = append_payload_str(payload=payload, value="P9SN00000000", sz=16)
         payload = append_payload_str(payload=payload, value=__version__, sz=16)
         features = MXR_DEVICE_FEATURE_MANAGER
         payload += [ (features >> 0) & 0xFF, (features >> 8) & 0xFF, (features >> 16) & 0xFF, (features >> 24) & 0xFF ]
-        return FrameBase.construct_frame(mxr=mxr, opcode=0, payload=payload)
+        return FrameBase.construct_base(mxr=mxr, opcode=0, payload=bytes(payload))
 
-    @property
-    def supported_protocol(self) -> int:
+    ''' Hello frame, sent by devices to advertise themselves on the network '''
+    @cached_property
+    def supported_protocol(self) -> int|None:
         # supported protocol version, which may be higher than this frame's protocol version
-        return (int(self.payload[1]) << 8) | int(self.payload[0])
+        return self.payload_u16(0)
 
-    @property
-    def device_name(self) -> str:
+    @cached_property
+    def device_name(self) -> str|None:
         # device name
-        return self.payload[2:18].split(b'\0',1)[0].decode('ascii')
+        return self.payload_str(2, 16)
 
-    @property
-    def serial(self) -> str:
+    @cached_property
+    def serial(self) -> str|None:
         # device serial
-        return self.payload[18:34].split(b'\0',1)[0].decode('ascii')
+        return self.payload_str(18, 16)
 
-    @property
-    def version(self) -> str:
+    @cached_property
+    def version(self) -> str|None:
         # firmware version
-        return self.payload[34:50].split(b'\0',1)[0].decode('ascii')
+        return self.payload_str(34, 16)
 
-    @property
-    def features(self) -> DeviceFeatures:
+    @cached_property
+    def features(self) -> DeviceFeatures|None:
         # supported features bitmask
+        if (self.payload is None) or (len(self.payload) < 54):
+            return None
         return DeviceFeatures(struct.unpack('<L', self.payload[50:54])[0])
 
     def process(self) -> None:
         # register or update this device in the local cache
-        self.mxr.on_mxr_hello(self)
+        self.mxr.on_mxr_update(self)
 
     def __eq__(self, other: Any) -> bool:
         return isinstance(other, FrameHello) and \
@@ -75,3 +76,6 @@ class FrameHello(FrameBase):
     def __str__(self) -> str:
         return f"hello name:{self.device_name} serial:{self.serial} version:{self.version} features/status: {self.features} uid: {self.header.remote_id}"
 
+def constructFrameHello(mxr:DeviceRegistry) -> FrameBase|None:
+    warnings.warn("use FrameHello.construct() instead", DeprecationWarning)
+    return FrameHello.construct(mxr=mxr)

@@ -15,10 +15,10 @@ class LinkConfig:
     def __init__(self, frame:FrameBase, payload:bytes):
         self.frame = frame
         self.payload = payload
-        self._confirm:'LinkConfig'|None = None
+        self._confirm:'LinkConfig|None' = None
 
     @property
-    def remote_device(self) -> DeviceBase:
+    def remote_device(self) -> DeviceBase|None:
         # device instance of the device that sent this frame
         return self.frame.remote_device
 
@@ -28,11 +28,11 @@ class LinkConfig:
         return int(self.payload[0])
 
     @property
-    def remote_bay(self) -> BayBase:
+    def remote_bay(self) -> BayBase|None:
         # bay instance of the bay that sent this link configuration
         dev = self.remote_device
         if dev is None:
-            return
+            return None
         return dev.get_by_portnum(self.remote_port)
 
     @property
@@ -61,14 +61,14 @@ class LinkConfig:
         return (len(self.linked_serial) != 0) and (len(self.linked_bay_name) != 0)
 
     @property
-    def linked_device(self) -> DeviceBase:
+    def linked_device(self) -> DeviceBase|None:
         # device instance of the device that's linked to this bay
         if not self.is_linked:
             return None
         return self.frame.mxr.get_by_serial(self.linked_serial)
 
     @property
-    def linked_bay(self) -> BayBase:
+    def linked_bay(self) -> BayBase|None:
         # bay instance of the bay that's linked to this bay
         dev = self.linked_device
         if dev is None:
@@ -76,9 +76,11 @@ class LinkConfig:
         return dev.get_by_portname(self.linked_bay_name)
 
     @property
-    def bays(self) -> List[BayBase]:
+    def bays(self) -> list[BayBase]:
+        if (self.remote_bay is None):
+            return []
         linked_bay = self.linked_bay
-        if linked_bay is not None:
+        if (linked_bay is not None):
             return [ self.remote_bay, linked_bay ]
         return [ self.remote_bay ]
 
@@ -94,7 +96,10 @@ class LinkConfig:
             return False
         if self._confirm is None:
             return False
-        return self.remote_bay.online and self.linked_bay.online
+        return self.remote_bay is not None and \
+            self.remote_bay.online and \
+            self.linked_bay is not None and \
+            self.linked_bay.online
 
     def is_linked_to(self, bay:BayBase) -> bool:
         if self.remote_bay == bay:

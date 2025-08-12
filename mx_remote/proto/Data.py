@@ -34,7 +34,7 @@ class MuteStatus:
 
 class VolumeMuteStatus:
     ''' volume and mute status '''
-    def __init__(self, volume_left:int, volume_right:int, muted_left:bool=None, muted_right:bool=None):
+    def __init__(self, volume_left:int|None, volume_right:int|None, muted_left:bool|None=None, muted_right:bool|None=None):
         self._volume_left = volume_left
         self._volume_right = volume_right
         self._muted_left = muted_left
@@ -64,7 +64,7 @@ class VolumeMuteStatus:
         vr = self._volume_right
         if vr is None:
             return self._volume_left if self._volume_left is not None else 0
-        return int((vr + self._volume_left) / 2.0)
+        return int((vr + self._volume_left) / 2.0) if (self._volume_left is not None) else vr
 
     @volume.setter
     def volume(self, volume:int) -> None:
@@ -91,7 +91,7 @@ class VolumeMuteStatus:
         self._volume_right = volume
 
     @property
-    def muted(self) -> bool:
+    def muted(self) -> bool|None:
         # combined mute left/right status
         if (self._muted_left is None) and (self._muted_right is None):
             return None
@@ -105,7 +105,7 @@ class VolumeMuteStatus:
             self.muted_right = muted
 
     @property
-    def muted_left(self) -> bool:
+    def muted_left(self) -> bool|None:
         # left channel muted
         return self._muted_left if (self._muted_left is not None) else self.muted
 
@@ -114,7 +114,7 @@ class VolumeMuteStatus:
         self._muted_left = muted
 
     @property
-    def muted_right(self) -> bool:
+    def muted_right(self) -> bool|None:
         # right channel muted
         return self._muted_right if (self._muted_right is not None) else self.muted
 

@@ -5,45 +5,41 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from functools import cached_property
 from .FrameBase import FrameBase
-from .FrameHeader import FrameHeader
-from ..Interface import DeviceBase
-from ..Uid import MxrDeviceUid
+from ..Interface import DeviceBase, BayMirrorStatus
+from ..Uid import MxrDeviceUid, MxrBayUid
 
 class FrameMirrorStatus(FrameBase):
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
+    @cached_property
+    def target(self) -> MxrDeviceUid|None:
+        return self.payload_uuid(0)
 
-    @property
-    def target(self) -> MxrDeviceUid:
-        if len(self.payload) < 16:
-            return None
-        return MxrDeviceUid(self.payload[0:16])
+    @cached_property
+    def target_bay(self) -> BayMirrorStatus:
+        if (self.target is not None):
+            return BayMirrorStatus(MxrBayUid(self.target, 0))
+        return BayMirrorStatus()
 
-    @property
+    @cached_property
     def is_own(self) -> bool:
-        dev = self.remote_device
-        if dev is None:
-            return False
-        return (dev.remote_id == self.target)
+        return ((dev := self.remote_device) is not None) \
+            and (dev.remote_id == self.target)
 
-    @property
-    def master(self) -> MxrDeviceUid:
-        if len(self.payload) < 32:
-            return None
-        return MxrDeviceUid(self.payload[16:32])
+    @cached_property
+    def master(self) -> MxrDeviceUid|None:
+        return self.payload_uuid(16)
 
-    @property
-    def master_dev(self) -> DeviceBase:
+    @cached_property
+    def master_dev(self) -> DeviceBase|None:
         return self.mxr.get_by_uid(self.master)
 
     def process(self) -> None:
-        dev = self.remote_device
-        if dev is None:
-            return False
-        if self.is_own and len(dev.outputs) > 0:
-            first_out = dev.outputs[list(dev.outputs.keys())[0]]
-            first_out.mirroring = self.master_dev
+        # XXX v2ip only atm
+        if (    (dev := self.remote_device) is not None) \
+                and self.is_own \
+                and ((first_out:= dev.first_output) is not None):
+            first_out.on_mxr_update(self.target_bay)
 
     def __str__(self) -> str:
         return f"{self.remote_device} mirroring status: {self.master_dev}"

@@ -85,7 +85,7 @@ class PDUState:
 		# list of all outlets defined in this frame
 		return self._outlets
 
-	def outlet(self, outlet) -> PDUOutletState:
+	def outlet(self, outlet) -> PDUOutletState|None:
 		# get the state of a single outlet
 		return self._outlets[outlet] if outlet < 8 else None
 

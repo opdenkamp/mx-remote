@@ -5,35 +5,28 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from functools import cached_property
 from .FrameBase import FrameBase
-from .FrameHeader import FrameHeader
 from ..Uid import MxrDeviceUid
+from ..Interface import FilteredDevices
 
 class FrameFilterStatus(FrameBase):
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
+    @cached_property
+    def filtered(self) -> FilteredDevices:
+        if (self.payload is None):
+            return FilteredDevices()
+        return FilteredDevices(self.payload[16:])
 
-    @property
-    def filtered(self) -> list[MxrDeviceUid]:
-        filtered = []
-        data = self.payload[16:]
-        while len(data) >= 16:
-            filtered.append(MxrDeviceUid(data[0:16]))
-            data = data[16:]
-        return filtered
-
-    @property
-    def target_uid(self) -> MxrDeviceUid:
-        return MxrDeviceUid(self.payload[0:16])
+    @cached_property
+    def target_uid(self) -> MxrDeviceUid|None:
+        return self.payload_uuid(0)
 
     def process(self) -> None:
-        dev = self.remote_device
-        if dev is None:
+        if ((dev := self.remote_device) is None):
             return
-        if len (dev.outputs) < 1:
+        if ((first_output := dev.first_output) is None):
             return
-        first_out = dev.outputs[list(dev.outputs.keys())[0]]
-        first_out.filtered = self.filtered
+        first_output.on_mxr_update(self.filtered)
 
     def __str__(self) -> str:
         return f"bay filter status: {len(self.filtered)} sources filtered"

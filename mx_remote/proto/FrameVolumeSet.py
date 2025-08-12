@@ -6,66 +6,66 @@
 ##################################################
 
 from __future__ import annotations
+from functools import cached_property
 from .FrameBase import FrameBase
-from .FrameHeader import FrameHeader
 from .Data import VolumeMuteStatus, MuteStatus
 from ..Interface import BayBase, DeviceBase, DeviceRegistry
-from .FrameBase import append_payload_str
 from ..Uid import MxrDeviceUid
 
 class FrameVolumeSet(FrameBase):
-    ''' bay volume change information frame '''
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
-
-    def construct(mxr:DeviceRegistry, target:BayBase, volume:VolumeMuteStatus) -> FrameBase:
+    @staticmethod
+    def construct(mxr:DeviceRegistry, target:BayBase, volume:VolumeMuteStatus) -> FrameBase|None:
         payload = bytearray()
         payload += target.device.remote_id.byte_value
         payload.append(target.port & 0xFF)
         payload.append((target.port >> 8) & 0xFF)
         payload += volume.value
         payload += bytes([0, 0, 0]) # padding
-        frame:FrameBase = FrameBase.construct_frame(mxr=mxr, opcode=0x14, protocol=0x11)
-        frame.payload = bytes(payload)
-        return frame
+        return FrameBase.construct_base(mxr=mxr, opcode=0x14, protocol=0x11, payload=payload)
 
-    @property
-    def target_device(self) -> DeviceBase:
+    ''' bay volume change information frame '''
+    @cached_property
+    def target_device(self) -> DeviceBase|None:
         return self.mxr.get_by_uid(self.target_uid)
 
-    @property
-    def target_uid(self) -> MxrDeviceUid:
-        return MxrDeviceUid(self.payload[0:16])
+    @cached_property
+    def target_uid(self) -> MxrDeviceUid|None:
+        return self.payload_uuid(0)
 
-    @property
-    def bay(self)  -> BayBase:
+    @cached_property
+    def bay(self)  -> BayBase|None:
         # bay on which the volume changed
-        portnum = ((self.payload[17] << 8) | self.payload[16])
+        portnum = self.payload_u16(17)
+        if (portnum is None):
+            return None
         dev = self.remote_device
-        if dev is None:
+        if (dev is None):
             return
         return dev.get_by_portnum(portnum)
 
-    @property
-    def volume_left(self) -> int:
+    @cached_property
+    def volume_left(self) -> int|None:
         # left channel volume %
-        r = int(self.payload[18])
-        if r > 100:
+        r = self.payload_u8(18)
+        if (r is None) or (r > 100):
             return None
         return r
 
-    @property
-    def volume_right(self) -> int:
+    @cached_property
+    def volume_right(self) -> int|None:
         # right channel volume %
-        r = int(self.payload[19])
-        if r > 100:
+        r = self.payload_u8(19)
+        if (r is None) or (r > 100):
             return None
         return r
 
-    @property
-    def muted(self) -> MuteStatus:
+    @cached_property
+    def muted(self) -> MuteStatus|None:
         # mute status
-        return MuteStatus(self.payload[20])
+        r = self.payload_u8(20)
+        if (r is None):
+            return None
+        return MuteStatus(r)
 
     def process(self) -> None:
         # update the local cache
@@ -75,7 +75,7 @@ class FrameVolumeSet(FrameBase):
         muted = self.muted
         muted_left = muted.left if (muted is not None) else None
         muted_right = muted.right if (muted is not None) else None
-        bay.on_mxr_volume_update(VolumeMuteStatus(self.volume_left, self.volume_right, muted_left, muted_right))
+        bay.on_mxr_update(VolumeMuteStatus(self.volume_left, self.volume_right, muted_left, muted_right))
 
     def __str__(self) -> str:
         return f"volume bay:{str(self.bay)} volume:{self.volume_left}/{self.volume_right} muted:{self.muted}"

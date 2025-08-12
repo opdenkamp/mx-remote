@@ -5,37 +5,36 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from functools import cached_property
 from .V2IPConfig import V2IPConfig
 from .FrameBase import FrameBase
-from .FrameHeader import FrameHeader
-from .V2IPConfig import V2IPStreamSourcesData
+from .V2IPConfig import V2IPStreamSourcesImpl
+from ..Interface import V2IPStreamSourcesList
 
 class FrameV2IPSources(FrameBase):
     ''' All configured v2ip sources for the device that sent this frame '''
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
-
     @property
     def nb_sources(self) -> int:
         # number of sources defined in this frame
-        return len(self) / 40
+        return int(len(self) / 40)
 
-    @property
-    def sources(self) -> list[V2IPStreamSourcesData]:
+    @cached_property
+    def sources(self) -> V2IPStreamSourcesList:
         # list of all sources defined in this frame
-        rv = []
+        rv = V2IPStreamSourcesList()
         srcnum = 0
         while srcnum < self.nb_sources:
-            cfg = V2IPConfig(self, srcnum, self.payload[(srcnum*40):((srcnum+1)*40)])
-            rv.append(V2IPStreamSourcesData(video=cfg.video, audio=cfg.audio, anc=cfg.anc))
+            pl = self.payload_idx(start=(srcnum*40), end=((srcnum+1)*40))
+            if (pl is None):
+                break
+            cfg = V2IPConfig(self, srcnum, pl)
+            rv.append(V2IPStreamSourcesImpl(video=cfg.video, audio=cfg.audio, anc=cfg.anc))
             srcnum += 1
         return rv
 
     def process(self) -> None:
-        dev = self.remote_device
-        if dev is None:
-            return
-        self.remote_device.v2ip_sources = self.sources
+        if ((dev := self.remote_device) is not None):
+            dev.on_mxr_update(self.sources)
 
     def __str__(self) -> str:
         if len(self.sources) > 0:

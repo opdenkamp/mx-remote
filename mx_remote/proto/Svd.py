@@ -9,7 +9,7 @@ import csv
 from ..const import *
 
 class Svd:
-    def __init__(self, data:list[int]) -> None:
+    def __init__(self, data:list[str]) -> None:
         self._data = data
 
     @property

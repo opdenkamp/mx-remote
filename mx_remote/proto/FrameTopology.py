@@ -6,7 +6,6 @@
 ##################################################
 
 from .FrameBase import FrameBase
-from .FrameHeader import FrameHeader
 from ..Uid import MxrDeviceUid
 import struct
 
@@ -15,23 +14,27 @@ class TopologyEntry:
         self.uid = uid
         self.mask = mask
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.uid} mask {self.mask}"
 
-class FrameTopology(FrameBase):
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
+    def __repr__(self) -> str:
+        return str(self)
 
+class FrameTopology(FrameBase):
     @property
-    def topology(self):
+    def topology(self) -> list[TopologyEntry]:
         topo = []
-        if self.header.payload_len < 20:
-            return []
         data = self.payload
+        if (data is None):
+            return []
         while len(data) >= 20:
             topo.append(TopologyEntry(MxrDeviceUid(data[0:16]), struct.unpack('<L', data[16:20])[0]))
             data = data[20:]
         return topo
+
+    def process(self) -> None:
+        if ((dev := self.remote_device) is not None):
+            dev.on_mxr_update(self)
 
     def __str__(self) -> str:
         return f"{self.remote_device} topology data: {self.topology}"

@@ -5,6 +5,7 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from functools import cached_property
 from ..Uid import MxrDeviceUid
 from ..Interface import DeviceRegistry
 
@@ -19,8 +20,11 @@ class FrameHeader:
         if (data[0] != 80) or (data[1] != 56):
             raise Exception(f'invalid mx_remote frame (header = {int(data[0])}:{int(data[1])})')
 
-    def construct(mxr:DeviceRegistry, opcode:int, protocol:int=1) -> 'FrameHeader':
+    @staticmethod
+    def construct(mxr:DeviceRegistry, opcode:int, protocol:int=1) -> 'FrameHeader|None':
         # create a new mx_remote frame for transmission
+        if (mxr.uid_raw is None):
+            return None
         pkt = [80, 56, protocol, 0 ]
         pkt.extend(mxr.uid_raw)
         pkt.extend([(opcode & 0xFF), ((opcode >> 8) & 0xFF)])
@@ -31,41 +35,97 @@ class FrameHeader:
     def mxr(self) -> DeviceRegistry:
         return self._mxr
 
-    @property
+    def data_u8(self, idx:int) -> int|None:
+        if (self.data is None):
+            return None
+        if (idx >= len(self.data)):
+            return None
+        return self.data[idx]
+
+    def data_bool(self, idx:int) -> bool|None:
+        pl = self.data_u8(idx)
+        return (pl is not None) and (pl == 1)
+
+    def data_u16(self, idx:int=0) -> int|None:
+        if (self.data is None):
+            return None
+        if (idx + 1 >= len(self.data)):
+            return None
+        return int.from_bytes(self.data[idx:idx+2], "little")
+
+    def data_u32(self, idx:int=0) -> int|None:
+        if (self.data is None):
+            return None
+        if (idx + 3 >= len(self.data)):
+            return None
+        return int.from_bytes(self.data[idx:idx+4], "little")
+
+    def data_str(self, idx:int, length:int=-1) -> str|None:
+        if (self.data is None):
+            return None
+        if (idx > len(self.data)):
+            return None
+        if (length > 0) and ((idx + length) > len(self.data)):
+            return None
+        pl = self.data[idx:idx+length] if (length > 0) else self.data[idx:]
+        return pl.split(b'\0',1)[0].decode('ascii')
+
+    def data_uuid(self, idx:int=0) -> MxrDeviceUid|None:
+        if (self.data is None) or ((idx + 16) > len(self.data)):
+            return None
+        return MxrDeviceUid(self.data[idx:idx+16])
+
+    def payload_u8(self, idx:int) -> int|None:
+        return self.data_u8(idx=(idx + 24))
+
+    def payload_bool(self, idx:int) -> bool|None:
+        return self.data_bool(idx=(idx + 24))
+
+    def payload_u16(self, idx:int) -> int|None:
+        return self.data_u16(idx=(idx + 24))
+
+    def payload_u32(self, idx:int) -> int|None:
+        return self.data_u32(idx=(idx + 24))
+
+    def payload_str(self, idx:int, length:int=-1) -> str|None:
+        return self.data_str(idx=(idx + 24), length=length)
+
+    def payload_uuid(self, idx:int) -> MxrDeviceUid|None:
+        return self.data_uuid(idx=(idx + 24))
+
+    @cached_property
     def protocol(self) -> int:
         # frame protocol version
-        if len(self) < 4:
-            return 255
-        return (int(self.data[3]) << 8) | int(self.data[2])
+        protocol = self.data_u16(2)
+        return protocol if (protocol is not None) else 255
 
-    @property
+    @cached_property
     def remote_id(self) -> MxrDeviceUid:
         # unique id of the device that sent this frame
-        return MxrDeviceUid(self.data[4:20])
+        uid = self.data_uuid(4)
+        if (uid is None):
+            raise Exception("invalid frame size")
+        return uid
 
-    @property
+    @cached_property
     def remote_id_raw(self) -> bytes:
         # unique id of the device that sent this frame
-        if len(self) < 20:
-            return None
-        return self.data[4:20]
+        return self.remote_id.byte_value
 
-    @property
+    @cached_property
     def opcode(self) -> int:
         # command opcode
-        if len(self) < 22:
-            return -1
-        return (int(self.data[21]) << 8) | int(self.data[20])
+        opcode = self.data_u16(20)
+        return opcode if (opcode is not None) else 0
 
-    @property
+    @cached_property
     def payload_len(self) -> int:
         # number of payload bytes
-        if len(self) < 24:
-            return 0
-        return (int(self.data[23]) << 8) | int(self.data[22])
+        length = self.data_u16(22)
+        return length if (length is not None) else 0
 
     @property
-    def payload(self) -> bytes:
+    def payload(self) -> bytes|None:
         # frame payload bytes
         if len(self) < 25:
             return None

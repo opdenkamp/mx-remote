@@ -6,14 +6,12 @@
 ##################################################
 
 from enum import Enum
+from functools import cached_property
 from .FrameBase import FrameBase
-from .FrameHeader import FrameHeader
-from ..Interface import BayBase
+from ..Interface import BayBase, SignalStatus
 from ..Uid import MxrDeviceUid
 import struct
 from .Svd import SvdMap, Svd
-
-SVD = SvdMap()
 
 class VideoColourSpace(Enum):
     RGB = 0
@@ -105,14 +103,15 @@ class AvDetailsStreamFlags:
         return (self.data & (1 << 7) != 0)
 
 class SignalStatusAvDetailsVideo:
-    def __init__(self, data:bytes) -> None:
+    def __init__(self, svd:SvdMap, data:bytes) -> None:
         if len(data) != 16:
             raise Exception(f"invalid length: {len(data)}")
+        self._svd = svd
         self._data = data
 
     @property
-    def svd(self) -> Svd:
-        return SVD.svd[self._data[0]] if self._data[0] != 0 else None
+    def svd(self) -> Svd|None:
+        return self._svd.svd[self._data[0]] if self._data[0] != 0 else None
 
     @property
     def colour_space(self) -> VideoColourSpace:
@@ -155,102 +154,98 @@ class SignalStatusAvDetailsVideo:
 
 class FrameSignalStatusNew(FrameBase):
     ''' signal status changed '''
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
-
-    @property
-    def signal_header(self) -> bytes:
-        return self.payload[0:8]
-
-    @property
+    @cached_property
     def signal_header_version(self) -> int:
-        if len(self.payload) < 8:
-            return 0
-        return int(self.signal_header[1]) << 8 | int(self.signal_header[0])
+        if ((pl := self.payload_u16(0)) is not None):
+            return pl
+        return 0
 
-    @property
-    def support_flags(self) -> AvDetailsSupportFlags:
-        if len(self.payload) < 8:
-            return 0
-        return AvDetailsSupportFlags(self.signal_header[2])
+    @cached_property
+    def support_flags(self) -> AvDetailsSupportFlags|None:
+        if ((pl := self.payload_u8(2)) is not None):
+            return AvDetailsSupportFlags(pl)
+        return None
 
-    @property
-    def stream_flags(self) -> AvDetailsStreamFlags:
-        if len(self.payload) < 8:
-            return 0
-        return AvDetailsStreamFlags(self.signal_header[3])
+    @cached_property
+    def stream_flags(self) -> AvDetailsStreamFlags|None:
+        if ((pl := self.payload_u8(3)) is not None):
+            return AvDetailsStreamFlags(pl)
+        return None
 
-    @property
+    @cached_property
     def infoframe(self) -> bytes:
-        if len(self.payload) < 24:
-            return bytes()
-        return self.payload[8:24]
+        if ((pl := self.payload_idx(8, 24)) is not None):
+            return pl
+        return bytes()
 
-    @property
+    @cached_property
     def audio(self) -> bytes:
-        if len(self.payload) < 40:
-            return bytes()
-        return self.payload[24:40]
+        if ((pl := self.payload_idx(24, 40)) is not None):
+            return pl
+        return bytes()
 
-    @property
-    def video(self) -> SignalStatusAvDetailsVideo:
-        if len(self.payload) < 56:
-            return None
-        return SignalStatusAvDetailsVideo(self.payload[40:56])
+    @cached_property
+    def video(self) -> SignalStatusAvDetailsVideo|None:
+        if ((pl := self.payload_idx(40, 56)) is not None):
+            return SignalStatusAvDetailsVideo(svd=self.mxr.svd_map, data=pl)
+        return None
 
-    @property
+    @cached_property
     def vsync(self) -> bytes:
-        if len(self.payload) < 88:
-            return bytes()
-        return self.payload[56:88]
+        if ((pl := self.payload_idx(56, 88)) is not None):
+            return pl
+        return bytes()
 
-    @property
-    def errors(self) -> bytes:
-        if len(self.payload) < 100:
-            return bytes()
-        pl = self.payload[88:100]
-        return [struct.unpack('<L', pl[0:4])[0], struct.unpack('<L', pl[4:8])[0], struct.unpack('<L', pl[8:12])[0]]
+    @cached_property
+    def errors(self) -> list[int]:
+        if ((pl := self.payload_idx(88, 100)) is not None):
+            return [struct.unpack('<L', pl[0:4])[0], struct.unpack('<L', pl[4:8])[0], struct.unpack('<L', pl[8:12])[0]]
+        return []
 
-    @property
+    @cached_property
     def bay_details(self) -> bytes:
-        if len(self.payload) < 112:
-            return bytes()
-        return self.payload[100:112]
+        if ((pl := self.payload_idx(100, 112)) is not None):
+            return pl
+        return bytes()
 
-    @property
+    @cached_property
     def port_number(self) -> int:
-        if len(self.payload) < 8:
+        details = self.bay_details
+        if len(details) < 2:
             return 0xFF
-        #return struct.unpack('<L', self.payload[57:61])[0]
-        return (self.bay_details[1] << 8) | (self.bay_details[0])
+        return (details[1] << 8) | (details[0])
 
-    @property
-    def bay(self)  -> BayBase:
+    @cached_property
+    def bay(self)  -> BayBase|None:
         dev = self.remote_device
         if dev is None:
             return None
         return dev.get_by_portnum(self.port_number)
 
-    @property
+    @cached_property
     def bay_name(self) -> str:
         bay = self.bay
         return str(bay) if bay is not None else "(Waiting For HELLO)"
 
-    @property
+    @cached_property
     def stream_detected(self) -> bool:
-        return self.support_flags.stream_detected
+        return self.support_flags.stream_detected if (self.support_flags is not None) else False
 
-    @property
+    @cached_property
     def stream_valid(self) -> bool:
-        return self.support_flags.stream_valid
+        return self.support_flags.stream_valid if (self.support_flags is not None) else False
 
-    @property
+    @cached_property
     def frame_rate(self) -> float:
+        if (self.stream_flags is None) or (self.video is None):
+            return 0
         if self.stream_flags.video_non_int_clock:
             return round(self.video.frame_rate * 1000 / 1001, 2)
         return self.video.frame_rate
 
     def process(self) -> None:
+        if (self.payload is None):
+            return
         if len(self.payload) < 8:
             return
         if len(self.payload) < 112:
@@ -259,19 +254,22 @@ class FrameSignalStatusNew(FrameBase):
         bay = self.bay
         if bay is None:
             return
-        bay.signal_detected = self.stream_valid
-        if self.stream_valid:
+        
+        if self.stream_valid and (self.video is not None) and (self.video.svd is not None):
             signal_type = f'{self.video.svd.horizontal_active}x{self.video.svd.vertical_active} / {self.video.colour_space} / {self.video.colour_depth}bpp'
-            if self.stream_flags.video_interlaced:
-                signal_type += ' interlaced'
-            if self.stream_flags.video_hdr:
-                signal_type += ' HDR'
+            if (self.stream_flags is not None):
+                if self.stream_flags.video_interlaced:
+                    signal_type += ' interlaced'
+                if self.stream_flags.video_hdr:
+                    signal_type += ' HDR'
             signal_type += f' / {self.frame_rate}Hz'
-            bay.signal_type = signal_type
         else:
-            bay.signal_type = 'No Signal'
+            signal_type = 'No Signal'
+        bay.on_mxr_update(SignalStatus(detected=self.stream_valid, description=signal_type))
 
     def __str__(self) -> str:
+        if (self.payload is None):
+            return "Unknown"
         if len(self.payload) < 8:
             return "signal status request"
         if len(self.payload) == 16:

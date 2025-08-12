@@ -5,42 +5,49 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
-from .V2IPConfig import V2IPConfig
+from functools import cached_property
 from .FrameBase import FrameBase
-from .FrameHeader import FrameHeader
-from ..Interface import V2IPStreamSource
+from ..Interface import V2IPStreamSource, V2IPStreamSources
+from .V2IPConfig import V2IPStreamSourceImpl, V2IPStreamSourcesImpl
 
 class FrameV2IPStreamDetails(FrameBase):
     ''' All configured v2ip sources for the device that sent this frame '''
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
-        self.video = V2IPStreamSource("video", self.payload[0:6])
-        self.audio = V2IPStreamSource("audio", self.payload[8:14])
-        self.anc = V2IPStreamSource("anc", self.payload[16:22])
-        self.arc = V2IPStreamSource("arc", self.payload[24:30])
+    @cached_property
+    def video(self) -> V2IPStreamSource|None:
+        pl = self.payload_idx(start=0, end=6)
+        if (pl is None):
+            return None
+        return V2IPStreamSourceImpl("video", pl)
 
-    @property
-    def sources(self) -> list[V2IPConfig]:
-        # list of all sources defined in this frame
-        rv = []
-        srcnum = 0
-        while srcnum < self.nb_sources:
-            cfg = V2IPConfig(self, srcnum, self.payload[(srcnum*56):((srcnum+1)*56)])
-            rv.append(cfg)
-            srcnum += 1
-        return rv
+    @cached_property
+    def audio(self) -> V2IPStreamSource|None:
+        pl = self.payload_idx(start=8, end=14)
+        if (pl is None):
+            return None
+        return V2IPStreamSourceImpl("audio", pl)
+
+    @cached_property
+    def anc(self) -> V2IPStreamSource|None:
+        pl = self.payload_idx(start=16, end=22)
+        if (pl is None):
+            return None
+        return V2IPStreamSourceImpl("anc", pl)
+
+    @cached_property
+    def arc(self) -> V2IPStreamSource|None:
+        pl = self.payload_idx(start=24, end=30)
+        if (pl is None):
+            return None
+        return V2IPStreamSourceImpl("arc", pl)
+
+    @cached_property
+    def sources(self) -> V2IPStreamSources|None:
+        if ((video := self.video) is not None) and ((audio := self.audio) is not None) and ((anc := self.anc) is not None):
+            return V2IPStreamSourcesImpl(video=video, audio=audio, anc=anc, arc=self.arc)
 
     def process(self) -> None:
-        dev = self.remote_device
-        first_in = dev.first_input
-        if first_in is not None:
-            first_in.v2ip.video = self.video
-            first_in.v2ip.audio = self.audio
-            first_in.v2ip.anc = self.anc
-        first_out = dev.first_output
-        if first_out is not None:
-            first_out.v2ip.arc = self.arc
-        #dev.on_v2ip_source_config_received()
+        if ((dev := self.remote_device) is not None):
+            dev.on_mxr_update(self.sources)
 
     def __str__(self) -> str:
         return f"{str(self.remote_device)} v2ip stream details: {self.video} {self.audio} {self.anc} {self.arc}"

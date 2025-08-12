@@ -27,11 +27,11 @@ class ConnectionAsync(asyncio.DatagramProtocol):
         self._local_ip = local_ip
         self._port = port
         self._closed = False
-        self._tx_socket:socket.socket = None
+        self._tx_socket:socket.socket|None = None
         super().__init__()
 
     @property
-    def tx_socket(self) -> socket.socket:
+    def tx_socket(self) -> socket.socket|None:
         return self._tx_socket
 
     @property
@@ -43,11 +43,11 @@ class ConnectionAsync(asyncio.DatagramProtocol):
         return self._target_ip
 
     @property
-    def port(self) -> str:
+    def port(self) -> int:
         return self._port
 
     @property
-    def local_ip(self) -> str:
+    def local_ip(self) -> str|None:
         if (self._local_ip is None) or (len(self._local_ip) == 0):
             addresses = mxr_valid_addresses()
             if len(addresses) > 0:
@@ -77,7 +77,7 @@ class ConnectionAsync(asyncio.DatagramProtocol):
 
         return sock
 
-    def _create_rx_socket(self) -> socket.socket:
+    def _create_rx_socket(self) -> socket.socket|None:
         _LOGGER.debug(f"open rx socket {self.target_ip}:{self.port}")
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -87,6 +87,8 @@ class ConnectionAsync(asyncio.DatagramProtocol):
         sock.bind(('', self.port))
 
         if self.is_multicast:
+            if (self.local_ip is None):
+                return None
             sock.setsockopt(
                 socket.IPPROTO_IP,
                 socket.IP_ADD_MEMBERSHIP,
@@ -98,7 +100,7 @@ class ConnectionAsync(asyncio.DatagramProtocol):
 
         return sock
 
-    async def start_srv(self) -> Coroutine:
+    async def start_srv(self) -> tuple[asyncio.DatagramTransport, 'ConnectionAsync']:
         _LOGGER.debug(f"starting service on {self.target_ip}:{self.port}")
         try:
             loop = asyncio.get_event_loop()
@@ -113,7 +115,8 @@ class ConnectionAsync(asyncio.DatagramProtocol):
     def close(self) -> None:
         if self.is_open:
             _LOGGER.debug(f"closing {self.target_ip}:{self.port}")
-            self._transport.close()
+            if (self._transport is not None):
+                self._transport.close()
             self._closed = True
 
     def connection_made(self, transport:asyncio.DatagramTransport) -> None:
@@ -125,7 +128,7 @@ class ConnectionAsync(asyncio.DatagramProtocol):
         self._callbacks.on_datagram_received(data, addr)
 
     def transmit(self, data: bytes) -> int:
-        if self._closed:
+        if self._closed or (self.tx_socket is None):
             return 0
 
         _LOGGER.debug(f"tx to {self.target_ip}:{self.port} (mcast:{self.is_multicast})")

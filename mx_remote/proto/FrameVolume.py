@@ -17,36 +17,39 @@ class FrameVolume(FrameBase):
         super().__init__(header)
 
     @property
-    def bay(self)  -> BayBase:
+    def bay(self) -> BayBase|None:
         # bay on which the volume changed
-        portnum = self.payload[0]
+        portnum = self.payload_u8(0)
+        if (portnum is None):
+            return None
         dev = self.remote_device
         if dev is None:
             return
         return dev.get_by_portnum(portnum)
 
     @property
-    def volume_left(self) -> int:
+    def volume_left(self) -> int|None:
         # left channel volume %
-        r = int(self.payload[1])
-        if r > 100:
+        r = self.payload_u8(1)
+        if (r is None) or (r > 100):
             return None
         return r
 
     @property
-    def volume_right(self) -> int:
+    def volume_right(self) -> int|None:
         # right channel volume %
-        r = int(self.payload[2])
-        if r > 100:
+        r = self.payload_u8(2)
+        if (r is None) or (r > 100):
             return None
         return r
 
     @property
-    def muted(self) -> MuteStatus:
+    def muted(self) -> MuteStatus|None:
         # mute status
-        if len(self) < 4:
+        r = self.payload_u8(3)
+        if (r is None):
             return None
-        return MuteStatus(self.payload[3])
+        return MuteStatus(r)
 
     def process(self) -> None:
         # update the local cache
@@ -56,7 +59,7 @@ class FrameVolume(FrameBase):
         muted = self.muted
         muted_left = muted.left if (muted is not None) else None
         muted_right = muted.right if (muted is not None) else None
-        bay.on_mxr_volume_update(VolumeMuteStatus(self.volume_left, self.volume_right, muted_left, muted_right))
+        bay.on_mxr_update(VolumeMuteStatus(self.volume_left, self.volume_right, muted_left, muted_right))
 
     def __str__(self) -> str:
         return f"volume bay:{str(self.bay)} volume:{self.volume_left}/{self.volume_right} muted:{self.muted}"

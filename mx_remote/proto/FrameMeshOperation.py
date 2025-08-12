@@ -5,8 +5,9 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from functools import cached_property
+import warnings
 from .FrameBase import FrameBase
-from .FrameHeader import FrameHeader
 from ..Interface import DeviceRegistry, DeviceBase, MxrDeviceUid
 from enum import Enum
 
@@ -15,7 +16,7 @@ class MeshOperation(Enum):
     UNREGISTER = 1
     REPLACE = 2
     REGENERATE_ADDRESSES = 3
-    PROMOTE_MASTER = 4
+    REPORT_MASTER = 4
     REPORT_MEMBERSHIP = 0xFF
 
     def __str__(self) -> str:
@@ -27,40 +28,46 @@ class MeshOperation(Enum):
             return "replace"
         if self.value == MeshOperation.REGENERATE_ADDRESSES.value:
             return "regenerate addresses"
-        if self.value == MeshOperation.PROMOTE_MASTER.value:
-            return "promote master"
+        if self.value == MeshOperation.REPORT_MASTER.value:
+            return "report master"
         if self.value == MeshOperation.REPORT_MEMBERSHIP.value:
             return "report membership"
         return "unknown"
 
 class FrameMeshOperation(FrameBase):
     ''' Mesh operation '''
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
 
-    def construct(mxr:DeviceRegistry, operation:MeshOperation, target:DeviceBase, option:DeviceBase|None) -> FrameBase:
+    @staticmethod
+    def construct(mxr:DeviceRegistry, operation:MeshOperation, target:DeviceBase, option:DeviceBase|None=None) -> FrameBase|None:
         payload = bytes([operation.value, 0, 0, 0]) + target.remote_id.byte_value
         if option is not None:
             payload += option.remote_id.byte_value
         else:
             payload += bytes([0 for _ in range(16)])
-        return FrameBase.construct_frame(mxr=mxr, opcode=0x3B, payload=payload)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x3B, payload=payload)
 
-    @property
-    def operation(self) -> MeshOperation:
-        return MeshOperation(self.payload[0])
+    @cached_property
+    def operation(self) -> MeshOperation|None:
+        pl = self.payload_u8(0)
+        if (pl is None):
+            return None
+        return MeshOperation(pl)
 
-    @property
-    def target_uid(self) -> MxrDeviceUid:
-        return MxrDeviceUid(value=self.payload[4:20])
+    @cached_property
+    def target_uid(self) -> MxrDeviceUid|None:
+        return self.payload_uuid(4)
 
-    @property
-    def parameter(self) -> MxrDeviceUid:
-        return MxrDeviceUid(value=self.payload[20:36])
+    @cached_property
+    def parameter(self) -> MxrDeviceUid|None:
+        return self.payload_uuid(20)
 
     def process(self) -> None:
-        if (self.operation == MeshOperation.REPORT_MEMBERSHIP):
-            self.remote_device.mesh_master = self.target_uid
+        if ((dev := self.remote_device) is not None):
+            dev.on_mxr_update(self)
 
     def __str__(self) -> str:
         return f"Mesh operation: {str(self.operation)}"
+
+def constructFrameMeshOperation(mxr:DeviceRegistry, operation:MeshOperation, target:DeviceBase, option:DeviceBase|None=None) -> FrameBase|None:
+    warnings.warn("use FrameMeshOperation.construct() instead", DeprecationWarning)
+    return FrameMeshOperation.construct(mxr=mxr, operation=operation, target=target, option=option)

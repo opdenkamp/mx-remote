@@ -8,9 +8,9 @@
 from enum import Enum
 
 class V2IPTxStats:
-    def __init__(self, data:bytes) -> None:
-        if len(data) < 20:
-            raise Exception(f'invalid stats size: {len(data)}')
+    def __init__(self, data:bytes|None) -> None:
+        if (data is None) or (len(data) < 20):
+            raise Exception('invalid stats data')
         self._data = data
 
     @property
@@ -114,10 +114,10 @@ class V2IPRxStats:
         return f"State: {self.decoder_state}, Video: {self.video_total}{viseq}, Audio: {self.audio_total}{auseq}, Anc: {self.anc_total}{anseq}{wdt}"
 
 class V2IPDeviceStats:
-    tx:V2IPTxStats = None
-    tx_per_minute:V2IPTxStats = None
-    rx:V2IPRxStats = None
-    rx_per_minute:V2IPRxStats = None
+    tx:V2IPTxStats|None = None
+    tx_per_minute:V2IPTxStats|None = None
+    rx:V2IPRxStats|None = None
+    rx_per_minute:V2IPRxStats|None = None
 
     def __str__(self) -> str:
         return f"v2ip stats: tx={self.tx_per_minute} rx={self.rx_per_minute}"
