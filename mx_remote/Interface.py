@@ -588,7 +588,7 @@ class BayBase(ABC):
 
     @property
     @abstractmethod
-    def v2ip_device(self) -> DeviceBase|None:
+    def v2ip_device(self) -> 'DeviceBase|None':
         '''Remote V2IP device'''
 
     @property
@@ -697,11 +697,11 @@ class BayBase(ABC):
         '''send a remote control key press to the device'''
 
     @abstractmethod
-    def register_callback(self, callback:Callable[[BayBase], None]) -> None:
+    def register_callback(self, callback:'Callable[[BayBase], None]') -> None:
          '''register a callback, called when the bay state changed'''
 
     @abstractmethod
-    def unregister_callback(self, callback:Callable[[BayBase], None]) -> None:
+    def unregister_callback(self, callback:'Callable[[BayBase], None]') -> None:
          '''unregister a callback'''
 
     @abstractmethod
@@ -1358,11 +1358,11 @@ class DeviceBase(ABC):
         '''call an HTTP API method and return the result'''
 
     @abstractmethod
-    def register_callback(self, callback:Callable[[DeviceBase],None]) -> None:
+    def register_callback(self, callback:'Callable[[DeviceBase],None]') -> None:
          '''register a callback, called when the device state changed'''
 
     @abstractmethod
-    def unregister_callback(self, callback:Callable[[DeviceBase],None]) -> None:
+    def unregister_callback(self, callback:'Callable[[DeviceBase],None]') -> None:
          '''unregister a callback'''
 
     @abstractmethod
