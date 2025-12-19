@@ -75,7 +75,3 @@ class FrameV2IPStats(FrameBase):
         if self.is_request:
             return f"{str(self.remote_device)} v2ip stats request: {self.stats_enabled}"
         return f"{str(self.remote_device)} v2ip stats: {self.stats}"
-
-def constructFrameV2IPStats(registry:DeviceRegistry, device:DeviceBase, enable:bool) -> FrameBase|None:
-    warnings.warn("use FrameHello.construct() instead", DeprecationWarning)
-    return FrameV2IPStats.construct(registry=registry, device=device, enable=enable)

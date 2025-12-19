@@ -67,7 +67,3 @@ class FrameMeshOperation(FrameBase):
 
     def __str__(self) -> str:
         return f"Mesh operation: {str(self.operation)}"
-
-def constructFrameMeshOperation(mxr:DeviceRegistry, operation:MeshOperation, target:DeviceBase, option:DeviceBase|None=None) -> FrameBase|None:
-    warnings.warn("use FrameMeshOperation.construct() instead", DeprecationWarning)
-    return FrameMeshOperation.construct(mxr=mxr, operation=operation, target=target, option=option)

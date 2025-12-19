@@ -203,7 +203,7 @@ class MultiviewerConfig(ABC):
         pass
 
     @abstractmethod
-    def video_source(self, window:int) -> MultiviewerSource:
+    def video_source(self, screen:int) -> MultiviewerSource:
         pass
 
     @property

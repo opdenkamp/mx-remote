@@ -8,7 +8,7 @@
 from enum import Enum
 from typing import override
 from .FrameBase import FrameBase
-from ..Interface import MxrDeviceUid, DeviceBase
+from ..Interface import MxrDeviceUid, DeviceBase, DeviceRegistry
 from .Multiviewer import *
 
 class V2IPMultiviewerConfig(FrameBase, MultiviewerConfig):
@@ -124,9 +124,9 @@ class V2IPMultiviewerConfig(FrameBase, MultiviewerConfig):
     @override
     def audio_source(self) -> MultiviewerSource:
         pl = self.payload_u8(idx=179)
-        if (pl is None) or (pl > 4):
+        if (pl is None) or (pl > 3):
             return MultiviewerSource.UNKNOWN
-        return MultiviewerSource(pl)
+        return MultiviewerSource(pl + 1)
 
     @property
     @override
@@ -145,8 +145,8 @@ class V2IPMultiviewerConfig(FrameBase, MultiviewerConfig):
         return MultiviewerBoolSetting(pl)
 
     @override
-    def video_source(self, window:int) -> MultiviewerSource:
-        pl = self.payload_u8(idx=182 + window)
+    def video_source(self, screen:int) -> MultiviewerSource:
+        pl = self.payload_u8(idx=182 + screen)
         if (pl is None) or (pl > 4):
             return MultiviewerSource.UNKNOWN
         return MultiviewerSource(pl)
@@ -155,9 +155,9 @@ class V2IPMultiviewerConfig(FrameBase, MultiviewerConfig):
     @override
     def remote_control(self) -> MultiviewerSource:
         pl = self.payload_u8(idx=186)
-        if (pl is None) or (pl > 4):
+        if (pl is None) or (pl > 3):
             return MultiviewerSource.UNKNOWN
-        return MultiviewerSource(pl)
+        return MultiviewerSource(pl + 1)
 
     def __eq__(self, value: object) -> bool:
         if not isinstance(value, V2IPMultiviewerConfig):
@@ -198,6 +198,147 @@ class FrameV2IPMultiviewer(FrameBase):
             if (pl is not None) and (pl <= 8):
                 mode = MultiviewerViewMode(pl)
                 print(f"set view mode to {mode}")
+
+
+    @staticmethod
+    def construct_set_view_mode(mxr:DeviceRegistry, target:DeviceBase, view_mode:MultiviewerViewMode) -> FrameBase|None:
+        payload = bytearray()
+        payload += target.remote_id.byte_value
+        payload.append(MultiviewerOpcode.VIEW_MODE.value)
+        payload += bytes([0 for _ in range(7)])
+        payload.append(view_mode.value)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+
+    @staticmethod
+    def construct_set_video_source(mxr:DeviceRegistry, target:DeviceBase, screen:int, source:MultiviewerSource) -> FrameBase|None:
+        payload = bytearray()
+        payload += target.remote_id.byte_value
+        payload.append(MultiviewerOpcode.VIDEO_SOURCE.value)
+        payload += bytes([0 for _ in range(7)])
+        payload.append(screen)
+        payload.append(source.value)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+
+    @staticmethod
+    def construct_set_audio_source(mxr:DeviceRegistry, target:DeviceBase, source:MultiviewerSource) -> FrameBase|None:
+        payload = bytearray()
+        payload += target.remote_id.byte_value
+        payload.append(MultiviewerOpcode.AUDIO_SOURCE.value)
+        payload += bytes([0 for _ in range(7)])
+        payload.append(source.value - 1)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+
+    @staticmethod
+    def construct_set_audio_volume(mxr:DeviceRegistry, target:DeviceBase, volume:int, muted:bool) -> FrameBase|None:
+        payload = bytearray()
+        payload += target.remote_id.byte_value
+        payload.append(MultiviewerOpcode.AUDIO_VOLUME.value)
+        payload += bytes([0 for _ in range(7)])
+        payload.append(volume)
+        payload.append(1 if muted else 0)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+
+    @staticmethod
+    def construct_set_edid_template(mxr:DeviceRegistry, target:DeviceBase, edid:MultiviewerEDIDTemplate) -> FrameBase|None:
+        payload = bytearray()
+        payload += target.remote_id.byte_value
+        payload.append(MultiviewerOpcode.EDID_TEMPLATE.value)
+        payload += bytes([0 for _ in range(7)])
+        payload.append(edid.value)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+
+    @staticmethod
+    def construct_set_remote_control(mxr:DeviceRegistry, target:DeviceBase, source:MultiviewerSource) -> FrameBase|None:
+        payload = bytearray()
+        payload += target.remote_id.byte_value
+        payload.append(MultiviewerOpcode.ROUTE_RC.value)
+        payload += bytes([0 for _ in range(7)])
+        payload.append(source.value - 1)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+
+    @staticmethod
+    def construct_set_pip_size(mxr:DeviceRegistry, target:DeviceBase, size:MultiviewerPipSize) -> FrameBase|None:
+        payload = bytearray()
+        payload += target.remote_id.byte_value
+        payload.append(MultiviewerOpcode.PIP_SIZE.value)
+        payload += bytes([0 for _ in range(7)])
+        payload.append(size.value)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+
+    @staticmethod
+    def construct_set_pip_position(mxr:DeviceRegistry, target:DeviceBase, position:MultiviewerPipPosition) -> FrameBase|None:
+        payload = bytearray()
+        payload += target.remote_id.byte_value
+        payload.append(MultiviewerOpcode.PIP_POSITION.value)
+        payload += bytes([0 for _ in range(7)])
+        payload.append(position.value)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+
+    @staticmethod
+    def construct_set_screen_aspect(mxr:DeviceRegistry, target:DeviceBase, aspect:MultiviewerAspectRatio) -> FrameBase|None:
+        payload = bytearray()
+        payload += target.remote_id.byte_value
+        payload.append(MultiviewerOpcode.ASPECT.value)
+        payload += bytes([0 for _ in range(7)])
+        payload.append(aspect.value)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+
+    @staticmethod
+    def construct_set_auto_switch(mxr:DeviceRegistry, target:DeviceBase, enable:bool) -> FrameBase|None:
+        payload = bytearray()
+        payload += target.remote_id.byte_value
+        payload.append(MultiviewerOpcode.AUTO_SWITCH.value)
+        payload += bytes([0 for _ in range(7)])
+        payload.append(1 if enable else 0)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+
+    @staticmethod
+    def construct_set_output_mode(mxr:DeviceRegistry, target:DeviceBase, mode:MultiviewerOutputMode) -> FrameBase|None:
+        payload = bytearray()
+        payload += target.remote_id.byte_value
+        payload.append(MultiviewerOpcode.OUTPUT_MODE.value)
+        payload += bytes([0 for _ in range(7)])
+        payload.append(mode.value)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+
+    @staticmethod
+    def construct_set_output_itc_mode(mxr:DeviceRegistry, target:DeviceBase, mode:MultiviewerITCMode) -> FrameBase|None:
+        payload = bytearray()
+        payload += target.remote_id.byte_value
+        payload.append(MultiviewerOpcode.OUTPUT_ITC_MODE.value)
+        payload += bytes([0 for _ in range(7)])
+        payload.append(mode.value)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+
+    @staticmethod
+    def construct_set_hdcp_mode(mxr:DeviceRegistry, target:DeviceBase, mode:MultiviewerHDCPMode) -> FrameBase|None:
+        payload = bytearray()
+        payload += target.remote_id.byte_value
+        payload.append(MultiviewerOpcode.HDCP_MODE.value)
+        payload += bytes([0 for _ in range(7)])
+        payload.append(mode.value)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+
+    @staticmethod
+    def construct_set_connected_source(mxr:DeviceRegistry, target:DeviceBase, input:int, source:MxrDeviceUid|None) -> FrameBase|None:
+        payload = bytearray()
+        payload += target.remote_id.byte_value
+        payload.append(MultiviewerOpcode.CONFIG_SOURCE.value)
+        payload += bytes([0 for _ in range(7)])
+        payload.append(input)
+        if (source is None):
+            payload += bytes([0 for _ in range(16)])
+        else:
+            payload += source.byte_value
+        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+
+    @staticmethod
+    def construct_auto_route(mxr:DeviceRegistry, target:DeviceBase) -> FrameBase|None:
+        payload = bytearray()
+        payload += target.remote_id.byte_value
+        payload.append(MultiviewerOpcode.AUTO_ROUTE.value)
+        payload += bytes([0 for _ in range(7)])
+        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
 
     def __str__(self) -> str:
         return f"{str(self.remote_device)} multiviewer configuration"

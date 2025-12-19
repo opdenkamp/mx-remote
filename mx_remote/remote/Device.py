@@ -6,20 +6,33 @@
 ##################################################
 
 from .Bay import Bay
-from ..Interface import MxrCallbacks, V2IPStreamSources, AmpDolbySettings, DeviceStatus, DeviceV2IPDetails, SystemTemperature, V2IPStreamSourcesList
+from ..Interface import MxrCallbacks, V2IPStreamSources, AmpDolbySettings, DeviceStatus, DeviceV2IPDetails, SystemTemperature, V2IPStreamSourcesList, Multiviewer
 from ..proto.BayConfig import BayConfig
 from ..proto.FrameHello import FrameHello
-from ..proto.FrameMeshOperation import constructFrameMeshOperation, MeshOperation, FrameMeshOperation
-from ..proto.FrameV2IPStats import constructFrameV2IPStats
+from ..proto.FrameMeshOperation import MeshOperation, FrameMeshOperation
+from ..proto.FrameV2IPStats import FrameV2IPStats
 from ..proto.FrameNetworkStatus import NetworkPortStatus
-from ..proto.FrameReboot import constructFrameReboot
+from ..proto.FrameReboot import FrameReboot
 from ..proto.FrameV2IPBayMapping import FrameV2IPBayMapping
 from ..proto.V2IPStats import V2IPDeviceStats
 from ..proto.FrameSystemStatus import FrameSystemStatus
-from ..proto.Multiviewer import MultiviewerConfig
 from ..proto.FrameV2IPMultiviewer import V2IPMultiviewerConfig
 from ..proto.FrameFirmwareVersion import FirmwareType,FirmwareVersion
 from ..proto.FrameTopology import FrameTopology, TopologyEntry
+from ..proto.FrameV2IPMultiviewer import FrameV2IPMultiviewer
+from ..proto.Multiviewer import (
+	MultiviewerConfig,
+	MultiviewerViewMode,
+	MultiviewerSource,
+	MultiviewerBoolSetting,
+	MultiviewerEDIDTemplate,
+	MultiviewerPipSize,
+	MultiviewerPipPosition,
+	MultiviewerAspectRatio,
+	MultiviewerOutputMode,
+	MultiviewerITCMode,
+	MultiviewerHDCPMode,
+)
 from ..Uid import MxrDeviceUid
 from typing import Any, Callable, override
 from datetime import datetime
@@ -56,7 +69,7 @@ class Device(DeviceBase):
 		self._sys_message:str|None = None
 		self._topology:list[TopologyEntry]|None = None
 		self._rebooting = False
-		self._multiviewer:MultiviewerConfig|None = None
+		self._multiviewer:MultiviewerImpl = MultiviewerImpl(device=self)
 		self._hello_received = time.time()
 		self._dev_callbacks:list[Callable[[DeviceBase], None]] = []
 
@@ -127,11 +140,6 @@ class Device(DeviceBase):
 	def mesh_support(self) -> bool:
 		return (self.features is not None) \
 			and self.features.mesh_support
-
-	@property
-	def is_multiviewer(self) -> bool:
-		return (self.features is not None) \
-			and self.features.multiviewer
 
 	@property
 	def crashed_recently(self) -> bool:
@@ -380,7 +388,7 @@ class Device(DeviceBase):
 	@property
 	def model_name(self) -> str:
 		if self.is_v2ip:
-			if self.is_multiviewer:
+			if self.is_oneip_multiviewer:
 				return 'OneIP Multiviewer'
 			if self.has_local_source and self.has_local_sink:
 				return 'OneIP Transceiver'
@@ -500,7 +508,7 @@ class Device(DeviceBase):
 
 	@property
 	@override
-	def multiviewer(self) -> MultiviewerConfig|None:
+	def multiviewer(self) -> Multiviewer:
 		return self._multiviewer
 
 	@dolby_settings.setter
@@ -574,8 +582,7 @@ class Device(DeviceBase):
 				self._sys_message = data.message
 				self.call_callbacks()
 		elif isinstance(data, V2IPMultiviewerConfig):
-			if (self._multiviewer is None) or (self._multiviewer != data):
-				self._multiviewer = data
+			if self._multiviewer.update(config=data):
 				self.call_callbacks()
 		elif isinstance(data, FirmwareVersion):
 			if (data.firmware_type not in self._v2ip_versions) or (self._v2ip_versions[data.firmware_type] != data):
@@ -633,7 +640,7 @@ class Device(DeviceBase):
 		return None
 
 	async def reboot(self) -> bool:
-		frame = constructFrameReboot(mxr=self.registry, target=self)
+		frame = FrameReboot.construct(mxr=self.registry, target=self)
 		if frame is not None:
 			self.registry.transmit(frame.frame)
 			self._rebooting = True
@@ -641,21 +648,21 @@ class Device(DeviceBase):
 		return False
 
 	async def mesh_promote(self) -> bool:
-		frame = constructFrameMeshOperation(mxr=self.registry, target=self, operation=MeshOperation.REPORT_MASTER)
+		frame = FrameMeshOperation.construct(mxr=self.registry, target=self, operation=MeshOperation.REPORT_MASTER)
 		if frame is not None:
 			self.registry.transmit(frame.frame)
 			return True
 		return False
 
 	async def mesh_remove(self) -> bool:
-		frame = constructFrameMeshOperation(mxr=self.registry, target=self, operation=MeshOperation.UNREGISTER)
+		frame = FrameMeshOperation.construct(mxr=self.registry, target=self, operation=MeshOperation.UNREGISTER)
 		if frame is not None:
 			self.registry.transmit(frame.frame)
 			return True
 		return False
 
 	async def read_stats(self, enable:bool) -> bool:
-		frame = constructFrameV2IPStats(registry=self.registry, device=self, enable=enable)
+		frame = FrameV2IPStats.construct(registry=self.registry, device=self, enable=enable)
 		if frame is not None:
 			self.registry.transmit(frame.frame)
 			return True
@@ -670,3 +677,315 @@ class Device(DeviceBase):
 	def __eq__(self, other) -> bool:
 		return isinstance(other, DeviceBase) and \
 			(self.remote_id == other.remote_id)
+
+class MultiviewerImpl(Multiviewer):
+	def __init__(self, device:Device) -> None:
+		self._device = device
+		self._config:MultiviewerConfig|None = None
+
+	def update(self, config:MultiviewerConfig) -> bool:
+		if (self._config is None) or (self._config != config):
+			self._config = config
+			return True
+		return False
+
+	@property
+	def device(self) -> Device:
+		return self._device
+
+	@property
+	def mcu_version(self) -> str:
+		if not self.device.is_oneip_multiviewer:
+			return "Not a Multiviewer"
+		if (self._config is None) or (self._config.mcu_version is None):
+			return "Unknown"
+		return self._config.mcu_version
+
+	@property
+	def scaler_version(self) -> str:
+		if not self.device.is_oneip_multiviewer:
+			return "Not a Multiviewer"
+		if (self._config is None) or (self._config.scaler_version is None):
+			return "Unknown"
+		return self._config.scaler_version
+
+	@property
+	def view_mode(self) -> MultiviewerViewMode:
+		if not self.device.is_oneip_multiviewer:
+			return MultiviewerViewMode.UNKNOWN
+		if (self._config is None):
+			return MultiviewerViewMode.UNKNOWN
+		return self._config.view_mode
+
+	def video_source(self, screen:int) -> MultiviewerSource:
+		if not self.device.is_oneip_multiviewer:
+			return MultiviewerSource.UNKNOWN
+		if (self._config is None):
+			return MultiviewerSource.UNKNOWN
+		return self._config.video_source(screen=screen)
+
+	@property
+	def audio_source(self) -> MultiviewerSource:
+		if not self.device.is_oneip_multiviewer:
+			return MultiviewerSource.UNKNOWN
+		if (self._config is None):
+			return MultiviewerSource.UNKNOWN
+		return self._config.audio_source
+
+	@property
+	def audio_volume(self) -> int:
+		if not self.device.is_oneip_multiviewer:
+			return -1
+		if (self._config is None):
+			return -1
+		return self._config.audio_volume
+
+	@property
+	def audio_muted(self) -> MultiviewerBoolSetting:
+		if not self.device.is_oneip_multiviewer:
+			return MultiviewerBoolSetting.UNKNOWN
+		if (self._config is None):
+			return MultiviewerBoolSetting.UNKNOWN
+		return self._config.audio_muted
+
+	@property
+	def edid_template(self) -> MultiviewerEDIDTemplate:
+		if not self.device.is_oneip_multiviewer:
+			return MultiviewerEDIDTemplate.UNKNOWN
+		if (self._config is None):
+			return MultiviewerEDIDTemplate.UNKNOWN
+		return self._config.edid_template
+
+	@property
+	def remote_control(self) -> MultiviewerSource:
+		if not self.device.is_oneip_multiviewer:
+			return MultiviewerSource.UNKNOWN
+		if (self._config is None):
+			return MultiviewerSource.UNKNOWN
+		return self._config.remote_control
+
+	@property
+	def pip_size(self) -> MultiviewerPipSize:
+		if not self.device.is_oneip_multiviewer:
+			return MultiviewerPipSize.UNKNOWN
+		if (self._config is None):
+			return MultiviewerPipSize.UNKNOWN
+		return self._config.pip_size
+
+	@property
+	def pip_position(self) -> MultiviewerPipPosition:
+		if not self.device.is_oneip_multiviewer:
+			return MultiviewerPipPosition.UNKNOWN
+		if (self._config is None):
+			return MultiviewerPipPosition.UNKNOWN
+		return self._config.pip_position
+
+	@property
+	def screen_aspect(self) -> MultiviewerAspectRatio:
+		if not self.device.is_oneip_multiviewer:
+			return MultiviewerAspectRatio.UNKNOWN
+		if (self._config is None):
+			return MultiviewerAspectRatio.UNKNOWN
+		return self._config.aspect_ratio
+
+	@property
+	def auto_switch(self) -> MultiviewerBoolSetting:
+		if not self.device.is_oneip_multiviewer:
+			return MultiviewerBoolSetting.UNKNOWN
+		if (self._config is None):
+			return MultiviewerBoolSetting.UNKNOWN
+		return self._config.auto_switch
+
+	@property
+	def output_mode(self) -> MultiviewerOutputMode:
+		if not self.device.is_oneip_multiviewer:
+			return MultiviewerOutputMode.UNKNOWN
+		if (self._config is None):
+			return MultiviewerOutputMode.UNKNOWN
+		return self._config.output_mode
+
+	@property
+	def output_itc_mode(self) -> MultiviewerITCMode:
+		if not self.device.is_oneip_multiviewer:
+			return MultiviewerITCMode.UNKNOWN
+		if (self._config is None):
+			return MultiviewerITCMode.UNKNOWN
+		return self._config.output_itc_mode
+
+	@property
+	def hdcp_mode(self) -> MultiviewerHDCPMode:
+		if not self.device.is_oneip_multiviewer:
+			return MultiviewerHDCPMode.UNKNOWN
+		if (self._config is None):
+			return MultiviewerHDCPMode.UNKNOWN
+		return self._config.hdcp_mode
+
+	def connected_source(self, input:int) -> MxrDeviceUid|None:
+		if not self.device.is_oneip_multiviewer:
+			return None
+		if (self._config is None):
+			return None
+		return self._config.mapping(idx=input)
+
+	async def set_view_mode(self, view_mode:MultiviewerViewMode) -> bool:
+		if not self.device.is_oneip_multiviewer:
+			return False
+		if (self.view_mode == view_mode):
+			return True
+		frame = FrameV2IPMultiviewer.construct_set_view_mode(mxr=self.device.registry, target=self.device, view_mode=view_mode)
+		if frame is not None:
+			self.device.registry.transmit(frame.frame)
+			return True
+		return False
+
+	async def set_video_source(self, screen:int, source:MultiviewerSource) -> bool:
+		if not self.device.is_oneip_multiviewer:
+			return False
+		if (self.video_source(screen=screen) == source):
+			return True
+		frame = FrameV2IPMultiviewer.construct_set_video_source(mxr=self.device.registry, target=self.device, screen=screen, source=source)
+		if frame is not None:
+			self.device.registry.transmit(frame.frame)
+			return True
+		return False
+
+	async def set_audio_source(self, source:MultiviewerSource) -> bool:
+		if not self.device.is_oneip_multiviewer:
+			return False
+		if (self.audio_source == source):
+			return True
+		frame = FrameV2IPMultiviewer.construct_set_audio_source(mxr=self.device.registry, target=self.device, source=source)
+		if frame is not None:
+			self.device.registry.transmit(frame.frame)
+			return True
+		return False
+
+	async def set_audio_volume(self, volume:int, muted:bool) -> bool:
+		if not self.device.is_oneip_multiviewer:
+			return False
+		if (self.audio_volume == volume) and (self.audio_muted == (MultiviewerBoolSetting.ON if muted else MultiviewerBoolSetting.OFF)):
+			return True
+		frame = FrameV2IPMultiviewer.construct_set_audio_volume(mxr=self.device.registry, target=self.device, volume=volume, muted=muted)
+		if frame is not None:
+			self.device.registry.transmit(frame.frame)
+			return True
+		return False
+
+	async def set_edid_template(self, edid:MultiviewerEDIDTemplate) -> bool:
+		if not self.device.is_oneip_multiviewer:
+			return False
+		if (self.edid_template == edid):
+			return True
+		frame = FrameV2IPMultiviewer.construct_set_edid_template(mxr=self.device.registry, target=self.device, edid=edid)
+		if frame is not None:
+			self.device.registry.transmit(frame.frame)
+			return True
+		return False
+
+	async def set_remote_control(self, source:MultiviewerSource) -> bool:
+		if not self.device.is_oneip_multiviewer:
+			return False
+		if (self.remote_control == source):
+			return True
+		frame = FrameV2IPMultiviewer.construct_set_remote_control(mxr=self.device.registry, target=self.device, source=source)
+		if frame is not None:
+			self.device.registry.transmit(frame.frame)
+			return True
+		return False
+
+	async def set_pip_size(self, size:MultiviewerPipSize) -> bool:
+		if not self.device.is_oneip_multiviewer:
+			return False
+		if (self.pip_size == size):
+			return True
+		frame = FrameV2IPMultiviewer.construct_set_pip_size(mxr=self.device.registry, target=self.device, size=size)
+		if frame is not None:
+			self.device.registry.transmit(frame.frame)
+			return True
+		return False
+
+	async def set_pip_position(self, position:MultiviewerPipPosition) -> bool:
+		if not self.device.is_oneip_multiviewer:
+			return False
+		if (self.pip_position == position):
+			return True
+		frame = FrameV2IPMultiviewer.construct_set_pip_position(mxr=self.device.registry, target=self.device, position=position)
+		if frame is not None:
+			self.device.registry.transmit(frame.frame)
+			return True
+		return False
+
+	async def set_screen_aspect(self, aspect:MultiviewerAspectRatio) -> bool:
+		if not self.device.is_oneip_multiviewer:
+			return False
+		if (self.screen_aspect == aspect):
+			return True
+		frame = FrameV2IPMultiviewer.construct_set_screen_aspect(mxr=self.device.registry, target=self.device, aspect=aspect)
+		if frame is not None:
+			self.device.registry.transmit(frame.frame)
+			return True
+		return False
+
+	async def set_auto_switch(self, enable:bool) -> bool:
+		if not self.device.is_oneip_multiviewer:
+			return False
+		if (self.auto_switch == (MultiviewerBoolSetting.ON if enable else MultiviewerBoolSetting.OFF)):
+			return True
+		frame = FrameV2IPMultiviewer.construct_set_auto_switch(mxr=self.device.registry, target=self.device, enable=enable)
+		if frame is not None:
+			self.device.registry.transmit(frame.frame)
+			return True
+		return False
+
+	async def set_output_mode(self, mode:MultiviewerOutputMode) -> bool:
+		if not self.device.is_oneip_multiviewer:
+			return False
+		if (self.output_mode == mode):
+			return True
+		frame = FrameV2IPMultiviewer.construct_set_output_mode(mxr=self.device.registry, target=self.device, mode=mode)
+		if frame is not None:
+			self.device.registry.transmit(frame.frame)
+			return True
+		return False
+
+	async def set_output_itc_mode(self, mode:MultiviewerITCMode) -> bool:
+		if not self.device.is_oneip_multiviewer:
+			return False
+		if (self.output_itc_mode == mode):
+			return True
+		frame = FrameV2IPMultiviewer.construct_set_output_itc_mode(mxr=self.device.registry, target=self.device, mode=mode)
+		if frame is not None:
+			self.device.registry.transmit(frame.frame)
+			return True
+		return False
+
+	async def set_hdcp_mode(self, mode:MultiviewerHDCPMode) -> bool:
+		if not self.device.is_oneip_multiviewer:
+			return False
+		if (self.hdcp_mode == mode):
+			return True
+		frame = FrameV2IPMultiviewer.construct_set_hdcp_mode(mxr=self.device.registry, target=self.device, mode=mode)
+		if frame is not None:
+			self.device.registry.transmit(frame.frame)
+			return True
+		return False
+
+	async def set_connected_source(self, input:int, source:MxrDeviceUid|None) -> bool:
+		if not self.device.is_oneip_multiviewer:
+			return False
+		current = self.connected_source(input=input)
+		if ((current is None) and (source is not None)) or ((current is not None) and (source is None)) or (current != source):
+			frame = FrameV2IPMultiviewer.construct_set_connected_source(mxr=self.device.registry, target=self.device, input=input, source=source)
+			if frame is not None:
+				self.device.registry.transmit(frame.frame)
+				return True
+		return False
+
+	async def auto_route(self) -> bool:
+		if not self.device.is_oneip_multiviewer:
+			return False
+		frame = FrameV2IPMultiviewer.construct_auto_route(mxr=self.device.registry, target=self.device)
+		if frame is not None:
+			self.device.registry.transmit(frame.frame)
+			return True
+		return False

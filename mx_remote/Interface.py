@@ -15,7 +15,18 @@ from .proto import RCKey
 from .proto.Constants import *
 from .proto.Data import VolumeMuteStatus
 from .proto.V2IPStats import V2IPDeviceStats
-from .proto.Multiviewer import MultiviewerConfig
+from .proto.Multiviewer import (
+	MultiviewerViewMode,
+	MultiviewerSource,
+	MultiviewerBoolSetting,
+	MultiviewerEDIDTemplate,
+	MultiviewerPipSize,
+	MultiviewerPipPosition,
+	MultiviewerAspectRatio,
+	MultiviewerOutputMode,
+	MultiviewerITCMode,
+	MultiviewerHDCPMode,
+)
 from .proto.Svd import SvdMap
 from typing import Any, Callable
 from .Uid import MxrDeviceUid, MxrBayUid
@@ -1379,7 +1390,7 @@ class DeviceBase(ABC):
 
     @abstractmethod
     async def read_stats(self, enable:bool) -> bool:
-         '''start or stop dumping stats'''
+        '''start or stop dumping stats'''
 
     @abstractmethod
     async def get_log(self) -> str|None:
@@ -1391,7 +1402,156 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
-    def multiviewer(self) -> MultiviewerConfig|None:
+    def multiviewer(self) -> 'Multiviewer':
+        pass
+
+class Multiviewer(ABC):
+    @property
+    @abstractmethod
+    def device(self) -> DeviceBase:
+        pass
+
+    @property
+    @abstractmethod
+    def mcu_version(self) -> str:
+        pass
+
+    @property
+    @abstractmethod
+    def scaler_version(self) -> str:
+        pass
+
+    @property
+    @abstractmethod
+    def view_mode(self) -> MultiviewerViewMode:
+        pass
+
+    @abstractmethod
+    def video_source(self, screen:int) -> MultiviewerSource:
+        pass
+
+    @property
+    @abstractmethod
+    def audio_source(self) -> MultiviewerSource:
+        pass
+
+    @property
+    @abstractmethod
+    def audio_volume(self) -> int:
+        pass
+
+    @property
+    @abstractmethod
+    def audio_muted(self) -> MultiviewerBoolSetting:
+        pass
+
+    @property
+    @abstractmethod
+    def edid_template(self) -> MultiviewerEDIDTemplate:
+        pass
+
+    @property
+    @abstractmethod
+    def remote_control(self) -> MultiviewerSource:
+        pass
+
+    @property
+    @abstractmethod
+    def pip_size(self) -> MultiviewerPipSize:
+        pass
+
+    @property
+    @abstractmethod
+    def pip_position(self) -> MultiviewerPipPosition:
+        pass
+
+    @property
+    @abstractmethod
+    def screen_aspect(self) -> MultiviewerAspectRatio:
+        pass
+
+    @property
+    @abstractmethod
+    def auto_switch(self) -> MultiviewerBoolSetting:
+        pass
+
+    @property
+    @abstractmethod
+    def output_mode(self) -> MultiviewerOutputMode:
+        pass
+
+    @property
+    @abstractmethod
+    def output_itc_mode(self) -> MultiviewerITCMode:
+        pass
+
+    @property
+    @abstractmethod
+    def hdcp_mode(self) -> MultiviewerHDCPMode:
+        pass
+
+    @abstractmethod
+    def connected_source(self, input:int) -> MxrDeviceUid|None:
+        pass
+
+    @abstractmethod
+    async def set_view_mode(self, view_mode:MultiviewerViewMode) -> bool:
+        pass
+
+    @abstractmethod
+    async def set_video_source(self, screen:int, source:MultiviewerSource) -> bool:
+        pass
+
+    @abstractmethod
+    async def set_audio_source(self, source:MultiviewerSource) -> bool:
+        pass
+
+    @abstractmethod
+    async def set_audio_volume(self, volume:int, muted:bool) -> bool:
+        pass
+
+    @abstractmethod
+    async def set_edid_template(self, edid:MultiviewerEDIDTemplate) -> bool:
+        pass
+
+    @abstractmethod
+    async def set_remote_control(self, source:MultiviewerSource) -> bool:
+        pass
+
+    @abstractmethod
+    async def set_pip_size(self, size:MultiviewerPipSize) -> bool:
+        pass
+
+    @abstractmethod
+    async def set_pip_position(self, position:MultiviewerPipPosition) -> bool:
+        pass
+
+    @abstractmethod
+    async def set_screen_aspect(self, aspect:MultiviewerAspectRatio) -> bool:
+        pass
+
+    @abstractmethod
+    async def set_auto_switch(self, enable:bool) -> bool:
+        pass
+
+    @abstractmethod
+    async def set_output_mode(self, mode:MultiviewerOutputMode) -> bool:
+        pass
+
+    @abstractmethod
+    async def set_output_itc_mode(self, mode:MultiviewerITCMode) -> bool:
+        pass
+
+    @abstractmethod
+    async def set_hdcp_mode(self, mode:MultiviewerHDCPMode) -> bool:
+        pass
+
+    @abstractmethod
+    async def set_connected_source(self, input:int, source:MxrDeviceUid|None) -> bool:
+        pass
+
+    @abstractmethod
+    async def auto_route(self) -> bool:
         pass
 
 class BayLink:

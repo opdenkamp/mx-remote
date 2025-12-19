@@ -17,7 +17,3 @@ class FrameReboot(FrameBase):
     
     def __str__(self) -> str:
         return "reboot"
-
-def constructFrameReboot(mxr:DeviceRegistry, target:DeviceBase) -> FrameBase|None:
-    warnings.warn("use FrameReboot.construct() instead", DeprecationWarning)
-    return FrameReboot.construct(mxr=mxr, target=target)
