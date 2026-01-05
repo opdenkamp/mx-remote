@@ -75,6 +75,13 @@ class FrameHeader:
             return None
         return MxrDeviceUid(self.data[idx:idx+16])
 
+    def data_bytes(self, idx:int=0) -> bytes|None:
+        if (self.data is None):
+            return None
+        if (idx >= len(self.data)):
+            return None
+        return self.data[idx:]
+
     def payload_u8(self, idx:int) -> int|None:
         return self.data_u8(idx=(idx + 24))
 
@@ -92,6 +99,9 @@ class FrameHeader:
 
     def payload_uuid(self, idx:int) -> MxrDeviceUid|None:
         return self.data_uuid(idx=(idx + 24))
+
+    def payload_bytes(self, idx:int) -> bytes|None:
+        return self.data_bytes(idx=(idx + 24))
 
     @cached_property
     def protocol(self) -> int:

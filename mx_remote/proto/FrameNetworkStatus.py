@@ -96,8 +96,9 @@ class UtpLinkErrorStatusImpl(UtpLinkErrorStatus):
         return errs
 
 class NetworkPortStatusImpl(NetworkPortStatus):
-    def __init__(self, data:bytes) -> None:
+    def __init__(self, data:bytes, protocol:int) -> None:
         self.data = data
+        self.protocol = protocol
 
     @cached_property
     def port(self) -> int:
@@ -143,6 +144,12 @@ class NetworkPortStatusImpl(NetworkPortStatus):
     def cable_status(self) -> list[UtpCableStatus]:
         return [UtpCableStatusImpl(self.data[8:20]), UtpCableStatusImpl(self.data[20:32]), UtpCableStatusImpl(self.data[32:44]), UtpCableStatusImpl(self.data[44:56])]
 
+    @cached_property
+    def mac_address(self) -> str|None:
+        if (self.protocol >= 0x21):
+            return f"{self.data[140]:02X}:{self.data[141]:02X}:{self.data[142]:02X}:{self.data[143]:02X}:{self.data[144]:02X}:{self.data[145]:02X}"
+        return None
+
     def __str__(self) -> str:
         return f"network status port {self.name} status: {self.errors} ip: {self.ip} vct: {self.vct_status} speed: {self.link_speed} full duplex: {self.link_full_duplex} cable: {str(self.cable_status)}"
 
@@ -151,7 +158,7 @@ class FrameNetworkStatus(FrameBase):
     def status(self) -> NetworkPortStatus|None:
         if (self.payload is None):
             return None
-        return NetworkPortStatusImpl(data=self.payload)
+        return NetworkPortStatusImpl(data=self.payload, protocol=self.protocol)
 
     def process(self) -> None:
         dev = self.remote_device

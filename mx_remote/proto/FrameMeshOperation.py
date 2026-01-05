@@ -16,7 +16,8 @@ class MeshOperation(Enum):
     UNREGISTER = 1
     REPLACE = 2
     REGENERATE_ADDRESSES = 3
-    REPORT_MASTER = 4
+    REPORT_CONTROLLER = 4
+    PROMOTE_CONTROLLER = 5
     REPORT_MEMBERSHIP = 0xFF
 
     def __str__(self) -> str:
@@ -28,8 +29,10 @@ class MeshOperation(Enum):
             return "replace"
         if self.value == MeshOperation.REGENERATE_ADDRESSES.value:
             return "regenerate addresses"
-        if self.value == MeshOperation.REPORT_MASTER.value:
-            return "report master"
+        if self.value == MeshOperation.REPORT_CONTROLLER.value:
+            return "report controller"
+        if self.value == MeshOperation.PROMOTE_CONTROLLER.value:
+            return "promote controller"
         if self.value == MeshOperation.REPORT_MEMBERSHIP.value:
             return "report membership"
         return "unknown"

@@ -6,7 +6,20 @@
 ##################################################
 
 from .Bay import Bay
-from ..Interface import MxrCallbacks, V2IPStreamSources, AmpDolbySettings, DeviceStatus, DeviceV2IPDetails, SystemTemperature, V2IPStreamSourcesList, Multiviewer
+from ..Interface import (
+	MxrCallbacks,
+	V2IPStreamSources,
+	AmpDolbySettings,
+	DeviceStatus,
+	DeviceV2IPDetails,
+	SystemTemperature,
+	V2IPStreamSourcesList,
+	Multiviewer,
+	AudioEndpoint,
+	AudioEndpoints,
+	AudioEndpointType,
+	AudioChangeSource,
+)
 from ..proto.BayConfig import BayConfig
 from ..proto.FrameHello import FrameHello
 from ..proto.FrameMeshOperation import MeshOperation, FrameMeshOperation
@@ -65,6 +78,7 @@ class Device(DeviceBase):
 		self._v2ip_in_mapping:list[MxrDeviceUid]|None = None
 		self._v2ip_out_mapping:list[MxrDeviceUid]|None = None
 		self._v2ip_versions:dict[FirmwareType,FirmwareVersion] = {}
+		self._audio_endpoints:AudioEndpoints|None = None
 		self._sys_status:int|None = None
 		self._sys_message:str|None = None
 		self._topology:list[TopologyEntry]|None = None
@@ -540,6 +554,26 @@ class Device(DeviceBase):
 			self._check_config_complete()
 			self.call_callbacks()
 
+	def get_by_audio_endpoint(self, endpoint:AudioEndpointType) -> AudioEndpoint|None:
+		first_input = self.first_input
+		if (first_input is not None) and (first_input.audio_endpoint is not None):
+			ep = first_input.audio_endpoint.get_type(endpoint=endpoint)
+			if (ep is not None):
+				return ep
+		first_output = self.first_output
+		if (first_output is not None) and (first_output.audio_endpoint is not None):
+			return first_output.audio_endpoint.get_type(endpoint=endpoint)
+		return None
+
+	@override
+	def audio_endpoint_by_name(self, name:str) -> AudioEndpoint|None:
+		if (self._audio_endpoints is None):
+			return None
+		for _, ep in self._audio_endpoints.endpoints.items():
+			if (str(ep.id) == name):
+				return ep
+		return None
+
 	@override
 	def on_mxr_update(self, data:Any) -> None:
 		if isinstance(data, BayConfig):
@@ -592,6 +626,21 @@ class Device(DeviceBase):
 			if (self._topology is None) or (self._topology != data.topology):
 				self._topology = data.topology
 				self.call_callbacks()
+		elif isinstance(data, AudioEndpoints):
+			self._audio_endpoints = data
+			first_input = self.first_input
+			first_ep = data.tree_first_output
+			if (first_input is not None) and (first_ep is not None) and (self.is_oneip_tz or self.is_oneip_tx):
+				first_input.audio_endpoint = first_ep # pyright: ignore[reportAttributeAccessIssue]
+			first_output = self.first_output
+			first_ep = data.tree_first_input
+			if (first_output is not None) and (first_ep is not None) and (self.is_oneip_tz or self.is_oneip_rx):
+				first_output.audio_endpoint = first_ep # pyright: ignore[reportAttributeAccessIssue]
+		elif isinstance(data, AudioChangeSource):
+			if (data.source_uid is not None) and (data.source_id is not None):
+				source_ep = self.registry.get_bay_by_audio_endpoint(device=data.source_uid, endpoint=AudioEndpointType(data.source_id))
+				if (source_ep is not None) and (source_ep.bay is not None):
+					source_ep.bay.on_mxr_audio_source_change(endpoint=source_ep, data=data) # pyright: ignore[reportAttributeAccessIssue]
 		else:
 			_LOGGER.warning(f"unknown update type {str(type(data))}: {str(data)}")
 
@@ -607,6 +656,14 @@ class Device(DeviceBase):
 	@override
 	def v2ip_firmware_versions(self) -> dict[FirmwareType,FirmwareVersion]|None:
 		return self._v2ip_versions
+
+	@property
+	def mac_address(self) -> str|None:
+		for _, status in self._network.items():
+			v = status.mac_address
+			if (v is not None) and (v != "00:00:00:00:00:00"):
+				return v
+		return None
 
 	@property
 	def network_status(self) -> dict[int, NetworkPortStatus]:
@@ -648,7 +705,7 @@ class Device(DeviceBase):
 		return False
 
 	async def mesh_promote(self) -> bool:
-		frame = FrameMeshOperation.construct(mxr=self.registry, target=self, operation=MeshOperation.REPORT_MASTER)
+		frame = FrameMeshOperation.construct(mxr=self.registry, target=self, operation=MeshOperation.PROMOTE_CONTROLLER)
 		if frame is not None:
 			self.registry.transmit(frame.frame)
 			return True

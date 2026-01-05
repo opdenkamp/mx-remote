@@ -113,6 +113,9 @@ class FrameBase:
     def payload_uuid(self, idx:int=0) -> MxrDeviceUid|None:
         return self.header.payload_uuid(idx=idx)
 
+    def payload_bytes(self, idx:int) -> bytes|None:
+        return self.header.payload_bytes(idx=idx)
+
     @payload.setter
     def payload(self, val:bytes) -> None:
         self.header.payload = val

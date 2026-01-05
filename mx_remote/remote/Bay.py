@@ -18,6 +18,7 @@ from ..proto.FrameSetName import FrameSetName
 from ..proto.FrameRCAction import FrameRCAction
 from ..proto.FrameVolumeSet import FrameVolumeSet
 from ..proto.FrameAmpZoneSettings import FrameAmpZoneSettings
+from ..proto.FrameV2IPAudio import FrameV2IPAudio
 from ..Interface import (
     BayBase,
     DeviceBase,
@@ -34,6 +35,9 @@ from ..Interface import (
     HiddenStatus,
     BayMirrorStatus,
     MxrDeviceUid,
+    AudioEndpoint,
+    AudioEndpointType,
+    AudioChangeSource,
 )
 from ..Uid import MxrBayUid
 
@@ -70,6 +74,7 @@ class Bay(BayBase):
         self._decoder_disabled = None
         self._encoder_disabled = None
         self._status_mask = data.status
+        self._audio_endpoint:AudioEndpoint|None = None
         self._v2ip_uid:MxrDeviceUid|None = None
         self._amp_settings:AmpZoneSettings|None = None
         self._filtered:FilteredDevices = FilteredDevices()
@@ -386,6 +391,17 @@ class Bay(BayBase):
 
     @property
     @override
+    def available_video_sources(self) -> list[BayBase]:
+        rv = []
+        if (not self.is_output):
+            return rv
+        for _, bay in self.device.inputs.items():
+            if (not bay.is_audio):
+                rv.append(bay)
+        return rv
+
+    @property
+    @override
     def audio_source(self) -> BayBase|None:
         if not self.is_output:
             return None
@@ -405,8 +421,33 @@ class Bay(BayBase):
         prev = self.audio_source
         if (self._audio_source is None) or (source != self._audio_source):
             self._audio_source = source
-        if prev != self.audio_source:
-            self.callbacks.on_audio_source_changed(self, self.audio_source)
+        if (prev != self.audio_source):
+            self.callbacks.on_audio_source_changed(bay=self, audio_source=self.audio_source)
+            self.call_callbacks()
+
+    @property
+    @override
+    def available_audio_sources(self) -> list[BayBase]:
+        rv = []
+        if (not self.is_output):
+            return rv
+        for _, bay in self.device.inputs.items():
+            if self.is_v2ip_sink:
+                rv.append(bay)
+            elif (bay.is_audio):
+                rv.append(bay)
+        return rv
+
+    @property
+    @override
+    def audio_endpoint(self) -> AudioEndpoint|None:
+        return self._audio_endpoint
+
+    @audio_endpoint.setter
+    def audio_endpoint(self, endpoint:AudioEndpoint) -> None:
+        if (self._audio_endpoint is None) or (self._audio_endpoint != endpoint):
+            self._audio_endpoint = endpoint
+            self._audio_endpoint.bay = self
             self.call_callbacks()
 
     @property
@@ -734,13 +775,24 @@ class Bay(BayBase):
         return False
 
     @override
-    async def select_audio_source(self, source:int|BayBase|str|None) -> bool:
+    async def select_audio_source(self, source:int|BayBase|str|None, endpoint:str|None=None) -> bool:
         if not self.is_v2ip_sink:
             return False
         if isinstance(source, int):
             source = self.device.get_by_portnum(source)
-        frame = FrameV2IPSourceSwitch.construct(mxr=self.device.registry, target=self, audio=source)
-        if frame is not None:
+        elif isinstance(source, str):
+            source = self.bay_by_user_name(name=source)
+        if (source is None) or (not isinstance(source, BayBase)):
+            return False
+
+        if (endpoint is not None):
+            ep = source.device.audio_endpoint_by_name(name=endpoint)
+            if (ep is None) or (self.audio_endpoint is None):
+                return False
+            frame = FrameV2IPAudio.construct_select_input(mxr=self.device.registry, sink=self.device.remote_id, sink_ep=self.audio_endpoint, source=source.device.remote_id, source_ep=ep)
+        else:
+            frame = FrameV2IPSourceSwitch.construct(mxr=self.device.registry, target=self, audio=source)
+        if (frame is not None):
             self.device.registry.transmit(frame.frame)
             return True
         return False
@@ -758,14 +810,16 @@ class Bay(BayBase):
                     return True
         return await self.device.get_api(f"port/set/{port}/{self.bay}/{1 if opt else 0}") is not None
 
+    def bay_by_user_name(self, name:str) -> BayBase|None:
+        for _, bay in self.device.inputs.items():
+            if (bay.user_name == name):
+                return bay
+        return None
+
     @override
     async def select_video_source_by_user_name(self, name:str, opt:bool=True) -> bool:
-        source = None
-        for _, bay in self.device.inputs.items():
-            if bay.user_name == name:
-                source = bay
-                break
-        if source is None:
+        source = self.bay_by_user_name(name=name)
+        if (source is None):
             return False
         return await self.select_video_source(source.port, opt)
 
@@ -825,11 +879,11 @@ class Bay(BayBase):
                 for b in range(1, 4):
                     bay = self.device.get_by_mode_bay(mode=self.mode, bay=b)
                     if (bay is not None) and (bay.features.dolby):
-                        bay.volume_status = new_value
+                        bay.volume_status = new_value # pyright: ignore[reportAttributeAccessIssue]
 
         if (self.volume is None) or (volume > self.volume):
             # unmute
-            self.volume_status.muted = False
+            self.volume_status.muted = False # pyright: ignore[reportOptionalMemberAccess]
 
         if muted is not None:
             # update the mute value if provided
@@ -851,7 +905,7 @@ class Bay(BayBase):
             return True
 
         if ((other := self.linked_bay) is not None):
-            return other._volume_set(volume=volume, muted=muted)
+            return other._volume_set(volume=volume, muted=muted) # pyright: ignore[reportAttributeAccessIssue]
 
         _LOGGER.warning(f"volume control is not supported by {self.device.serial}")
         return False
@@ -864,8 +918,8 @@ class Bay(BayBase):
 
     @override
     async def send_key(self, key:int) -> bool:
-        cmd = "key/sendkey/{}/{}/{}".format(str(key), self.mode, self.bay)
-        _LOGGER.info(cmd)
+        cmd = f"key/sendkey/{str(key)}/{self.mode}/{self.bay}"
+        _LOGGER.debug(cmd)
         return await self.device.get_api(cmd) is not None
 
     @property
@@ -975,6 +1029,15 @@ class Bay(BayBase):
             self.amp_settings = settings
             return True
         return False
+
+    def on_mxr_audio_source_change(self, endpoint:AudioEndpoint, data:AudioChangeSource) -> None:
+        if (data.target_uid is not None) and (data.target_id is not None):
+            target = self.device.registry.get_bay_by_audio_endpoint(device=data.target_uid, endpoint=AudioEndpointType(data.target_id))
+            if (target is not None):
+                if (target.bay is not None) and (target.bay == self):
+                    print(f"TODO: {str(self)} change local audio source of {endpoint} to source {target}")
+                else:
+                    print(f"TODO: {str(target.bay)} change audio source of {endpoint} to source {target}")
 
     @override
     def on_mxr_update(self, data:Any) -> None:

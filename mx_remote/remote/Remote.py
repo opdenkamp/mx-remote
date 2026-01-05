@@ -18,7 +18,7 @@ import time
 from .ConnectionAsync import ConnectionAsync
 from ..const import __version__
 from .Device import Device
-from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks
+from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpointType, AudioEndpoint
 from ..proto.Constants import MXR_PROTOCOL_VERSION
 from ..proto.FrameDiscover import constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
@@ -254,6 +254,12 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         if device is None:
             return None
         return device.get_by_portname(portname=portname)
+
+    def get_bay_by_audio_endpoint(self, device:MxrDeviceUid, endpoint:AudioEndpointType) -> AudioEndpoint|None:
+        dev = self.get_by_uid(remote_id=device)
+        if (dev is not None):
+            return dev.get_by_audio_endpoint(endpoint=endpoint)
+        return None
 
     @property
     def links(self) -> BayLinks:
