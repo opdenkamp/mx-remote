@@ -528,6 +528,17 @@ class EdidProfile(Enum):
 	SINK_30 = 130
 	SINK_31 = 131
 	SINK_32 = 132
+	CUSTOM_0 = 500
+	CUSTOM_1 = 501
+	CUSTOM_2 = 502
+	CUSTOM_3 = 503
+	CUSTOM_4 = 504
+	CUSTOM_5 = 505
+	CUSTOM_6 = 506
+	CUSTOM_7 = 507
+	CUSTOM_8 = 508
+	CUSTOM_9 = 509
+	CUSTOM_10 = 510
 	UNKNOWN = 0xFFF
 
 	def values(nb_sinks:int|None=None) -> dict[int, str]: # type: ignore
