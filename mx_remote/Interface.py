@@ -1412,12 +1412,12 @@ class NetworkPortStatus(ABC):
 
     @cached_property
     @abstractmethod
-    def errors(self) -> UtpLinkErrorStatus:
+    def errors(self) -> UtpLinkErrorStatus|None:
         ''' link error status '''
 
     @cached_property
     @abstractmethod
-    def vct_status(self) -> list[str]:
+    def vct_status(self) -> list[str]|None:
         ''' virtual cable test results '''
 
     @cached_property
@@ -1437,17 +1437,17 @@ class NetworkPortStatus(ABC):
 
     @cached_property
     @abstractmethod
-    def ip(self) -> str:
+    def ip(self) -> str|None:
         ''' IP address '''
 
     @cached_property
     @abstractmethod
-    def querier(self) -> str:
+    def querier(self) -> str|None:
         ''' detected IGMP querier or 0.0.0.0 if not detected'''
 
     @cached_property
     @abstractmethod
-    def cable_status(self) -> list[UtpCableStatus]:
+    def cable_status(self) -> list[UtpCableStatus]|None:
         ''' utp cable pair status '''
 
     @cached_property

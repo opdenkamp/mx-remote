@@ -95,7 +95,7 @@ class UtpLinkErrorStatusImpl(UtpLinkErrorStatus):
             errs = "healthy"
         return errs
 
-class NetworkPortStatusImpl(NetworkPortStatus):
+class NetworkPortStatusImplPre22(NetworkPortStatus):
     def __init__(self, data:bytes, protocol:int) -> None:
         self.data = data
         self.protocol = protocol
@@ -105,11 +105,11 @@ class NetworkPortStatusImpl(NetworkPortStatus):
         return int(self.data[0])
 
     @cached_property
-    def errors(self) -> UtpLinkErrorStatus:
+    def errors(self) -> UtpLinkErrorStatus|None:
         return UtpLinkErrorStatusImpl(self.data[1])
 
     @cached_property
-    def vct_status(self) -> list[str]:
+    def vct_status(self) -> list[str]|None:
         rv = []
         for x in range(4):
             if (self.data[2] & (1 << x) != 0):
@@ -136,12 +136,12 @@ class NetworkPortStatusImpl(NetworkPortStatus):
         return socket.inet_ntoa(struct.pack('!L', ip))
 
     @cached_property
-    def querier(self) -> str:
+    def querier(self) -> str|None:
         ip = int.from_bytes(self.data[136:140], "big")
         return socket.inet_ntoa(struct.pack('!L', ip))
 
     @cached_property
-    def cable_status(self) -> list[UtpCableStatus]:
+    def cable_status(self) -> list[UtpCableStatus]|None:
         return [UtpCableStatusImpl(self.data[8:20]), UtpCableStatusImpl(self.data[20:32]), UtpCableStatusImpl(self.data[32:44]), UtpCableStatusImpl(self.data[44:56])]
 
     @cached_property
@@ -153,11 +153,117 @@ class NetworkPortStatusImpl(NetworkPortStatus):
     def __str__(self) -> str:
         return f"network status port {self.name} status: {self.errors} ip: {self.ip} vct: {self.vct_status} speed: {self.link_speed} full duplex: {self.link_full_duplex} cable: {str(self.cable_status)}"
 
+class NetworkPortStatusFeatures:
+    def __init__(self, value:int) -> None:
+        self._value = value
+
+    @property
+    def support_status(self) -> bool:
+        return ((self._value & (1 << 0)) != 0)
+    
+    @property
+    def support_cable_status(self) -> bool:
+        return ((self._value & (1 << 1)) != 0)
+
+    @property
+    def support_stats(self) -> bool:
+        return ((self._value & (1 << 2)) != 0)
+
+    @property
+    def support_igmp(self) -> bool:
+        return ((self._value & (1 << 3)) != 0)
+
+    @property
+    def port_internal(self) -> bool:
+        return ((self._value & (1 << 4)) != 0)
+
+    @property
+    def port_external(self) -> bool:
+        return ((self._value & (1 << 5)) != 0)
+
+    @property
+    def port_uplink(self) -> bool:
+        return ((self._value & (1 << 6)) != 0)
+
+class NetworkPortStatusImpl(NetworkPortStatus):
+    def __init__(self, data:bytes, protocol:int) -> None:
+        self.data = data
+        self.protocol = protocol
+
+    @cached_property
+    def port(self) -> int:
+        return int.from_bytes(self.data[0:2], "little")
+
+    @cached_property
+    def features_status(self) -> NetworkPortStatusFeatures:
+        return NetworkPortStatusFeatures(self.data[2])
+
+    @cached_property
+    def name(self) -> str:
+        return self.data[4:20].split(b'\0',1)[0].decode('ascii')
+
+    @cached_property
+    def mac_address(self) -> str|None:
+        if self.features_status.port_uplink:
+            return f"{self.data[21]:02X}:{self.data[22]:02X}:{self.data[23]:02X}:{self.data[24]:02X}:{self.data[25]:02X}:{self.data[26]:02X}"
+        return None
+
+    @cached_property
+    def ip(self) -> str|None:
+        if self.features_status.port_uplink:
+            ip = int.from_bytes(self.data[28:32], "big")
+            return socket.inet_ntoa(struct.pack('!L', ip))
+        return None
+
+    @cached_property
+    def querier(self) -> str|None:
+        if self.features_status.support_igmp and self.features_status.port_uplink:
+            ip = int.from_bytes(self.data[32:36], "big")
+            return socket.inet_ntoa(struct.pack('!L', ip))
+        return None
+
+    @cached_property
+    def errors(self) -> UtpLinkErrorStatus|None:
+        if not self.features_status.support_status:
+            return None
+        return UtpLinkErrorStatusImpl(self.data[36])
+
+    @cached_property
+    def vct_status(self) -> list[str]|None:
+        if not self.features_status.support_status:
+            return None
+        rv = []
+        for x in range(4):
+            if (self.data[37] & (1 << x) != 0):
+                rv.append("WARNING")
+            else:
+                rv.append("healthy")
+        return rv
+
+    @cached_property
+    def link_speed(self) -> UtpLinkSpeed:
+        return UtpLinkSpeed(self.data[38] & 0x7)
+
+    @cached_property
+    def link_full_duplex(self) -> bool:
+        return ((self.data[38] & (1 << 3)) != 0)
+
+    @cached_property
+    def cable_status(self) -> list[UtpCableStatus]|None:
+        if self.features_status.support_cable_status:
+            return [UtpCableStatusImpl(self.data[40:52]), UtpCableStatusImpl(self.data[52:64]), UtpCableStatusImpl(self.data[64:76]), UtpCableStatusImpl(self.data[76:88])]
+        return None
+
+    def __str__(self) -> str:
+        return f"network status port {self.name} ip: {self.ip} mac: {self.mac_address} querier: {self.querier} errors: {self.errors} vct: {self.vct_status} speed: {self.link_speed} full duplex: {self.link_full_duplex} cable: {str(self.cable_status)}"
+
 class FrameNetworkStatus(FrameBase):
     @property
     def status(self) -> NetworkPortStatus|None:
         if (self.payload is None):
             return None
+        if (self.protocol < 0x22):
+            return NetworkPortStatusImplPre22(data=self.payload, protocol=self.protocol)
         return NetworkPortStatusImpl(data=self.payload, protocol=self.protocol)
 
     def process(self) -> None:
