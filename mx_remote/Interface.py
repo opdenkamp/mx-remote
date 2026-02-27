@@ -285,77 +285,6 @@ class V2IPStreamSources:
 class V2IPStreamSourcesList(list[V2IPStreamSources]):
     ''' list of V2IP sources '''
 
-class AudioEndpointType(Enum):
-    OUTPUT_V2IP = 0
-    INPUT_V2IP = 1
-    INPUT_HDMI = 2
-    OUTPUT_HDMI = 3
-    OUTPUT_SPDIF = 4
-    INPUT_SPDIF = 5
-    INPUT_RCA = 6
-    OUTPUT_RCA = 7
-
-    def __str__(self) -> str:
-        if (self.value == AudioEndpointType.OUTPUT_V2IP.value):
-            return "v2ip-tx"
-        if (self.value == AudioEndpointType.INPUT_V2IP.value):
-            return "v2ip-rx"
-        if (self.value == AudioEndpointType.OUTPUT_HDMI.value):
-            return "hdmi-out"
-        if (self.value == AudioEndpointType.INPUT_HDMI.value):
-            return "hdmi-in"
-        if (self.value == AudioEndpointType.OUTPUT_SPDIF.value):
-            return "spdif-out"
-        if (self.value == AudioEndpointType.INPUT_SPDIF.value):
-            return "spdif-in"
-        if (self.value == AudioEndpointType.OUTPUT_RCA.value):
-            return "rca-out"
-        if (self.value == AudioEndpointType.INPUT_RCA.value):
-            return "rca-in"
-        return "unknown"
-
-    def __repr__(self) -> str:
-        return str(self)
-
-class AudioEndpointMask:
-    def __init__(self, value:int) -> None:
-        self._value = value
-
-    @cached_property
-    def output_v2ip(self) -> bool:
-        return ((self._value & (1 << AudioEndpointType.OUTPUT_V2IP.value)) != 0)
-
-    @cached_property
-    def input_v2ip(self) -> bool:
-        return ((self._value & (1 << AudioEndpointType.INPUT_V2IP.value)) != 0)
-
-    @cached_property
-    def output_hdmi(self) -> bool:
-        return ((self._value & (1 << AudioEndpointType.OUTPUT_HDMI.value)) != 0)
-
-    @cached_property
-    def input_hdmi(self) -> bool:
-        return ((self._value & (1 << AudioEndpointType.INPUT_HDMI.value)) != 0)
-
-    @cached_property
-    def output_spdif(self) -> bool:
-        return ((self._value & (1 << AudioEndpointType.OUTPUT_SPDIF.value)) != 0)
-
-    @cached_property
-    def input_spdif(self) -> bool:
-        return ((self._value & (1 << AudioEndpointType.INPUT_SPDIF.value)) != 0)
-
-    @cached_property
-    def output_rca(self) -> bool:
-        return ((self._value & (1 << AudioEndpointType.OUTPUT_RCA.value)) != 0)
-
-    @cached_property
-    def input_rca(self) -> bool:
-        return ((self._value & (1 << AudioEndpointType.INPUT_RCA.value)) != 0)
-
-    def __str__(self) -> str:
-        return f"mask: {self._value}"
-
 class AudioFeatures:
     FEATURE_INPUT = (1 << 0)
     FEATURE_OUTPUT = (1 << 1)
@@ -368,7 +297,10 @@ class AudioFeatures:
     FEATURE_MUTE = (1 << 8)
     FEATURE_ROUTE_INPUT = (1 << 9)
     FEATURE_ROUTE_OUTPUT = (1 << 10)
-    FEATURE_ROUTE_ALWAYS_IN = (1 << 11)
+    FEATURE_ROUTE_INPUT_NONE = (1 << 11)
+    FEATURE_AMP_OUTPUT = (1 << 12)
+    FEATURE_VOLUME_CONTROL = (1 << 13)
+    FEATURE_GAIN_CONTROL = (1 << 14)
 
     def __init__(self, value:int) -> None:
         self._value = value
@@ -418,8 +350,20 @@ class AudioFeatures:
         return ((self._value & self.FEATURE_ROUTE_OUTPUT) != 0)
 
     @property
-    def input_always_routed(self) -> bool:
-        return ((self._value & self.FEATURE_ROUTE_ALWAYS_IN) != 0)
+    def input_route_none(self) -> bool:
+        return ((self._value & self.FEATURE_ROUTE_INPUT_NONE) != 0)
+
+    @property
+    def is_amp(self) -> bool:
+        return ((self._value & self.FEATURE_AMP_OUTPUT) != 0)
+
+    @property
+    def support_volume_control(self) -> bool:
+        return ((self._value & self.FEATURE_VOLUME_CONTROL) != 0)
+
+    @property
+    def support_gain_control(self) -> bool:
+        return ((self._value & self.FEATURE_GAIN_CONTROL) != 0)
 
     @property
     def features(self) -> list[str]:
@@ -446,8 +390,14 @@ class AudioFeatures:
             rv.append('route input')
         if self.support_route_output:
             rv.append('route output')
-        if self.input_always_routed:
-            rv.append('input always routed')
+        if self.input_route_none:
+            rv.append('input none')
+        if self.is_amp:
+            rv.append('amp')
+        if self.support_volume_control:
+            rv.append('volume')
+        if self.support_gain_control:
+            rv.append('gain')
         return rv
 
     def __str__(self) -> str:
@@ -483,6 +433,8 @@ class AudioEndpoint(ABC):
         self.parent:AudioEndpoint|None = None
         self.container = container
         self._bay:'BayBase|None' = None
+        self._linked_uid:MxrDeviceUid|None = None
+        self._linked_ep:int|None = None
 
     def add_child(self, ep:'AudioEndpoint') -> None:
         if not ep in self.children:
@@ -491,17 +443,26 @@ class AudioEndpoint(ABC):
     def set_parent(self, ep:'AudioEndpoint') -> None:
         self.parent = ep
 
-    def has_endpoint(self, endpoint:AudioEndpointType) -> bool:
-        return (self.get_type(endpoint=endpoint) is not None)
-
-    def get_type(self, endpoint:AudioEndpointType) -> 'AudioEndpoint|None':
+    def get(self, endpoint:int) -> 'AudioEndpoint|None':
         if (self.id == endpoint):
             return self
         for child in self.children:
-            ep = child.get_type(endpoint=endpoint)
+            ep = child.get(endpoint=endpoint)
             if (ep is not None):
                 return ep
         return None
+
+    def link(self, registry:'DeviceRegistry') -> 'AudioEndpoint|None':
+        if (self._linked_uid is None) or self._linked_uid.empty or (self._linked_ep is None):
+            return None
+        dev = registry.get_by_uid(self._linked_uid)
+        if (dev is None):
+            return None
+        return dev.audio_endpoint_by_id(self._linked_ep)
+
+    def set_link(self, uid:MxrDeviceUid|None, ep:int|None) -> None:
+        self._linked_uid = uid
+        self._linked_ep = ep
 
     @property
     def bay(self) -> 'BayBase|None':
@@ -515,7 +476,7 @@ class AudioEndpoint(ABC):
 
     @property
     @abstractmethod
-    def id(self) -> AudioEndpointType:
+    def id(self) -> int:
         pass
 
     @property
@@ -573,26 +534,48 @@ class AudioEndpoint(ABC):
     def input(self) -> 'AudioEndpoint|None':
         pass
 
-    @property
+class AudioLink(ABC):
+    @cached_property
     @abstractmethod
-    def outputs_available(self) -> list['AudioEndpoint']:
+    def endpoint(self) -> int:
         pass
 
-    @property
+    @cached_property
     @abstractmethod
-    def outputs(self) -> list['AudioEndpoint']:
+    def link_endpoint(self) -> int:
+        pass
+
+    @cached_property
+    @abstractmethod
+    def link_device(self) -> MxrDeviceUid|None:
+        pass
+
+    @cached_property
+    @abstractmethod
+    def valid(self) -> bool:
+        pass
+
+class AudioLinks(ABC):
+    @cached_property
+    @abstractmethod
+    def nb_links(self) -> int:
+        pass
+
+    @cached_property
+    @abstractmethod
+    def entries(self) -> list[AudioLink]:
         pass
 
 class AudioEndpoints:
     def __init__(self) -> None:
-        self.endpoints:dict[AudioEndpointType,AudioEndpoint] = {}
+        self.endpoints:dict[int,AudioEndpoint] = {}
 
     def add(self, endpoint:AudioEndpoint) -> None:
         self.endpoints[endpoint.id] = endpoint
 
-    def get(self, type:AudioEndpointType) -> AudioEndpoint|None:
-        if type in self.endpoints:
-            return self.endpoints[type]
+    def get(self, id:int) -> AudioEndpoint|None:
+        if id in self.endpoints:
+            return self.endpoints[id]
         return None
 
     @cached_property
@@ -1718,6 +1701,10 @@ class DeviceBase(ABC):
         pass
 
     @abstractmethod
+    def audio_endpoint_by_id(self, id:int) -> AudioEndpoint|None:
+        pass
+
+    @abstractmethod
     def v2ip_source(self, bay:BayBase) -> V2IPStreamSources|None:
         '''Get the V2IP source addresses for the given bay'''
 
@@ -1731,10 +1718,6 @@ class DeviceBase(ABC):
 
     @abstractmethod
     def get_by_mode_bay(self, mode:str, bay: int) -> BayBase|None:
-        pass
-
-    @abstractmethod
-    def get_by_audio_endpoint(self, endpoint:AudioEndpointType) -> AudioEndpoint|None:
         pass
 
     @property
@@ -2217,7 +2200,7 @@ class DeviceRegistry(ABC):
         ''' get a bay of a device by its V2IP stream address '''
 
     @abstractmethod
-    def get_bay_by_audio_endpoint(self, device:MxrDeviceUid, endpoint:AudioEndpointType) -> AudioEndpoint|None:
+    def get_audio_endpoint(self, device:MxrDeviceUid, id:int) -> AudioEndpoint|None:
         pass
 
     @property

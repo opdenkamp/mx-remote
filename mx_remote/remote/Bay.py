@@ -36,7 +36,6 @@ from ..Interface import (
     BayMirrorStatus,
     MxrDeviceUid,
     AudioEndpoint,
-    AudioEndpointType,
     AudioChangeSource,
 )
 from ..Uid import MxrBayUid
@@ -432,10 +431,15 @@ class Bay(BayBase):
         if (not self.is_output):
             return rv
         for _, bay in self.device.inputs.items():
-            if self.is_v2ip_sink:
-                rv.append(bay)
-            elif (bay.is_audio):
-                rv.append(bay)
+            if (bay.audio_endpoint is not None):
+                lep = bay.audio_endpoint.link(self.device.registry)
+                if (lep is not None) and (lep.bay is not None):
+                    rv += lep.bay.available_audio_sources
+            # if self.is_v2ip_sink:
+            #     rv.append(bay)
+            # elif (bay.is_audio):
+            #     rv.append(bay)
+            rv.append(bay)
         return rv
 
     @property
@@ -447,7 +451,8 @@ class Bay(BayBase):
     def audio_endpoint(self, endpoint:AudioEndpoint) -> None:
         if (self._audio_endpoint is None) or (self._audio_endpoint != endpoint):
             self._audio_endpoint = endpoint
-            self._audio_endpoint.bay = self
+            if (endpoint is not None):
+                self._audio_endpoint.bay = self
             self.call_callbacks()
 
     @property
@@ -1032,7 +1037,7 @@ class Bay(BayBase):
 
     def on_mxr_audio_source_change(self, endpoint:AudioEndpoint, data:AudioChangeSource) -> None:
         if (data.target_uid is not None) and (data.target_id is not None):
-            target = self.device.registry.get_bay_by_audio_endpoint(device=data.target_uid, endpoint=AudioEndpointType(data.target_id))
+            target = self.device.registry.get_audio_endpoint(device=data.target_uid, id=data.target_id)
             if (target is not None):
                 if (target.bay is not None) and (target.bay == self):
                     print(f"TODO: {str(self)} change local audio source of {endpoint} to source {target}")

@@ -17,8 +17,9 @@ from ..Interface import (
 	Multiviewer,
 	AudioEndpoint,
 	AudioEndpoints,
-	AudioEndpointType,
 	AudioChangeSource,
+	AudioLinks,
+	AudioLink,
 )
 from ..proto.BayConfig import BayConfig
 from ..proto.FrameHello import FrameHello
@@ -554,23 +555,21 @@ class Device(DeviceBase):
 			self._check_config_complete()
 			self.call_callbacks()
 
-	def get_by_audio_endpoint(self, endpoint:AudioEndpointType) -> AudioEndpoint|None:
-		first_input = self.first_input
-		if (first_input is not None) and (first_input.audio_endpoint is not None):
-			ep = first_input.audio_endpoint.get_type(endpoint=endpoint)
-			if (ep is not None):
-				return ep
-		first_output = self.first_output
-		if (first_output is not None) and (first_output.audio_endpoint is not None):
-			return first_output.audio_endpoint.get_type(endpoint=endpoint)
-		return None
-
 	@override
 	def audio_endpoint_by_name(self, name:str) -> AudioEndpoint|None:
 		if (self._audio_endpoints is None):
 			return None
 		for _, ep in self._audio_endpoints.endpoints.items():
 			if (str(ep.id) == name):
+				return ep
+		return None
+
+	@override
+	def audio_endpoint_by_id(self, id:int) -> AudioEndpoint|None:
+		if (self._audio_endpoints is None):
+			return None
+		for _, ep in self._audio_endpoints.endpoints.items():
+			if (ep.id == id):
 				return ep
 		return None
 
@@ -628,19 +627,33 @@ class Device(DeviceBase):
 				self.call_callbacks()
 		elif isinstance(data, AudioEndpoints):
 			self._audio_endpoints = data
-			first_input = self.first_input
-			first_ep = data.tree_first_output
-			if (first_input is not None) and (first_ep is not None) and (self.is_oneip_tz or self.is_oneip_tx):
-				first_input.audio_endpoint = first_ep # pyright: ignore[reportAttributeAccessIssue]
-			first_output = self.first_output
-			first_ep = data.tree_first_input
-			if (first_output is not None) and (first_ep is not None) and (self.is_oneip_tz or self.is_oneip_rx):
-				first_output.audio_endpoint = first_ep # pyright: ignore[reportAttributeAccessIssue]
+			if (self.is_oneip_tz or self.is_oneip_tx):
+				first_input = self.first_input
+				first_ep = data.tree_first_output
+				if (first_input is not None):
+					first_input.audio_endpoint = first_ep # pyright: ignore[reportAttributeAccessIssue]
+				first_output = self.first_output
+				first_ep = data.tree_first_input
+				if (first_output is not None):
+					first_output.audio_endpoint = first_ep # pyright: ignore[reportAttributeAccessIssue]
+			elif self.is_amp:
+				for id, ep in data.endpoints.items():
+					if (id < 10):
+						bay = self.get_by_mode_bay(mode="Input", bay=id)
+					else:
+						bay = self.get_by_mode_bay(mode="Output", bay=id-10)
+					if (bay is not None):
+						bay.audio_endpoint = ep # pyright: ignore[reportAttributeAccessIssue]
 		elif isinstance(data, AudioChangeSource):
 			if (data.source_uid is not None) and (data.source_id is not None):
-				source_ep = self.registry.get_bay_by_audio_endpoint(device=data.source_uid, endpoint=AudioEndpointType(data.source_id))
+				source_ep = self.registry.get_audio_endpoint(device=data.source_uid, id=data.source_id)
 				if (source_ep is not None) and (source_ep.bay is not None):
 					source_ep.bay.on_mxr_audio_source_change(endpoint=source_ep, data=data) # pyright: ignore[reportAttributeAccessIssue]
+		elif isinstance(data, AudioLinks):
+			for link in data.entries:
+				ep = self.audio_endpoint_by_id(link.endpoint)
+				if ep is not None:
+					ep.set_link(link.link_device, link.link_endpoint)
 		else:
 			_LOGGER.warning(f"unknown update type {str(type(data))}: {str(data)}")
 

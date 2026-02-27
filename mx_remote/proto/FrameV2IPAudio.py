@@ -9,7 +9,7 @@ from enum import Enum
 from functools import cached_property
 from typing import override
 from .FrameBase import FrameBase
-from ..Interface import DeviceRegistry, MxrDeviceUid, V2IPStreamSource, AudioEndpointType, AudioEndpointMask, AudioFeatures, AudioEndpoint, AudioEndpoints, AudioChangeSource
+from ..Interface import DeviceRegistry, MxrDeviceUid, V2IPStreamSource, AudioFeatures, AudioEndpoint, AudioEndpoints, AudioChangeSource, AudioLink, AudioLinks
 
 class AudioCommandOpcode(Enum):
     UNKNOWN = 0xFFFF
@@ -17,15 +17,14 @@ class AudioCommandOpcode(Enum):
     MUTE = 1
     TRIGGER = 2
     SELECT_INPUT = 3
-    SELECT_OUTPUT = 4
-    DESELECT_OUTPUT = 5
+    VOLUME = 4
+    LINKS = 5
 
 class AudioEntryType(Enum):
     PROCESSOR = 0
     ENDPOINT = 1
     ADDRESS = 2
     ROUTE_IN = 3
-    ROUTE_OUT = 4
     PARENT = 5
     UNKNOWN = 0xFF
 
@@ -90,15 +89,8 @@ class AudioEntry:
         self._idx = idx
 
     @cached_property
-    def id_numeric(self) -> int|None:
+    def id(self) -> int|None:
         return self._frame.payload_u8(idx=self._idx)
-
-    @cached_property
-    def id(self) -> AudioEndpointType|None:
-        pl = self.id_numeric
-        if (pl is None) or (pl > AudioEndpointType.OUTPUT_RCA.value):
-            return None
-        return AudioEndpointType(pl)
 
     @cached_property
     def entry_type(self) -> AudioEntryType:
@@ -126,22 +118,16 @@ class AudioEntry:
         return EndpointStatus(value=val)
 
     @cached_property
-    def supported_routes(self) -> AudioEndpointMask|None:
-        if (self.entry_type != AudioEntryType.ROUTE_IN) and (self.entry_type != AudioEntryType.ROUTE_OUT):
+    def supported_routes(self) -> int|None:
+        if (self.entry_type != AudioEntryType.ROUTE_IN):
             return None
-        val = self._frame.payload_u32(idx=(self._idx + 8))
-        if (val is None):
-            return None
-        return AudioEndpointMask(value=val)
+        return self._frame.payload_u32(idx=(self._idx + 8))
 
     @cached_property
-    def active_routes(self) -> AudioEndpointMask|None:
-        if (self.entry_type != AudioEntryType.ROUTE_IN) and (self.entry_type != AudioEntryType.ROUTE_OUT):
+    def active_routes(self) -> int|None:
+        if (self.entry_type != AudioEntryType.ROUTE_IN):
             return None
-        val = self._frame.payload_u32(idx=(self._idx + 12))
-        if (val is None):
-            return None
-        return AudioEndpointMask(value=val)
+        return self._frame.payload_u32(idx=(self._idx + 12))
 
     @cached_property
     def parent_id(self) -> int|None:
@@ -166,19 +152,17 @@ class AudioEntry:
         return str(self)
 
 class AudioEndpointImpl(AudioEndpoint):
-    def __init__(self, container:AudioEndpoints, id:AudioEndpointType, features:AudioFeatures) -> None:
+    def __init__(self, container:AudioEndpoints, id:int, features:AudioFeatures) -> None:
         AudioEndpoint.__init__(self, container=container)
         self._id = id
         self._features = features
         self._address:V2IPStreamSource|None = None
         self._parent_id:int|None = None
-        self._in_routes_supported:AudioEndpointMask|None = None
-        self._in_routes:AudioEndpointMask|None = None
-        self._out_routes_supported:AudioEndpointMask|None = None
-        self._out_routes:AudioEndpointMask|None = None
+        self._in_routes_supported:int|None = None
+        self._in_routes:int|None = None
 
     @property
-    def id(self) -> AudioEndpointType:
+    def id(self) -> int:
         return self._id
 
     @property
@@ -187,19 +171,19 @@ class AudioEndpointImpl(AudioEndpoint):
 
     @property
     def is_v2ip(self) -> bool:
-        return (self.id == AudioEndpointType.OUTPUT_V2IP) or (self.id == AudioEndpointType.INPUT_V2IP)
+        return self.features.is_v2ip_rx or self.features.is_v2ip_tx
 
     @property
     def is_hdmi(self) -> bool:
-        return (self.id == AudioEndpointType.OUTPUT_HDMI) or (self.id == AudioEndpointType.INPUT_HDMI)
+        return self.features.is_hdmi
 
     @property
     def is_spdif(self) -> bool:
-        return (self.id == AudioEndpointType.OUTPUT_SPDIF) or (self.id == AudioEndpointType.INPUT_SPDIF)
+        return self.features.is_spdif
 
     @property
     def is_rca(self) -> bool:
-        return (self.id == AudioEndpointType.OUTPUT_RCA) or (self.id == AudioEndpointType.INPUT_RCA)
+        return self.features.is_rca
 
     @property
     def is_input(self) -> bool:
@@ -229,113 +213,37 @@ class AudioEndpointImpl(AudioEndpoint):
     def inputs_available(self) -> list['AudioEndpoint']:
         rv:list[AudioEndpoint] = []
         if (self.in_routes_supported is not None):
-            if self.in_routes_supported.input_hdmi:
-                ep = self.container.get(type=AudioEndpointType.INPUT_HDMI)
-                if (ep is not None):
-                    rv.append(ep)
-            if self.in_routes_supported.input_rca:
-                ep = self.container.get(type=AudioEndpointType.INPUT_RCA)
-                if (ep is not None):
-                    rv.append(ep)
-            if self.in_routes_supported.input_spdif:
-                ep = self.container.get(type=AudioEndpointType.INPUT_SPDIF)
-                if (ep is not None):
-                    rv.append(ep)
-            if self.in_routes_supported.input_v2ip:
-                ep = self.container.get(type=AudioEndpointType.INPUT_V2IP)
-                if (ep is not None):
-                    rv.append(ep)
+            for id in range(32):
+                if (self.in_routes_supported & (1 << id)) != 0:
+                    ep = self.container.get(id=id)
+                    if (ep is not None):
+                        rv.append(ep)
         return rv
 
     @property
     def input(self) -> 'AudioEndpoint|None':
         if (self.in_routes is None):
             return None
-        if self.in_routes.input_hdmi:
-            return self.container.get(type=AudioEndpointType.INPUT_HDMI)
-        if self.in_routes.input_rca:
-            return self.container.get(type=AudioEndpointType.INPUT_HDMI)
-        if self.in_routes.input_spdif:
-            return self.container.get(type=AudioEndpointType.INPUT_HDMI)
-        if self.in_routes.input_v2ip:
-            return self.container.get(type=AudioEndpointType.INPUT_V2IP)
+        for id in range(32):
+            if (self.in_routes & (1 << id)) != 0:
+                return self.container.get(id=id)
         return None
 
     @property
-    def outputs_available(self) -> list['AudioEndpoint']:
-        rv:list[AudioEndpoint] = []
-        if (self.out_routes_supported is not None):
-            if self.out_routes_supported.output_hdmi:
-                ep = self.container.get(type=AudioEndpointType.OUTPUT_HDMI)
-                if (ep is not None):
-                    rv.append(ep)
-            if self.out_routes_supported.output_rca:
-                ep = self.container.get(type=AudioEndpointType.OUTPUT_RCA)
-                if (ep is not None):
-                    rv.append(ep)
-            if self.out_routes_supported.output_spdif:
-                ep = self.container.get(type=AudioEndpointType.OUTPUT_SPDIF)
-                if (ep is not None):
-                    rv.append(ep)
-            if self.out_routes_supported.output_v2ip:
-                ep = self.container.get(type=AudioEndpointType.OUTPUT_V2IP)
-                if (ep is not None):
-                    rv.append(ep)
-        return rv
-
-    @property
-    def outputs(self) -> list['AudioEndpoint']:
-        rv:list[AudioEndpoint] = []
-        if (self.out_routes is not None):
-            if self.out_routes.output_hdmi:
-                ep = self.container.get(type=AudioEndpointType.OUTPUT_HDMI)
-                if (ep is not None):
-                    rv.append(ep)
-            if self.out_routes.output_rca:
-                ep = self.container.get(type=AudioEndpointType.OUTPUT_RCA)
-                if (ep is not None):
-                    rv.append(ep)
-            if self.out_routes.output_spdif:
-                ep = self.container.get(type=AudioEndpointType.OUTPUT_SPDIF)
-                if (ep is not None):
-                    rv.append(ep)
-            if self.out_routes.output_v2ip:
-                ep = self.container.get(type=AudioEndpointType.OUTPUT_V2IP)
-                if (ep is not None):
-                    rv.append(ep)
-        return rv
-
-    @property
-    def in_routes(self) -> AudioEndpointMask|None:
+    def in_routes(self) -> int|None:
         return self._in_routes
 
     @in_routes.setter
-    def in_routes(self, routes:AudioEndpointMask) -> None:
+    def in_routes(self, routes:int) -> None:
         self._in_routes = routes
 
     @property
-    def in_routes_supported(self) -> AudioEndpointMask|None:
+    def in_routes_supported(self) -> int|None:
         return self._in_routes_supported
 
     @in_routes_supported.setter
-    def in_routes_supported(self, routes:AudioEndpointMask) -> None:
+    def in_routes_supported(self, routes:int) -> None:
         self._in_routes_supported = routes
-
-    @property
-    def out_routes(self) -> AudioEndpointMask|None:
-        return self._out_routes
-
-    @out_routes.setter
-    def out_routes(self, routes:AudioEndpointMask) -> None:
-        self._out_routes = routes
-
-    @property
-    def out_routes_supported(self) -> AudioEndpointMask|None:
-        return self._out_routes_supported
-
-    @out_routes_supported.setter
-    def out_routes_supported(self, routes:AudioEndpointMask) -> None:
-        self._out_routes_supported = routes
 
     def __eq__(self, value: object) -> bool:
         if (not isinstance(value, AudioEndpoint) and not isinstance(value, AudioEndpointImpl)):
@@ -354,6 +262,69 @@ class AudioEndpointImpl(AudioEndpoint):
                 address = str(address)
             return f"{serial}{str(self.id)}@{address}"
         return f"{serial}{str(self.id)}"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+class AudioLinkImpl(AudioLink):
+    def __init__(self, frame:FrameBase, idx:int) -> None:
+        self._frame = frame
+        self._idx = idx
+
+    @cached_property
+    def endpoint(self) -> int:
+        val = self._frame.payload_u8(idx=self._idx)
+        if (val is None):
+            return -1
+        return val
+
+    @cached_property
+    def link_endpoint(self) -> int:
+        val = self._frame.payload_u8(idx=self._idx + 1)
+        if (val is None):
+            return -1
+        return val
+
+    @cached_property
+    def link_device(self) -> MxrDeviceUid|None:
+        return self._frame.payload_uuid(idx=self._idx + 4)
+
+    @cached_property
+    def valid(self) -> bool:
+        ld = self.link_device
+        if (ld is None):
+            return False
+        return not ld.empty
+
+    def __str__(self) -> str:
+        return f'link ep:{self.endpoint}->{self.link_device}:{self.link_endpoint}'
+
+    def __repr__(self) -> str:
+        return str(self)
+
+class AudioLinksImpl(AudioLinks):
+    def __init__(self, data:FrameBase, idx:int=0) -> None:
+        self.data = data
+        self._idx = idx
+
+    @cached_property
+    def nb_links(self) -> int:
+        val = self.data.payload_u16(idx=self._idx)
+        if (val is None):
+            return 0
+        return val
+
+    @cached_property
+    def entries(self) -> list[AudioLink]:
+        rv = []
+        for x in range(self.nb_links):
+            link = AudioLinkImpl(frame=self.data, idx=(4 + self._idx + (x * 24)))
+            if link.valid:
+                rv.append(link)
+        return rv
+
+    def __str__(self) -> str:
+        return str([str(link) for link in self.entries])
 
     def __repr__(self) -> str:
         return str(self)
@@ -381,13 +352,13 @@ class AudioConfig:
     def entries(self) -> list[AudioEntry]:
         rv = []
         for x in range(self.nb_endpoints):
-            rv.append(AudioEntry(frame=self.data, idx=(36 + (x * 24))))
+            rv.append(AudioEntry(frame=self.data, idx=(36 + (x * 16))))
         return rv
 
     @cached_property
     def endpoints(self) -> AudioEndpoints:
         rv = AudioEndpoints()
-        eps:dict[AudioEndpointType,AudioEndpointImpl] = {}
+        eps:dict[int,AudioEndpointImpl] = {}
 
         for entry in self.entries:
             id = entry.id
@@ -412,7 +383,7 @@ class AudioConfig:
                 parent = entry.parent_id
                 if (parent is not None):
                     eps[id].parent_id = parent
-                    parent_ep = rv.get(type=AudioEndpointType(parent))
+                    parent_ep = rv.get(id=parent)
                     if (parent_ep is not None):
                         parent_ep.add_child(eps[id])
                         eps[id].set_parent(parent_ep)
@@ -422,21 +393,6 @@ class AudioConfig:
                 if (routes_supported is not None) and (routes is not None):
                     eps[id].in_routes_supported = routes_supported
                     eps[id].in_routes = routes
-            elif (entry.entry_type == AudioEntryType.ROUTE_OUT):
-                routes_supported = entry.supported_routes
-                routes = entry.active_routes
-                if (routes_supported is not None) and (routes is not None):
-                    eps[id].out_routes_supported = routes_supported
-                    eps[id].out_routes = routes
-
-        # TODO fix v2ipaud out_routes
-        for endpoint in rv.as_tree:
-            routes = 0
-            for child in endpoint.children:
-                if child in endpoint.outputs_available:
-                    if child.input == endpoint:
-                        routes |= (1 << child.id.value)
-            endpoint.out_routes = AudioEndpointMask(value=routes) # pyright: ignore[reportAttributeAccessIssue]
 
         return rv
 
@@ -477,11 +433,17 @@ class FrameV2IPAudio(FrameBase):
         if (self.opcode == AudioCommandOpcode.FEATURES):
             cfg = AudioConfig(data=self)
             self.remote_device.on_mxr_update(data=cfg.endpoints)
+            if len(self) > 36 + (cfg.nb_endpoints * 16):
+                cmd = AudioLinksImpl(data=self, idx=(36 + (cfg.nb_endpoints * 16)))
+                self.remote_device.on_mxr_update(data=cmd)
         elif (self.opcode == AudioCommandOpcode.SELECT_INPUT):
             cmd = AudioChangeSourceImpl(data=self)
             self.remote_device.on_mxr_update(data=cmd)
+        elif (self.opcode == AudioCommandOpcode.LINKS):
+            cmd = AudioLinksImpl(data=self)
+            self.remote_device.on_mxr_update(data=cmd)
         else:
-            print(f"unknown audio opcode {self.opcode}")
+            print(f"unhandled audio opcode {self.opcode}")
 
     @staticmethod
     def construct_select_input(mxr:DeviceRegistry, sink:MxrDeviceUid, sink_ep:AudioEndpoint, source:MxrDeviceUid, source_ep:AudioEndpoint) -> FrameBase|None:
@@ -489,14 +451,14 @@ class FrameV2IPAudio(FrameBase):
             + sink.byte_value \
             + source.byte_value \
             + sink.byte_value \
-            + bytes([source_ep.id.value >> 8, source_ep.id.value & 0xF]) \
-            + bytes([sink_ep.id.value >> 8, sink_ep.id.value & 0xF])
+            + bytes([source_ep.id >> 8, source_ep.id & 0xF]) \
+            + bytes([sink_ep.id >> 8, sink_ep.id & 0xF])
         return FrameBase.construct_base(mxr=mxr, opcode=0x43, payload=payload)
 
     @cached_property
     def opcode(self) -> AudioCommandOpcode:
         val = self.payload_u16(idx=0)
-        if (val is None) or (val > AudioCommandOpcode.DESELECT_OUTPUT.value):
+        if (val is None) or (val > AudioCommandOpcode.LINKS.value):
             return AudioCommandOpcode.UNKNOWN
         return AudioCommandOpcode(value=val)
 
