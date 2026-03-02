@@ -356,6 +356,13 @@ class AudioConfig:
         return rv
 
     @cached_property
+    def control_address(self) -> StreamAddress|None:
+        for entry in self.entries:
+            if (entry.entry_type == AudioEntryType.ADDRESS) and (entry.id == 0xFF):
+                return entry.stream_address
+        return None
+
+    @cached_property
     def endpoints(self) -> AudioEndpoints:
         rv = AudioEndpoints()
         eps:dict[int,AudioEndpointImpl] = {}
@@ -373,7 +380,7 @@ class AudioConfig:
 
         for entry in self.entries:
             id = entry.id
-            if (id is None):
+            if (id is None) or (not id in eps):
                 continue
             if (entry.entry_type == AudioEntryType.ADDRESS):
                 address = entry.stream_address
