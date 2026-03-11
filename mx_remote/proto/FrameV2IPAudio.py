@@ -10,7 +10,7 @@ from functools import cached_property
 import logging
 from typing import override
 
-from proto.FrameHeader import FrameHeader
+from .FrameHeader import FrameHeader
 from .FrameBase import FrameBase
 from ..Interface import DeviceRegistry, MxrDeviceUid, V2IPStreamSource, AudioFeatures, AudioEndpoint, AudioEndpoints, AudioChangeSource, AudioLink, AudioLinks
 
