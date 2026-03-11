@@ -8,7 +8,7 @@
 """ constant definitions for mx_remote """
 import os
 
-VERSION = '3.4.2'
+VERSION = '3.4.3'
 __version__ = VERSION
 
 MX_BCAST_UDP_IP = '10.8.8.255'
