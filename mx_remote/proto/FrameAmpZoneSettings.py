@@ -11,8 +11,6 @@ from ..Interface import DeviceBase, BayBase, AmpZoneSettings, DeviceRegistry
 from ..Uid import MxrDeviceUid
 import logging
 
-from .Factory import process_mxr_frame
-
 _LOGGER = logging.getLogger(__name__)
 
 class FrameAmpZoneSettings(FrameBase):

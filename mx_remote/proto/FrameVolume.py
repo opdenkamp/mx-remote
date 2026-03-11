@@ -13,9 +13,6 @@ from ..Interface import BayBase
 
 class FrameVolume(FrameBase):
     ''' bay volume change information frame '''
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
-
     @property
     def bay(self) -> BayBase|None:
         # bay on which the volume changed

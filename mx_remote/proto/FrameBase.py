@@ -6,6 +6,7 @@
 ##################################################
 
 from functools import cached_property
+import time
 from .Constants import MXR_PROTOCOL_VERSION
 from .FrameHeader import FrameHeader
 from ..Interface import DeviceBase, DeviceRegistry, BayBase
@@ -17,9 +18,10 @@ def append_payload_str(payload:list[int], value:str, sz:int) -> list[int]:
 
 class FrameBase:
     ''' Base class for decoded mx_remote frames '''
-    def __init__(self, header:FrameHeader):
+    def __init__(self, header:FrameHeader, timestamp:float|None=None) -> None:
         assert(isinstance(header, FrameHeader))
         self.header = header
+        self.timestamp = timestamp if (timestamp is not None) else time.time()
 
     @staticmethod
     def construct_base(mxr:DeviceRegistry, opcode:int, protocol:int=MXR_PROTOCOL_VERSION, payload:bytes=bytes([]), size:int|None=None) -> 'FrameBase|None':
@@ -127,6 +129,15 @@ class FrameBase:
     def process(self) -> None:
         # update the local cache with the new data that was received in this frame
         pass
+
+    def uid_to_user_string(self, uid:str|MxrDeviceUid|bytes|None) -> str:
+        if (uid is None):
+            return '<none>'
+        if not isinstance(uid, MxrDeviceUid):
+            uid = MxrDeviceUid(uid)
+        if (self.remote_device is None):
+            return str(uid)
+        return self.remote_device.registry.uid_to_user_string(uid)
 
     def __len__(self) -> int:
         # number of payload bytes

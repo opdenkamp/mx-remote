@@ -5,6 +5,8 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+from functools import cached_property
+
 from .FrameBase import FrameBase
 from ..Uid import MxrDeviceUid
 import struct
@@ -21,7 +23,7 @@ class TopologyEntry:
         return str(self)
 
 class FrameTopology(FrameBase):
-    @property
+    @cached_property
     def topology(self) -> list[TopologyEntry]:
         topo = []
         data = self.payload
@@ -32,9 +34,16 @@ class FrameTopology(FrameBase):
             data = data[20:]
         return topo
 
+    @cached_property
+    def topology_user_string(self) -> list[str]:
+        rv = []
+        for topo in self.topology:
+            rv.append(f'{self.uid_to_user_string(topo.uid)}:{topo.mask:X}')
+        return rv
+
     def process(self) -> None:
         if ((dev := self.remote_device) is not None):
             dev.on_mxr_update(self)
 
     def __str__(self) -> str:
-        return f"{self.remote_device} topology data: {self.topology}"
+        return f"{self.remote_device} topology data: {self.topology_user_string}"

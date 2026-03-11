@@ -44,8 +44,7 @@ def proto_parser(logger:logging.Logger, file:str, filter:str|None) -> None:
                     continue
                 frame = bytes.fromhex(spl[2])
                 try:
-                    logger.debug(f"[[frame {ts}]]")
-                    remote.on_datagram_received(frame, (source, 8811))
+                    remote.process_frame(timestamp=float(ts), data=frame, addr=(source, 8811))
                 except Exception as e:
                     logger.warning(f"source: {source}    frame FAILED: {e}")
 

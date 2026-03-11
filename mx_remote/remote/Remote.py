@@ -225,12 +225,21 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         # get the local cache for a device, given it's unique id
         if (remote_id is None):
             return None
-        remote_id = MxrDeviceUid(remote_id)
-        if remote_id in self.remotes.keys():
-            return self.remotes[remote_id]
+        uid = MxrDeviceUid(remote_id)
+        if uid in self.remotes.keys():
+            return self.remotes[uid]
         if isinstance(remote_id, str):
             return self.get_by_serial(serial=remote_id)
         return None
+
+    def uid_to_user_string(self, remote_id:str|MxrDeviceUid|bytes|None) -> str:
+        if (remote_id is None):
+            return '<none>'
+        if not isinstance(remote_id, MxrDeviceUid):
+            remote_id = MxrDeviceUid(remote_id)
+        if remote_id in self.remotes.keys():
+            return self.remotes[remote_id].serial
+        return str(remote_id)
 
     def get_by_stream_ip(self, ip:str, audio:bool=False) -> BayBase|None:
         for _, dev in self.remotes.items():
@@ -292,14 +301,14 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self.tx_hello()
         self.tx_discover()
 
-    def on_datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
-        # called when a udp frame was received
+    def process_frame(self, timestamp:float, data: bytes, addr: tuple[str, int]) -> None:
         proc = False
         try:
-            frame = process_mxr_frame(self, data, addr)
+            frame = process_mxr_frame(mxr=self, timestamp=timestamp, data=data, addr=addr)
             if (frame is not None) and (frame.header.remote_id != self.uid):
                 proc = True
-                _LOGGER.debug(f"rx {addr[0]}: {frame.header.opcode:02X}({len(frame)}) - {str(frame)}")
+                ts = f'[{timestamp}] ' if (self.conn is None) else ''
+                _LOGGER.debug(f"{ts}rx {addr[0]}: {frame.header.opcode:02X}({len(frame)}) - {str(frame)}")
         except Exception as e:
             _LOGGER.warning(f"failed to decode frame {traceback.format_exc()}")
             raise
@@ -310,9 +319,13 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             _LOGGER.warning(f"failed to process frame: {traceback.format_exc()}")
             raise
 
+    def on_datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
+        # called when a udp frame was received
+        timestamp = time.time()
+        self.process_frame(timestamp=timestamp, data=data, addr=addr)
+
         if (self.conn is not None):
-            now = time.time()
-            if (now - self._last_hello >= 30):
+            if (timestamp - self._last_hello >= 30):
                 self.tx_hello()
 
     @override

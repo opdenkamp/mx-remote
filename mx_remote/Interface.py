@@ -617,7 +617,7 @@ class AudioEndpoints:
         return True
 
     def __str__(self) -> str:
-        return str(self.as_tree)
+        return str(self.as_list)
 
     def __repr__(self) -> str:
         return str(self)
@@ -1274,6 +1274,8 @@ class DeviceFeatures:
             ft.append('booting')
         if self.manager:
             ft.append('manager')
+        if self.crashed_recently:
+            ft.append('CRASHED')
         return ft
 
     def __str__(self) -> str:
@@ -2186,6 +2188,10 @@ class DeviceRegistry(ABC):
     @abstractmethod
     def get_by_uid(self, remote_id:str|MxrDeviceUid|None) -> DeviceBase|None:
         ''' get a device by its unique id '''
+
+    @abstractmethod
+    def uid_to_user_string(self, remote_id:str|MxrDeviceUid|bytes|None) -> str:
+        ''' return the serial of the unit if the uid is known, or the uid as string if it isn't '''
 
     @abstractmethod
     def get_bay_by_portnum(self, remote_id:str|MxrDeviceUid, portnum:int) -> BayBase|None:

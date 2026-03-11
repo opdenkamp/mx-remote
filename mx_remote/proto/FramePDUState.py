@@ -13,8 +13,8 @@ from typing import Any
 
 class FramePDUState(FrameBase):
     ''' pdu state frame, sent every minute by devices on the network '''
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
+    def __init__(self, header:FrameHeader, timestamp:float):
+        super().__init__(header=header, timestamp=timestamp)
         self._state = PDUState(self)
 
     @property

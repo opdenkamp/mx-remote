@@ -273,7 +273,7 @@ class FrameSignalStatusNew(FrameBase):
         if len(self.payload) < 8:
             return "signal status request"
         if len(self.payload) == 16:
-            return f"signal status request for {MxrDeviceUid(self.payload)}"
+            return f"signal status request for {self.uid_to_user_string(self.payload)}"
         if len(self.payload) < 112:
             return f"signal status request len {len(self.payload)}"
         if self.stream_valid:

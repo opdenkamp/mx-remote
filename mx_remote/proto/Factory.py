@@ -27,161 +27,161 @@ def create_mxr_frame(uid:bytes, opcode:int, payload:bytes|None=None) -> bytes:
 		pkt.extend(list(payload))
 	return bytes(pkt)
 
-def process_mxr_frame(mxr:DeviceRegistry, data:bytes, addr:tuple[str,int]) -> FrameBase|None:
+def process_mxr_frame(mxr:DeviceRegistry, timestamp:float, data:bytes, addr:tuple[str,int]) -> FrameBase|None:
 	# decode a (received) mx_remote frame
 	from .FrameHeader import FrameHeader
 	hdr = FrameHeader(mxr, data, addr)
 	if (hdr is not None):
 		try:
-			return _mxr_frame_factory(hdr)
+			return _mxr_frame_factory(hdr=hdr, timestamp=timestamp)
 		except Exception:
 			print(f"failed to process frame: {traceback.format_exc()}")
 			raise
 	logging.warning("frame header missing")
 
-def _mxr_frame_factory(hdr:FrameHeader) -> FrameBase|None:
+def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 	# create a new frame from a decoded mx_remote header
 	if hdr.opcode == 0x00:
 		from .FrameHello import FrameHello
-		return FrameHello(hdr)
+		return FrameHello(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x01:
 		from .FrameDiscover import FrameDiscover
-		return FrameDiscover(hdr)
+		return FrameDiscover(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x02:
 		from .FrameBayConfig import FrameBayConfig
-		return FrameBayConfig(hdr)
+		return FrameBayConfig(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x03:
 		from .FrameLinks import FrameLinks
-		return FrameLinks(hdr)
+		return FrameLinks(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x04:
 		from .FrameConnectStatus import FrameConnectStatus
-		return FrameConnectStatus(hdr)
+		return FrameConnectStatus(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x05:
 		from .FramePowerChange import FramePowerChange
-		return FramePowerChange(hdr)
+		return FramePowerChange(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x06:
 		from .FrameSignalStatus import FrameSignalStatus
-		return FrameSignalStatus(hdr)
+		return FrameSignalStatus(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x07:
 		from .FrameEDID import FrameEDID
-		return FrameEDID(hdr)
+		return FrameEDID(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x08:
 		from .FrameRoutingChange import FrameRoutingChange
-		return FrameRoutingChange(hdr)
+		return FrameRoutingChange(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x0A:
 		from .FrameRCIr import FrameRCIr
-		return FrameRCIr(hdr)
+		return FrameRCIr(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x0B:
 		from .FrameRCKey import FrameRCKey
-		return FrameRCKey(hdr)
+		return FrameRCKey(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x0D:
 		from .FrameRCAction import FrameRCAction
-		return FrameRCAction(hdr)
+		return FrameRCAction(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x0F:
 		from .FrameVolumeUp import FrameVolumeUp
-		return FrameVolumeUp(hdr)
+		return FrameVolumeUp(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x10:
 		from .FrameVolumeDown import FrameVolumeDown
-		return FrameVolumeDown(hdr)
+		return FrameVolumeDown(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x12:
 		from .FrameVolume import FrameVolume
-		return FrameVolume(hdr)
+		return FrameVolume(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x14:
 		from .FrameVolumeSet import FrameVolumeSet
-		return FrameVolumeSet(hdr)
+		return FrameVolumeSet(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x15:
 		from .FrameSysTemperature import FrameSysTemperature
-		return FrameSysTemperature(hdr)
+		return FrameSysTemperature(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x1F:
 		from .FrameV2IPSourceSwitch import FrameV2IPSourceSwitch
-		return FrameV2IPSourceSwitch(hdr)
+		return FrameV2IPSourceSwitch(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x16:
 		from .FramePDUState import FramePDUState
-		return FramePDUState(hdr)
+		return FramePDUState(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x20:
 		from .FrameV2IPLink import FrameV2IPLinkStatus
-		return FrameV2IPLinkStatus(hdr)
+		return FrameV2IPLinkStatus(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x22:
 		from .FrameSetName import FrameSetName
-		return FrameSetName(hdr)
+		return FrameSetName(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x23:
 		from .FrameBayConfigSecondary import FrameBayConfigSecondary
-		return FrameBayConfigSecondary(hdr)
+		return FrameBayConfigSecondary(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x26:
 		from .FrameV2IPSources import FrameV2IPSources
-		return FrameV2IPSources(hdr)
+		return FrameV2IPSources(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x27:
 		from .FrameBayHide import FrameBayHide
-		return FrameBayHide(hdr)
+		return FrameBayHide(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x28:
 		from .FrameReboot import FrameReboot
-		return FrameReboot(hdr)
+		return FrameReboot(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x29:
 		from .FrameNetworkStatus import FrameNetworkStatus
-		return FrameNetworkStatus(hdr)
+		return FrameNetworkStatus(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x2A:
 		from .FrameFirmwareVersion import FrameFirmwareVersion
-		return FrameFirmwareVersion(hdr)
+		return FrameFirmwareVersion(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x30:
 		from .FrameTopology import FrameTopology
-		return FrameTopology(hdr)
+		return FrameTopology(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x31:
 		from .FrameSignalStatusNew import FrameSignalStatusNew
-		return FrameSignalStatusNew(hdr)
+		return FrameSignalStatusNew(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x32:
 		from .FrameMirrorStatus import FrameMirrorStatus
-		return FrameMirrorStatus(hdr)
+		return FrameMirrorStatus(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x34:
 		from .FrameEDIDProfile import FrameEDIDProfile
-		return FrameEDIDProfile(hdr)
+		return FrameEDIDProfile(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x36:
 		from .FrameV2IPSetMaster import FrameV2IPSetMaster
-		return FrameV2IPSetMaster(hdr)
+		return FrameV2IPSetMaster(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x38:
 		from .FrameFilterStatus import FrameFilterStatus
-		return FrameFilterStatus(hdr)
+		return FrameFilterStatus(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x39:
 		from .FrameBayStatus import FrameBayStatus
-		return FrameBayStatus(hdr)
+		return FrameBayStatus(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x3B:
 		from .FrameMeshOperation import FrameMeshOperation
-		return FrameMeshOperation(hdr)
+		return FrameMeshOperation(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x3C:
 		from .FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
-		return FrameV2IPDeviceConfiguration(hdr)
+		return FrameV2IPDeviceConfiguration(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x3D:
 		from .FrameAmpZoneSettings import FrameAmpZoneSettings
-		return FrameAmpZoneSettings(hdr)
+		return FrameAmpZoneSettings(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x3E:
 		from .FrameAmpDolbySettings import FrameAmpDolbySettings
-		return FrameAmpDolbySettings(hdr)
+		return FrameAmpDolbySettings(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x3F:
 		from .FrameV2IPStats import FrameV2IPStats
-		return FrameV2IPStats(hdr)
+		return FrameV2IPStats(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x40:
 		from .FrameV2IPTiling import FrameV2IPTiling
-		return FrameV2IPTiling(hdr)
+		return FrameV2IPTiling(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x41:
 		from .FrameV2IPPowerSave import FrameV2IPPowerSave
-		return FrameV2IPPowerSave(hdr)
+		return FrameV2IPPowerSave(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x42:
 		from .FrameV2IPMultiviewer import FrameV2IPMultiviewer
-		return FrameV2IPMultiviewer(hdr)
+		return FrameV2IPMultiviewer(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x43:
 		from .FrameV2IPAudio import FrameV2IPAudio
-		return FrameV2IPAudio(hdr)
+		return FrameV2IPAudio(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x44:
 		from .FrameV2IPBayMapping import FrameV2IPBayMapping
-		return FrameV2IPBayMapping(hdr)
+		return FrameV2IPBayMapping(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x45:
 		from .FrameRCSettings import FrameRCSettings
-		return FrameRCSettings(hdr)
+		return FrameRCSettings(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x46:
 		from .FrameSystemStatus import FrameSystemStatus
-		return FrameSystemStatus(hdr)
+		return FrameSystemStatus(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x47:
 		from .FrameDebug import FrameDebug
-		return FrameDebug(hdr)
+		return FrameDebug(header=hdr, timestamp=timestamp)
 
 	logging.debug(f"opcode {hdr.opcode:02X} is not processed")
 	return None

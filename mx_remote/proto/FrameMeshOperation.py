@@ -69,7 +69,7 @@ class FrameMeshOperation(FrameBase):
         return self.payload_uuid(20)
 
     def process(self) -> None:
-        _LOGGER.debug(f"mesh operation {str(self.operation)} by {str(self.remote_device)} target={str(self.target_uid)} param={str(self.parameter)}")
+        _LOGGER.debug(f"mesh operation {str(self.operation)} by {str(self.remote_device)} target={self.uid_to_user_string(self.target_uid)} param={self.uid_to_user_string(self.parameter)}")
         if ((dev := self.remote_device) is not None):
             dev.on_mxr_update(self)
 

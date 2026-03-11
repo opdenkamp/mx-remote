@@ -46,6 +46,13 @@ class FrameV2IPBayMapping(FrameBase):
             rv.append(pl)
         return rv
 
+    @cached_property
+    def bays_user_string(self) -> list[str]:
+        rv = []
+        for bay in self.bays:
+            rv.append(self.uid_to_user_string(bay))
+        return rv
+
     def bay(self, idx:int) -> MxrDeviceUid|None:
         if idx >= self.nb_bays:
             return None
@@ -57,4 +64,4 @@ class FrameV2IPBayMapping(FrameBase):
             self.remote_device.on_mxr_update(self)
 
     def __str__(self) -> str:
-        return f"{str(self.remote_device)} {'input' if self.is_input else 'output'} bay mapping: {self.bays}"
+        return f"{str(self.remote_device)} {'input' if self.is_input else 'output'} bay mapping: {self.bays_user_string}"

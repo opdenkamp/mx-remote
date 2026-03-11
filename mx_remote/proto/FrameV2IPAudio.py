@@ -266,7 +266,7 @@ class AudioEndpointImpl(AudioEndpoint):
             else:
                 address = str(address)
             return f"{serial}{str(self.id)}@{address}"
-        return f"{serial}{str(self.id)}"
+        return f"{serial}{str(self.id)}[{self.features}]"
 
     def __repr__(self) -> str:
         return str(self)
@@ -382,6 +382,8 @@ class AudioConfig:
                     ep = AudioEndpointImpl(id=id, features=features, container=rv)
                     rv.add(ep)
                     eps[ep.id] = ep
+                else:
+                    _LOGGER.warning(f'endpoint {id} without features')
 
         for entry in self.entries:
             id = entry.id
@@ -405,11 +407,10 @@ class AudioConfig:
                 if (routes_supported is not None) and (routes is not None):
                     eps[id].in_routes_supported = routes_supported
                     eps[id].in_routes = routes
-
         return rv
 
     def __str__(self) -> str:
-        return f"endpoint config: {self.endpoints}"
+        return f"endpoint config: ({len(self.entries)} for {len(self.endpoints.endpoints)} endpoints) {self.endpoints}"
 
 class AudioChangeSourceImpl(AudioChangeSource):
     def __init__(self, data:FrameBase) -> None:

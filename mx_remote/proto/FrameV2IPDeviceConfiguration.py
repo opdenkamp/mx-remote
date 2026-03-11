@@ -42,8 +42,8 @@ class V2IPScalingSettingsImpl(DeviceV2IPScalingSettings):
         return self._flags
 
 class FrameV2IPDeviceConfiguration(FrameBase):
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
+    def __init__(self, header:FrameHeader, timestamp:float):
+        super().__init__(header=header, timestamp=timestamp)
         if (self.payload is None) or (len(self.payload) < 61):
             raise Exception("invalid v2ip configuration")
         self.video = V2IPStreamSourceImpl("video", self.payload[16:22])

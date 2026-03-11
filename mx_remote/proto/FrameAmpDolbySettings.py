@@ -14,9 +14,6 @@ import logging
 _LOGGER = logging.getLogger(__name__)
 
 class FrameAmpDolbySettings(FrameBase):
-    def __init__(self, header:FrameHeader):
-        super().__init__(header)
-
     @property
     def target_device(self) -> DeviceBase|None:
         if (self.target_uid is None) or self.target_uid.empty:
