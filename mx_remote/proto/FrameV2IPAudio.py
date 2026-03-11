@@ -7,9 +7,14 @@
 
 from enum import Enum
 from functools import cached_property
+import logging
 from typing import override
+
+from proto.FrameHeader import FrameHeader
 from .FrameBase import FrameBase
 from ..Interface import DeviceRegistry, MxrDeviceUid, V2IPStreamSource, AudioFeatures, AudioEndpoint, AudioEndpoints, AudioChangeSource, AudioLink, AudioLinks
+
+_LOGGER = logging.getLogger(__name__)
 
 class AudioCommandOpcode(Enum):
     UNKNOWN = 0xFFFF
@@ -432,35 +437,79 @@ class AudioChangeSourceImpl(AudioChangeSource):
     def __repr__(self) -> str:
         return str(self)
 
+class AudioMute:
+    def __init__(self, data:FrameBase) -> None:
+        self.data = data
+
+    @cached_property
+    def endpoint(self) -> int|None:
+        return self.data.payload_u16(idx=20)
+
+    @cached_property
+    def mute(self) -> bool|None:
+        return self.data.payload_bool(idx=24)
+
+    def __str__(self) -> str:
+        return f"mute endpoint {self.endpoint}: {self.mute}"
+
+class AudioTrigger:
+    def __init__(self, data:FrameBase) -> None:
+        self.data = data
+
+    @cached_property
+    def endpoint(self) -> int|None:
+        return self.data.payload_u16(idx=20)
+
+    @cached_property
+    def trigger(self) -> bool|None:
+        return self.data.payload_bool(idx=24)
+
+    def __str__(self) -> str:
+        return f"trigger endpoint {self.endpoint}: {self.trigger}"
+
+class AudioVolume:
+    def __init__(self, data:FrameBase) -> None:
+        self.data = data
+
+    @cached_property
+    def endpoint(self) -> int|None:
+        return self.data.payload_u16(idx=20)
+
+    @cached_property
+    def volume(self) -> int|None:
+        return self.data.payload_u32(idx=24)
+
+    def __str__(self) -> str:
+        return f"volume endpoint {self.endpoint}: {self.volume}"
+
 class FrameV2IPAudio(FrameBase):
+    @cached_property
+    def _frame(self) -> 'FrameV2IPAudio':
+        if (self.opcode == AudioCommandOpcode.FEATURES):
+            return FrameV2IPAudioConfig(header=self.header)
+        elif (self.opcode == AudioCommandOpcode.MUTE):
+            return FrameV2IPAudioMute(header=self.header)
+        elif (self.opcode == AudioCommandOpcode.TRIGGER):
+            return FrameV2IPAudioTrigger(header=self.header)
+        elif (self.opcode == AudioCommandOpcode.SELECT_INPUT):
+            return FrameV2IPAudioChangeSource(header=self.header)
+        elif (self.opcode == AudioCommandOpcode.LINKS):
+            return FrameV2IPAudioLinks(header=self.header)
+        elif (self.opcode == AudioCommandOpcode.VOLUME):
+            return FrameV2IPAudioVolume(header=self.header)
+        raise Exception(f"unhandled audio opcode {self.opcode}")
+
     def process(self) -> None:
         if (self.remote_device is None):
             return
-
-        if (self.opcode == AudioCommandOpcode.FEATURES):
-            cfg = AudioConfig(data=self)
-            self.remote_device.on_mxr_update(data=cfg.endpoints)
-            if len(self) > 36 + (cfg.nb_endpoints * 16):
-                cmd = AudioLinksImpl(data=self, idx=(36 + (cfg.nb_endpoints * 16)))
-                self.remote_device.on_mxr_update(data=cmd)
-        elif (self.opcode == AudioCommandOpcode.SELECT_INPUT):
-            cmd = AudioChangeSourceImpl(data=self)
-            self.remote_device.on_mxr_update(data=cmd)
-        elif (self.opcode == AudioCommandOpcode.LINKS):
-            cmd = AudioLinksImpl(data=self)
-            self.remote_device.on_mxr_update(data=cmd)
-        else:
-            print(f"unhandled audio opcode {self.opcode}")
+        try:
+            self._frame.process()
+        except Exception as e:
+            _LOGGER.warning(e)
 
     @staticmethod
     def construct_select_input(mxr:DeviceRegistry, sink:MxrDeviceUid, sink_ep:AudioEndpoint, source:MxrDeviceUid, source_ep:AudioEndpoint) -> FrameBase|None:
-        payload = bytes([AudioCommandOpcode.SELECT_INPUT.value >> 8, AudioCommandOpcode.SELECT_INPUT.value & 0xF, 0, 0]) \
-            + sink.byte_value \
-            + source.byte_value \
-            + sink.byte_value \
-            + bytes([source_ep.id >> 8, source_ep.id & 0xF]) \
-            + bytes([sink_ep.id >> 8, sink_ep.id & 0xF])
-        return FrameBase.construct_base(mxr=mxr, opcode=0x43, payload=payload)
+        return FrameV2IPAudioChangeSource.construct(mxr=mxr, sink=sink, sink_ep=sink_ep, source=source, source_ep=source_ep)
 
     @cached_property
     def opcode(self) -> AudioCommandOpcode:
@@ -474,4 +523,128 @@ class FrameV2IPAudio(FrameBase):
         return self.payload_uuid(idx=2)
 
     def __str__(self) -> str:
-        return f"{str(self.remote_device)} audio command"
+        try:
+            return str(self._frame)
+        except Exception as e:
+            return str(e)
+class FrameV2IPAudioConfig(FrameV2IPAudio):
+    def __init__(self, header: FrameHeader):
+        super().__init__(header)
+        if (self.opcode != AudioCommandOpcode.FEATURES):
+            raise Exception(f"invalid opcode {self.opcode}")
+
+    @cached_property
+    def audio_config(self) -> AudioConfig:
+        return AudioConfig(data=self)
+
+    @cached_property
+    def has_audio_links(self) -> bool:
+        return (len(self) > 36 + (self.audio_config.nb_endpoints * 16))
+
+    @cached_property
+    def audio_links(self) -> AudioLinks|None:
+        if self.has_audio_links:
+            return AudioLinksImpl(data=self, idx=(36 + (self.audio_config.nb_endpoints * 16)))
+        return None
+
+    @override
+    def process(self) -> None:
+        if (self.remote_device is None):
+            return
+        self.remote_device.on_mxr_update(data=self.audio_config.endpoints)
+        if self.has_audio_links:
+            self.remote_device.on_mxr_update(data=self.audio_links)
+
+    def __str__(self) -> str:
+        links = self.audio_links
+        links_str = f" links: {links}" if links is not None else ''
+        return f"{str(self.remote_device)} audio config: {self.audio_config}{links_str}"
+
+class FrameV2IPAudioChangeSource(FrameV2IPAudio):
+    def __init__(self, header: FrameHeader):
+        super().__init__(header)
+        if (self.opcode != AudioCommandOpcode.SELECT_INPUT):
+            raise Exception(f"invalid opcode {self.opcode}")
+
+    @cached_property
+    def select_input(self) -> AudioChangeSource:
+        if (self.opcode == AudioCommandOpcode.SELECT_INPUT):
+            return AudioChangeSourceImpl(data=self)
+        raise Exception(f"{self.opcode} is not an AudioChangeSource frame")
+
+    @override
+    def process(self) -> None:
+        if (self.remote_device is None):
+            return
+        self.remote_device.on_mxr_update(data=self.select_input)
+
+    @staticmethod
+    def construct(mxr:DeviceRegistry, sink:MxrDeviceUid, sink_ep:AudioEndpoint, source:MxrDeviceUid, source_ep:AudioEndpoint) -> FrameBase|None:
+        payload = bytes([AudioCommandOpcode.SELECT_INPUT.value >> 8, AudioCommandOpcode.SELECT_INPUT.value & 0xF, 0, 0]) \
+            + sink.byte_value \
+            + source.byte_value \
+            + sink.byte_value \
+            + bytes([source_ep.id >> 8, source_ep.id & 0xF]) \
+            + bytes([sink_ep.id >> 8, sink_ep.id & 0xF])
+        return FrameBase.construct_base(mxr=mxr, opcode=0x43, payload=payload)
+
+    def __str__(self) -> str:
+        return f"{str(self.remote_device)} audio route: {self.select_input}"
+
+class FrameV2IPAudioLinks(FrameV2IPAudio):
+    def __init__(self, header: FrameHeader):
+        super().__init__(header)
+        if (self.opcode != AudioCommandOpcode.LINKS):
+            raise Exception(f"invalid opcode {self.opcode}")
+
+    @cached_property
+    def audio_links(self) -> AudioLinks:
+        return AudioLinksImpl(data=self)
+
+    @override
+    def process(self) -> None:
+        if (self.remote_device is None):
+            return
+        self.remote_device.on_mxr_update(data=self.audio_links)
+
+    def __str__(self) -> str:
+        return f"{str(self.remote_device)} audio links: {self.audio_links}"
+
+class FrameV2IPAudioMute(FrameV2IPAudio):
+    def __init__(self, header: FrameHeader):
+        super().__init__(header)
+        if (self.opcode != AudioCommandOpcode.MUTE):
+            raise Exception(f"invalid opcode {self.opcode}")
+
+    @cached_property
+    def param(self) -> AudioMute:
+        return AudioMute(data=self)
+
+    def __str__(self) -> str:
+        return f"{str(self.remote_device)} {self.param}"
+
+class FrameV2IPAudioTrigger(FrameV2IPAudio):
+    def __init__(self, header: FrameHeader):
+        super().__init__(header)
+        if (self.opcode != AudioCommandOpcode.TRIGGER):
+            raise Exception(f"invalid opcode {self.opcode}")
+
+    @cached_property
+    def param(self) -> AudioTrigger:
+        return AudioTrigger(data=self)
+
+    def __str__(self) -> str:
+        return f"{str(self.remote_device)} {self.param}"
+
+class FrameV2IPAudioVolume(FrameV2IPAudio):
+    def __init__(self, header: FrameHeader):
+        super().__init__(header)
+        if (self.opcode != AudioCommandOpcode.VOLUME):
+            raise Exception(f"invalid opcode {self.opcode}")
+
+    @cached_property
+    def param(self) -> AudioVolume:
+        return AudioVolume(data=self)
+
+    def __str__(self) -> str:
+        return f"{str(self.remote_device)} {self.param}"
