@@ -8,5 +8,5 @@
 from .remote.Remote import Remote
 from .Interface import *
 from .const import VERSION
-from .proto.Constants import MXR_PROTOCOL_VERSION
+from .proto.Constants import MXR_PROTOCOL_VERSION, RCKey, RCAction, RCType
 from .main import mxr_console, mxr_main, proto_parser

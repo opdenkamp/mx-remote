@@ -1,9 +1,8 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "mypy"]
 build-backend = "hatchling.build"
 
-[tool.setuptools]
-include-package-data = true
+[tool.hatch.build.hooks.custom]
 
 [project]
 name = "mx_remote"
