@@ -146,7 +146,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
     def svd_map(self) -> SvdMap:
         return self._svd
 
-    async def update_config(self, callbacks:MxrCallbacks|None=None, name:str|None=None, target_ip:str|None=None, port:int|None=None, local_ip:str|None=None, broadcast:bool|None=None):
+    async def update_config(self, callbacks:MxrCallbacks|None=None, name:str|None=None, target_ip:str|None=None, port:int|None=None, local_ip:str|None=None, broadcast:bool|None=None) -> None:
         if (callbacks is not None):
             self._callbacks = State(callbacks, self.http_session)
         if (name is not None):
@@ -207,6 +207,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         checker = asyncio.create_task(self._background_probe())
         self._tasks.add(checker)
         checker.add_done_callback(self._tasks.discard)
+
+    async def stop_async(self) -> None:
+        await self.close()
 
     async def close(self) -> None:
         # close all open connections
