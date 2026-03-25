@@ -6,6 +6,7 @@
 ##################################################
 
 from abc import ABC, abstractmethod
+from enum import Enum
 from functools import cached_property
 import aiohttp
 import ipaddress
