@@ -2,7 +2,7 @@
 ##         MX Remote Python Interface           ##
 ##                                              ##
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
-## copyright (c) 2024 Op den Kamp IT Solutions  ##
+## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
 """
@@ -14,7 +14,7 @@ Default communication modes:
 """
 import os
 
-VERSION = '3.5.0'
+VERSION = '4.0.0'
 __version__ = VERSION
 
 MX_BCAST_UDP_IP = '10.8.8.255'

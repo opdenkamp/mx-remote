@@ -2,10 +2,10 @@
 ##         MX Remote Python Interface           ##
 ##                                              ##
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
-## copyright (c) 2024 Op den Kamp IT Solutions  ##
+## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
-from enum import Enum
+from enum import IntEnum
 
 class V2IPTxStats:
     def __init__(self, data:bytes|None) -> None:
@@ -44,7 +44,7 @@ class V2IPTxStats:
     def __repr__(self) -> str:
         return str(self)
 
-class V2IPDecoderState(Enum):
+class V2IPDecoderState(IntEnum):
     UNKNOWN = 0
     HEALTHY = 1
     BAD = 2

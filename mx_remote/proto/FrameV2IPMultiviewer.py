@@ -2,7 +2,7 @@
 ##         MX Remote Python Interface           ##
 ##                                              ##
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
-## copyright (c) 2025 Op den Kamp IT Solutions  ##
+## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
 from enum import Enum

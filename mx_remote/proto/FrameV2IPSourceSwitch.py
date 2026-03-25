@@ -2,11 +2,12 @@
 ##         MX Remote Python Interface           ##
 ##                                              ##
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
-## copyright (c) 2024 Op den Kamp IT Solutions  ##
+## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
 from functools import cached_property
 from .FrameBase import FrameBase
+from .Constants import BayFeaturesMask
 from ..Interface import DeviceBase, BayBase, DeviceRegistry, SelectedBays
 from ..Uid import MxrDeviceUid
 import socket
@@ -20,14 +21,14 @@ class FrameV2IPSourceSwitch(FrameBase):
     def construct(mxr:DeviceRegistry, target:BayBase, video:BayBase|str|None=None, audio:BayBase|str|None=None) -> FrameBase|None:
         if video is not None:
             if isinstance(video, BayBase):
-                if not video.features.v2ip_source_local and not video.features.v2ip_source_remote:
+                if BayFeaturesMask.V2IP_SOURCE_LOCAL not in video.features and BayFeaturesMask.V2IP_SOURCE_REMOTE not in video.features:
                     raise Exception(f"{video} is not a v2ip source")
                 if video.v2ip_source is None:
                     raise Exception(f"{video} v2ip addresses not known")
 
         if audio is not None:
             if isinstance(audio, BayBase):
-                if not audio.features.v2ip_source_local and not audio.features.v2ip_source_remote:
+                if BayFeaturesMask.V2IP_SOURCE_LOCAL not in audio.features and BayFeaturesMask.V2IP_SOURCE_REMOTE not in audio.features:
                     raise Exception(f"{audio} is not a v2ip source")
                 if audio.v2ip_source is None:
                     raise Exception(f"{audio} v2ip addresses not known")

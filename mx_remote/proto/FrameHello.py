@@ -2,15 +2,15 @@
 ##         MX Remote Python Interface           ##
 ##                                              ##
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
-## copyright (c) 2024 Op den Kamp IT Solutions  ##
+## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
 from functools import cached_property
 import warnings
 from ..const import __version__
-from .Constants import MXR_PROTOCOL_VERSION, MXR_DEVICE_FEATURE_MANAGER
+from .Constants import MXR_PROTOCOL_VERSION, DeviceFeature
 from .FrameBase import FrameBase, append_payload_str
-from ..Interface import DeviceRegistry, DeviceFeatures
+from ..Interface import DeviceRegistry
 import struct
 from typing import Any
 
@@ -21,7 +21,7 @@ class FrameHello(FrameBase):
         payload = append_payload_str(payload=payload, value=mxr.name, sz=16)
         payload = append_payload_str(payload=payload, value="P9SN00000000", sz=16)
         payload = append_payload_str(payload=payload, value=__version__, sz=16)
-        features = MXR_DEVICE_FEATURE_MANAGER
+        features = DeviceFeature.MANAGER
         payload += [ (features >> 0) & 0xFF, (features >> 8) & 0xFF, (features >> 16) & 0xFF, (features >> 24) & 0xFF ]
         return FrameBase.construct_base(mxr=mxr, opcode=0, payload=bytes(payload))
 
@@ -47,11 +47,11 @@ class FrameHello(FrameBase):
         return self.payload_str(34, 16)
 
     @cached_property
-    def features(self) -> DeviceFeatures|None:
+    def features(self) -> DeviceFeature|None:
         # supported features bitmask
         if (self.payload is None) or (len(self.payload) < 54):
             return None
-        return DeviceFeatures(struct.unpack('<L', self.payload[50:54])[0])
+        return DeviceFeature(struct.unpack('<L', self.payload[50:54])[0])
 
     def process(self) -> None:
         # register or update this device in the local cache

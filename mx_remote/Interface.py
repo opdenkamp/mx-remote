@@ -2,11 +2,11 @@
 ##         MX Remote Python Interface           ##
 ##                                              ##
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
-## copyright (c) 2024 Op den Kamp IT Solutions  ##
+## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
 from abc import ABC, abstractmethod
-from enum import Enum
+from enum import IntEnum
 from functools import cached_property
 import aiohttp
 import ipaddress
@@ -29,7 +29,7 @@ from .proto.Multiviewer import (
 	MultiviewerHDCPMode,
 )
 from .proto.Svd import SvdMap
-from typing import Any, Callable
+from typing import Callable
 from .Uid import MxrDeviceUid, MxrBayUid
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,7 +49,7 @@ def mxr_valid_addresses() -> list[str]:
                 addresses.append(addr)
     return addresses
 
-class DeviceStatus(Enum):
+class DeviceStatus(IntEnum):
     """
     Status of a device on the network
     """
@@ -85,7 +85,7 @@ class DeviceStatus(Enum):
     def __repr__(self) -> str:
         return str(self)
 
-class PowerStatus(Enum):
+class PowerStatus(IntEnum):
     UNKNOWN = 0
     ON = 1
     OFF = 2
@@ -100,7 +100,7 @@ class PowerStatus(Enum):
     def __repr__(self) -> str:
         return str(self)
 
-class HiddenStatus(Enum):
+class HiddenStatus(IntEnum):
     UNKNOWN = 0
     HIDDEN = 1
     VISIBLE = 2
@@ -141,7 +141,7 @@ class FirmwareVersion:
     def __repr__(self) -> str:
         return f"firmware {self.firmware_type} version {self.version} hash {self.hash}"
 
-class ConnectStatus(Enum):
+class ConnectStatus(IntEnum):
     UNKNOWN = 0
     CONNECTED = 1
     DISCONNECTED = 2
@@ -1076,7 +1076,7 @@ class BayBase(ABC):
         '''notify callbacks that this bay has changed'''
 
     @abstractmethod
-    def on_mxr_update(self, data:Any) -> None:
+    def on_mxr_update(self, data:object) -> None:
         pass
 
 class SelectedBays:
@@ -1092,201 +1092,6 @@ class SelectedBays:
     def audio(self) -> BayBase|None:
         return self._audio
 
-class DeviceFeatures:
-    """
-    Features and status of an mx_remote device
-    """
-
-    def __init__(self, value:int) -> None:
-        self._features = value
-
-    @property
-    def value(self) -> int:
-        return self._features
-
-    @property
-    def ir_rx(self) -> bool:
-        """ IR receive supported """
-        return ((self._features & MXR_DEVICE_FEATURE_IR_RX) != 0)
-
-    @property
-    def ir_tx(self) -> bool:
-        """ IR blast supported """
-        return ((self._features & MXR_DEVICE_FEATURE_IR_TX) != 0)
-
-    @property
-    def cec(self) -> bool:
-        """ HDMI-CEC supported """
-        return ((self._features & MXR_DEVICE_FEATURE_CEC) != 0)
-
-    @property
-    def v2ip_source(self) -> bool:
-        """ V2IP source """
-        return ((self._features & MXR_DEVICE_FEATURE_V2IP_SOURCE) != 0)
-
-    @property
-    def v2ip_sink(self) -> bool:
-        """ V2IP sink """
-        return ((self._features & MXR_DEVICE_FEATURE_V2IP_SINK) != 0)
-
-    @property
-    def video_routing(self) -> bool:
-        """ video routing supported """
-        return ((self._features & MXR_DEVICE_FEATURE_VIDEO_ROUTING) != 0)
-
-    @property
-    def audio_routing(self) -> bool:
-        """ (independent) audio routing supported """
-        return ((self._features & MXR_DEVICE_FEATURE_AUDIO_ROUTING) != 0)
-
-    @property
-    def volume_control(self) -> bool:
-        """ volume control supported """
-        return ((self._features & MXR_DEVICE_FEATURE_VOLUME_CONTROL) != 0)
-
-    @property
-    def arc(self) -> bool:
-        """ audio return channel supported """
-        return ((self._features & MXR_DEVICE_FEATURE_AUDIO_RETURN) != 0)
-
-    @property
-    def remote_control(self) -> bool:
-        """ remote contro pass through supported """
-        return ((self._features & MXR_DEVICE_FEATURE_REMOTE_CONTROL) != 0)
-
-    @property
-    def setup_completed(self) -> bool:
-        """ device setup flagged as completed """
-        return ((self._features & MXR_DEVICE_FEATURE_SETUP_COMPLETED) != 0)
-
-    @property
-    def mesh_master(self) -> bool:
-        """ master device of a V2IP mesh """
-        return ((self._features & MXR_DEVICE_FEATURE_MESH_MASTER) != 0)
-
-    @property
-    def status_notify(self) -> bool:
-        """ notification registered in system status """
-        return ((self._features & MXR_DEVICE_FEATURE_STATUS_NOTIFY) != 0)
-
-    @property
-    def status_warning(self) -> bool:
-        """ warning registered in system status """
-        return ((self._features & MXR_DEVICE_FEATURE_STATUS_WARNING) != 0)
-
-    @property
-    def status_error(self) -> bool:
-        """ error registered in system status """
-        return ((self._features & MXR_DEVICE_FEATURE_STATUS_ERROR) != 0)
-
-    @property
-    def status_rebooting(self) -> bool:
-        """ device is going to reboot """
-        return ((self._features & MXR_DEVICE_FEATURE_STATUS_REBOOTING) != 0)
-
-    @property
-    def mesh_member(self) -> bool:
-        """ member of a V2IP mesh """
-        return ((self._features & MXR_DEVICE_FEATURE_MESH_MEMBER) != 0)
-
-    @property
-    def audio_amp(self) -> bool:
-        """ audio amplifier """
-        return ((self._features & MXR_DEVICE_FEATURE_AUDIO_AMPLIFIER) != 0)
-
-    @property
-    def booting(self) -> bool:
-        """ device is booting """
-        return ((self._features & MXR_DEVICE_FEATURE_BOOTING) != 0)
-
-    @property
-    def manager(self) -> bool:
-        """ device is allowed to manage mx_remote devices """
-        return ((self._features & MXR_DEVICE_FEATURE_MANAGER) != 0)
-
-    @property
-    def power_save(self) -> bool:
-        """ device is in power saving mode """
-        return ((self._features & MXR_DEVICE_FEATURE_STATUS_POWER_SAVE) != 0)
-
-    @property
-    def mesh_support(self) -> bool:
-        """ device supports mesh operations """
-        return ((self._features & MXR_DEVICE_FEATURE_MESH) != 0)
-
-    @property
-    def multiviewer(self) -> bool:
-        """ device is a multiviewer """
-        return ((self._features & MXR_DEVICE_FEATURE_MULTIVIEWER) != 0)
-
-    @property
-    def crashed_recently(self) -> bool:
-        """ device crash caused this boot """
-        return ((self._features & MXR_DEVICE_FEATURE_STATUS_CRASHED) != 0)
-
-    @property
-    def boot_bit(self) -> bool:
-        """ bit that is flipped every time the device reboots """
-        return ((self._features & MXR_DEVICE_FEATURE_BOOT_BIT) != 0)
-
-    def __eq__(self, value: object) -> bool:
-        if (not isinstance(value, DeviceFeatures)):
-            return False
-        return self._features == value._features
-
-    @cached_property
-    def features(self) -> list[str]:
-        """ supported features as list of string descriptions """
-        ft:list[str] = []
-        if self.ir_rx:
-            ft.append('IR RX')
-        if self.ir_tx:
-            ft.append('IR TX')
-        if self.cec:
-            ft.append('CEC')
-        if self.v2ip_source:
-            ft.append('V2IP source')
-        if self.v2ip_sink:
-            ft.append('V2IP sink')
-        if self.video_routing:
-            ft.append('video routing')
-        if self.audio_routing:
-            ft.append('audio routing')
-        if self.volume_control:
-            ft.append('volume control')
-        if self.arc:
-            ft.append('ARC')
-        if self.remote_control:
-            ft.append('remote control')
-        if self.setup_completed:
-            ft.append('setup completed')
-        if self.mesh_master:
-            ft.append('mesh master')
-        if self.status_notify:
-            ft.append('status notify')
-        if self.status_warning:
-            ft.append('status warning')
-        if self.status_error:
-            ft.append('status error')
-        if self.status_rebooting:
-            ft.append('status rebooting')
-        if self.mesh_member:
-            ft.append('mesh member')
-        if self.audio_amp:
-            ft.append('audio amp')
-        if self.booting:
-            ft.append('booting')
-        if self.manager:
-            ft.append('manager')
-        if self.crashed_recently:
-            ft.append('CRASHED')
-        return ft
-
-    def __str__(self) -> str:
-        return str(self.features)
-
-    def __repr__(self) -> str:
-        return str(self)
 
 class DeviceV2IPScalingSettings(ABC):
     @property
@@ -1514,7 +1319,7 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
-    def features(self) -> DeviceFeatures|None:
+    def features(self) -> DeviceFeature|None:
         '''supported features'''
 
     @property
@@ -1741,7 +1546,7 @@ class DeviceBase(ABC):
         '''internal callback'''
 
     @abstractmethod
-    async def get_api(self, uri:str) -> Any:
+    async def get_api(self, uri:str) -> object:
         '''call an HTTP API method and return the result'''
 
     @abstractmethod
@@ -1773,7 +1578,7 @@ class DeviceBase(ABC):
         '''read the log from the device and return it as string'''
 
     @abstractmethod
-    def on_mxr_update(self, data:Any) -> None:
+    def on_mxr_update(self, data:object) -> None:
         pass
 
     @property
@@ -1989,70 +1794,68 @@ class BayLink:
     def is_audio(self) -> bool:
         ''' True if this is an audio link '''
         m = self.features_mask
-        return (m & MX_LINK_FEATURE_AUDIO_OPTICAL) != 0 or \
-            (m & MX_LINK_FEATURE_AUDIO_ANALOG) != 0
+        return LinkFeature.AUDIO_OPTICAL in m or LinkFeature.AUDIO_ANALOG in m
 
     @property
     def is_video(self) -> bool:
         ''' True if this is a video link '''
-        m = self.features_mask
-        return (m & MX_LINK_FEATURE_VIDEO_HDMI) != 0
+        return LinkFeature.VIDEO_HDMI in self.features_mask
 
     @property
     def features(self) -> list[str]:
         ''' supported link features as list of string '''
         ft:list[str] = []
         m = self.features_mask
-        if (m & MX_LINK_FEATURE_VIDEO_HDMI):
+        if LinkFeature.VIDEO_HDMI in m:
             ft.append("HDMI")
-        if (m & MX_LINK_FEATURE_AUDIO_OPTICAL):
+        if LinkFeature.AUDIO_OPTICAL in m:
             ft.append("optical audio")
-        if (m & MX_LINK_FEATURE_AUDIO_ANALOG):
+        if LinkFeature.AUDIO_ANALOG in m:
             ft.append("analog audio")
-        if (m & MX_LINK_FEATURE_IR):
+        if LinkFeature.IR in m:
             ft.append("IR")
-        if (m & MX_LINK_FEATURE_RC):
+        if LinkFeature.RC in m:
             ft.append("RC")
         return ft
 
     @property
-    def features_mask(self) -> int:
+    def features_mask(self) -> LinkFeature:
         ''' supported link features as bitmask '''
         if not self.connected:
-            return 0
-        left = self.bay.features.mask
-        right = self.linked_bay.features.mask if (self.linked_bay is not None) else 0
-        rv = 0
-        if (left & MX_BAY_FEATURE_HDMI_OUT):
-            if (right & MX_BAY_FEATURE_HDMI_IN):
-                rv |= MX_LINK_FEATURE_VIDEO_HDMI
-        if (left & MX_BAY_FEATURE_HDMI_IN):
-            if (right & MX_BAY_FEATURE_HDMI_OUT):
-                rv |= MX_LINK_FEATURE_VIDEO_HDMI
-        if (left & MX_BAY_FEATURE_AUDIO_DIG_OUT):
-            if (right & MX_BAY_FEATURE_AUDIO_DIG_IN):
-                rv |= MX_LINK_FEATURE_AUDIO_OPTICAL
-        if (left & MX_BAY_FEATURE_AUDIO_DIG_IN):
-            if (right & MX_BAY_FEATURE_AUDIO_DIG_OUT):
-                rv |= MX_LINK_FEATURE_AUDIO_OPTICAL
-        if (left & MX_BAY_FEATURE_AUDIO_ANA_OUT):
-            if (right & MX_BAY_FEATURE_AUDIO_ANA_IN):
-                rv |= MX_LINK_FEATURE_AUDIO_ANALOG
-        if (left & MX_BAY_FEATURE_AUDIO_ANA_IN):
-            if (right & MX_BAY_FEATURE_AUDIO_ANA_OUT):
-                rv |= MX_LINK_FEATURE_AUDIO_ANALOG
-        if (left & MX_BAY_FEATURE_IR_OUT):
-            if (right & MX_BAY_FEATURE_IR_IN):
-                rv |= MX_LINK_FEATURE_IR
-        if (left & MX_BAY_FEATURE_IR_IN):
-            if (right & MX_BAY_FEATURE_IR_OUT):
-                rv |= MX_LINK_FEATURE_IR
-        if (left & MX_BAY_FEATURE_RC_OUT):
-            if (right & MX_BAY_FEATURE_RC_IN):
-                rv |= MX_LINK_FEATURE_RC
-        if (left & MX_BAY_FEATURE_RC_IN):
-            if (right & MX_BAY_FEATURE_RC_OUT):
-                rv |= MX_LINK_FEATURE_RC
+            return LinkFeature(0)
+        left = self.bay.features
+        right = self.linked_bay.features if (self.linked_bay is not None) else BayFeaturesMask(0)
+        rv = LinkFeature(0)
+        if BayFeaturesMask.HDMI_OUT in left:
+            if BayFeaturesMask.HDMI_IN in right:
+                rv |= LinkFeature.VIDEO_HDMI
+        if BayFeaturesMask.HDMI_IN in left:
+            if BayFeaturesMask.HDMI_OUT in right:
+                rv |= LinkFeature.VIDEO_HDMI
+        if BayFeaturesMask.AUDIO_DIG_OUT in left:
+            if BayFeaturesMask.AUDIO_DIG_IN in right:
+                rv |= LinkFeature.AUDIO_OPTICAL
+        if BayFeaturesMask.AUDIO_DIG_IN in left:
+            if BayFeaturesMask.AUDIO_DIG_OUT in right:
+                rv |= LinkFeature.AUDIO_OPTICAL
+        if BayFeaturesMask.AUDIO_ANA_OUT in left:
+            if BayFeaturesMask.AUDIO_ANA_IN in right:
+                rv |= LinkFeature.AUDIO_ANALOG
+        if BayFeaturesMask.AUDIO_ANA_IN in left:
+            if BayFeaturesMask.AUDIO_ANA_OUT in right:
+                rv |= LinkFeature.AUDIO_ANALOG
+        if BayFeaturesMask.IR_OUT in left:
+            if BayFeaturesMask.IR_IN in right:
+                rv |= LinkFeature.IR
+        if BayFeaturesMask.IR_IN in left:
+            if BayFeaturesMask.IR_OUT in right:
+                rv |= LinkFeature.IR
+        if BayFeaturesMask.RC_OUT in left:
+            if BayFeaturesMask.RC_IN in right:
+                rv |= LinkFeature.RC
+        if BayFeaturesMask.RC_IN in left:
+            if BayFeaturesMask.RC_OUT in right:
+                rv |= LinkFeature.RC
         return rv
 
     def __eq__(self, value: object) -> bool:
@@ -2224,7 +2027,7 @@ class DeviceRegistry(ABC):
         pass
 
     @abstractmethod
-    def on_mxr_update(self, data:Any) -> None:
+    def on_mxr_update(self, data:object) -> None:
         pass
 
 class ConnectionCallbacks(ABC):

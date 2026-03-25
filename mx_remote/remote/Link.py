@@ -2,7 +2,7 @@
 ##         MX Remote Python Interface           ##
 ##                                              ##
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
-## copyright (c) 2024 Op den Kamp IT Solutions  ##
+## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
 from ..proto import LinkConfig
@@ -101,70 +101,69 @@ class Link:
 	def is_audio(self) -> bool:
 		# audio link
 		ft = self.features_mask
-		return (ft & proto.MX_LINK_FEATURE_AUDIO_OPTICAL) != 0 or \
-				(ft & proto.MX_LINK_FEATURE_AUDIO_ANALOG) != 0
+		return proto.LinkFeature.AUDIO_OPTICAL in ft or proto.LinkFeature.AUDIO_ANALOG in ft
 
 	@property
 	def is_video(self) -> bool:
 		# video link
-		return (self.features_mask & proto.MX_LINK_FEATURE_VIDEO_HDMI) != 0
+		return proto.LinkFeature.VIDEO_HDMI in self.features_mask
 
 	@property
 	def features(self) -> list[str]:
 		# features supported by this link (strings)
 		ft:list[str] = []
 		m = self.features_mask
-		if (m & proto.MX_LINK_FEATURE_VIDEO_HDMI):
+		if proto.LinkFeature.VIDEO_HDMI in m:
 			ft.append("HDMI")
-		if (m & proto.MX_LINK_FEATURE_AUDIO_OPTICAL):
+		if proto.LinkFeature.AUDIO_OPTICAL in m:
 			ft.append("optical audio")
-		if (m & proto.MX_LINK_FEATURE_AUDIO_ANALOG):
+		if proto.LinkFeature.AUDIO_ANALOG in m:
 			ft.append("analog audio")
-		if (m & proto.MX_LINK_FEATURE_IR):
+		if proto.LinkFeature.IR in m:
 			ft.append("IR")
-		if (m & proto.MX_LINK_FEATURE_RC):
+		if proto.LinkFeature.RC in m:
 			ft.append("RC")
 		return ft
 
 	@property
-	def features_mask(self) -> int:
+	def features_mask(self) -> proto.LinkFeature:
 		# features supported by this link (bitmask)
 		bays = self.bays
 		if len(bays) < 2:
-			return 0
-		left = bays[0].features_mask
-		right = bays[1].features_mask
-		rv = 0
-		if (left & proto.MX_BAY_FEATURE_HDMI_OUT):
-			if (right & proto.MX_BAY_FEATURE_HDMI_IN):
-				rv |= proto.MX_LINK_FEATURE_VIDEO_HDMI
-		if (left & proto.MX_BAY_FEATURE_HDMI_IN):
-			if (right & proto.MX_BAY_FEATURE_HDMI_OUT):
-				rv |= proto.MX_LINK_FEATURE_VIDEO_HDMI
-		if (left & proto.MX_BAY_FEATURE_AUDIO_DIG_OUT):
-			if (right & proto.MX_BAY_FEATURE_AUDIO_DIG_IN):
-				rv |= proto.MX_LINK_FEATURE_AUDIO_OPTICAL
-		if (left & proto.MX_BAY_FEATURE_AUDIO_DIG_IN):
-			if (right & proto.MX_BAY_FEATURE_AUDIO_DIG_OUT):
-				rv |= proto.MX_LINK_FEATURE_AUDIO_OPTICAL
-		if (left & proto.MX_BAY_FEATURE_AUDIO_ANA_OUT):
-			if (right & proto.MX_BAY_FEATURE_AUDIO_ANA_IN):
-				rv |= proto.MX_LINK_FEATURE_AUDIO_ANALOG
-		if (left & proto.MX_BAY_FEATURE_AUDIO_ANA_IN):
-			if (right & proto.MX_BAY_FEATURE_AUDIO_ANA_OUT):
-				rv |= proto.MX_LINK_FEATURE_AUDIO_ANALOG
-		if (left & proto.MX_BAY_FEATURE_IR_OUT):
-			if (right & proto.MX_BAY_FEATURE_IR_IN):
-				rv |= proto.MX_LINK_FEATURE_IR
-		if (left & proto.MX_BAY_FEATURE_IR_IN):
-			if (right & proto.MX_BAY_FEATURE_IR_OUT):
-				rv |= proto.MX_LINK_FEATURE_IR
-		if (left & proto.MX_BAY_FEATURE_RC_OUT):
-			if (right & proto.MX_BAY_FEATURE_RC_IN):
-				rv |= proto.MX_LINK_FEATURE_RC
-		if (left & proto.MX_BAY_FEATURE_RC_IN):
-			if (right & proto.MX_BAY_FEATURE_RC_OUT):
-				rv |= proto.MX_LINK_FEATURE_RC
+			return proto.LinkFeature(0)
+		left = bays[0].features
+		right = bays[1].features
+		rv = proto.LinkFeature(0)
+		if proto.BayFeaturesMask.HDMI_OUT in left:
+			if proto.BayFeaturesMask.HDMI_IN in right:
+				rv |= proto.LinkFeature.VIDEO_HDMI
+		if proto.BayFeaturesMask.HDMI_IN in left:
+			if proto.BayFeaturesMask.HDMI_OUT in right:
+				rv |= proto.LinkFeature.VIDEO_HDMI
+		if proto.BayFeaturesMask.AUDIO_DIG_OUT in left:
+			if proto.BayFeaturesMask.AUDIO_DIG_IN in right:
+				rv |= proto.LinkFeature.AUDIO_OPTICAL
+		if proto.BayFeaturesMask.AUDIO_DIG_IN in left:
+			if proto.BayFeaturesMask.AUDIO_DIG_OUT in right:
+				rv |= proto.LinkFeature.AUDIO_OPTICAL
+		if proto.BayFeaturesMask.AUDIO_ANA_OUT in left:
+			if proto.BayFeaturesMask.AUDIO_ANA_IN in right:
+				rv |= proto.LinkFeature.AUDIO_ANALOG
+		if proto.BayFeaturesMask.AUDIO_ANA_IN in left:
+			if proto.BayFeaturesMask.AUDIO_ANA_OUT in right:
+				rv |= proto.LinkFeature.AUDIO_ANALOG
+		if proto.BayFeaturesMask.IR_OUT in left:
+			if proto.BayFeaturesMask.IR_IN in right:
+				rv |= proto.LinkFeature.IR
+		if proto.BayFeaturesMask.IR_IN in left:
+			if proto.BayFeaturesMask.IR_OUT in right:
+				rv |= proto.LinkFeature.IR
+		if proto.BayFeaturesMask.RC_OUT in left:
+			if proto.BayFeaturesMask.RC_IN in right:
+				rv |= proto.LinkFeature.RC
+		if proto.BayFeaturesMask.RC_IN in left:
+			if proto.BayFeaturesMask.RC_OUT in right:
+				rv |= proto.LinkFeature.RC
 		return rv
 
 	def __eq__(self, other:Any) -> bool:

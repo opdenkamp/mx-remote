@@ -2,7 +2,7 @@
 ##         MX Remote Python Interface           ##
 ##                                              ##
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
-## copyright (c) 2024 Op den Kamp IT Solutions  ##
+## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
 from __future__ import annotations
@@ -113,7 +113,7 @@ class Bay(BayBase):
                 return DeviceStatus.REBOOTING
             if self.booting:
                 return DeviceStatus.BOOTING
-            if self.status_mask.encoder_disabled or self.status_mask.decoder_disabled:
+            if BayStatusMask.ENCODER_DISABLED in self.status_mask or BayStatusMask.DECODER_DISABLED in self.status_mask:
                 return DeviceStatus.INACTIVE
             return DeviceStatus.ONLINE
         return DeviceStatus.OFFLINE
@@ -210,25 +210,25 @@ class Bay(BayBase):
     @property
     @override
     def is_v2ip_remote(self) -> bool:
-        return self.features.v2ip_sink_remote or self.features.v2ip_source_remote
+        return BayFeaturesMask.V2IP_SINK_REMOTE in self.features or BayFeaturesMask.V2IP_SOURCE_REMOTE in self.features
 
     @property
     @override
     def is_v2ip_source(self) -> bool:
-        return self.features.v2ip_source_local \
-            or self.features.v2ip_source_remote
+        return BayFeaturesMask.V2IP_SOURCE_LOCAL in self.features \
+            or BayFeaturesMask.V2IP_SOURCE_REMOTE in self.features
 
     @property
     @override
     def is_v2ip_sink(self) -> bool:
-        return self.features.v2ip_sink_local \
-            or self.features.v2ip_sink_remote
+        return BayFeaturesMask.V2IP_SINK_LOCAL in self.features \
+            or BayFeaturesMask.V2IP_SINK_REMOTE in self.features
 
     @property
     @override
     def dolby_input(self) -> str|None:
         # if dolby mode is set, the input bay that provides the audio source
-        if self.features.dolby:
+        if BayFeaturesMask.DOLBY in self.features:
             # TODO fix mx_remote offset
             return 'Input {}'.format('9') #((features >> proto.MX_BAY_FEATURE_DOLBY_IN_POS) & 0xF)
         return None
@@ -244,26 +244,26 @@ class Bay(BayBase):
     @property
     @override
     def has_volume_control(self) -> bool:
-        return self.features.audio_analog_out \
-            or self.features.audio_amp_out \
-            or self.features.audio_analog_in \
-            or self.features.audio_digital_in
+        return BayFeaturesMask.AUDIO_ANA_OUT in self.features \
+            or BayFeaturesMask.AUDIO_AMP_OUT in self.features \
+            or BayFeaturesMask.AUDIO_ANA_IN in self.features \
+            or BayFeaturesMask.AUDIO_DIG_IN in self.features
 
     @property
     @override
     def is_input(self) -> bool:
-        return self.features.hdmi_in \
-            or self.features.audio_digital_in \
-            or self.features.audio_analog_in \
+        return BayFeaturesMask.HDMI_IN in self.features \
+            or BayFeaturesMask.AUDIO_DIG_IN in self.features \
+            or BayFeaturesMask.AUDIO_ANA_IN in self.features \
             or self.is_v2ip_source
 
     @property
     @override
     def is_output(self) -> bool:
-        return self.features.hdmi_out \
-            or self.features.audio_amp_out \
-            or self.features.audio_digital_out \
-            or self.features.audio_analog_out \
+        return BayFeaturesMask.HDMI_OUT in self.features \
+            or BayFeaturesMask.AUDIO_AMP_OUT in self.features \
+            or BayFeaturesMask.AUDIO_DIG_OUT in self.features \
+            or BayFeaturesMask.AUDIO_ANA_OUT in self.features \
             or self.is_v2ip_sink
 
     @property
@@ -314,8 +314,8 @@ class Bay(BayBase):
     @property
     @override
     def is_hdmi(self) -> bool:
-        return self.features.hdmi_in \
-            or self.features.hdmi_out
+        return BayFeaturesMask.HDMI_IN in self.features \
+            or BayFeaturesMask.HDMI_OUT in self.features
 
     @property
     @override
@@ -329,11 +329,11 @@ class Bay(BayBase):
     def is_audio(self) -> bool:
         if self.is_hdmi:
             return False
-        return self.features.audio_amp_out \
-            or self.features.audio_analog_in \
-            or self.features.audio_analog_out \
-            or self.features.audio_digital_in \
-            or self.features.audio_digital_out
+        return BayFeaturesMask.AUDIO_AMP_OUT in self.features \
+            or BayFeaturesMask.AUDIO_ANA_IN in self.features \
+            or BayFeaturesMask.AUDIO_ANA_OUT in self.features \
+            or BayFeaturesMask.AUDIO_DIG_IN in self.features \
+            or BayFeaturesMask.AUDIO_DIG_OUT in self.features
 
     @property
     @override
@@ -879,10 +879,10 @@ class Bay(BayBase):
 
         self.volume_status = new_value
 
-        if self.features.dolby and (self.bay == 0):
+        if BayFeaturesMask.DOLBY in self.features and (self.bay == 0):
                 for b in range(1, 4):
                     bay = self.device.get_by_mode_bay(mode=self.mode, bay=b)
-                    if (bay is not None) and (bay.features.dolby):
+                    if (bay is not None) and (BayFeaturesMask.DOLBY in bay.features):
                         bay.volume_status = new_value # pyright: ignore[reportAttributeAccessIssue]
 
         if (self.volume is None) or (volume > self.volume):
@@ -977,29 +977,29 @@ class Bay(BayBase):
         if (data is None):
             #TODO
             return
-        self.faulty = data.fault
-        self.hidden = data.hidden
-        self.poe_powered = data.powered
-        self.hdbt_connected = data.hdbt_connected
-        self.hpd_detected = data.hpd_detected
-        self.cec_detected = data.cec_detected
-        self.signal_detected = data.signal_detected
-        self.encoder_disabled = data.encoder_disabled
-        self.decoder_disabled = data.decoder_disabled
+        self.faulty = BayStatusMask.FAULT in data
+        self.hidden = BayStatusMask.HIDDEN in data
+        self.poe_powered = BayStatusMask.POWERED in data
+        self.hdbt_connected = BayStatusMask.HDBT_CONNECTED in data
+        self.hpd_detected = BayStatusMask.HPD_DETECTED in data
+        self.cec_detected = BayStatusMask.CEC_DETECTED in data
+        self.signal_detected = BayStatusMask.SIGNAL_DETECTED in data
+        self.encoder_disabled = BayStatusMask.ENCODER_DISABLED in data
+        self.decoder_disabled = BayStatusMask.DECODER_DISABLED in data
 
-        if not data.cec_detected:
+        if BayStatusMask.CEC_DETECTED not in data:
             self.power_status = PowerStatus.UNKNOWN
-        elif data.powered_on:
+        elif BayStatusMask.POWERED_ON in data:
             self.power_status = PowerStatus.ON
-        elif data.powered_off:
+        elif BayStatusMask.POWERED_OFF in data:
             self.power_status = PowerStatus.OFF
         else:
             self.power_status = PowerStatus.UNKNOWN
-        if data.audio_arc_hdmi:
+        if BayStatusMask.AUDIO_ARC_HDMI in data:
             self.arc = self.ARC_HDMI
-        elif data.audio_arc_optical:
+        elif BayStatusMask.AUDIO_ARC_OPTICAL in data:
             self.arc = self.ARC_OPTICAL
-        elif data.audio_arc_analog:
+        elif BayStatusMask.AUDIO_ARC_ANALOG in data:
             self.arc = self.ARC_ANALOG
         else:
             self.arc = self.ARC_NONE
@@ -1010,7 +1010,7 @@ class Bay(BayBase):
         self.user_name = data.user_name
         self.bay = data.bay
         self._on_mxr_bay_status(data.status)
-        if not data.status.signal_detected or not self.device.is_v2ip:
+        if BayStatusMask.SIGNAL_DETECTED not in data.status or not self.device.is_v2ip:
             self.signal_type = data.signal_type
         if self.is_output:
             self.video_source = self.device.get_by_portnum(data.video_source)
@@ -1023,7 +1023,7 @@ class Bay(BayBase):
     def is_dolby(self) -> bool:
         if (not self.is_output):
             return False
-        return self.features.dolby
+        return BayFeaturesMask.DOLBY in self.features
 
     @override
     def set_zone_settings(self, settings:AmpZoneSettings) -> bool:
@@ -1049,10 +1049,10 @@ class Bay(BayBase):
             return
         if isinstance(data, VolumeMuteStatus):
             self.volume_status = data
-            if self.features.dolby and (self.bay == 0):
+            if BayFeaturesMask.DOLBY in self.features and (self.bay == 0):
                 for b in range(1, 4):
                     bay = self.device.get_by_mode_bay(mode=self.mode, bay=b)
-                    if (bay is not None) and (bay.features.dolby):
+                    if (bay is not None) and (BayFeaturesMask.DOLBY in bay.features):
                         bay.on_mxr_update(data=data)
         elif isinstance(data, BayStatusMask):
             self._on_mxr_bay_status(data)

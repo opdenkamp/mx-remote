@@ -2,7 +2,7 @@
 ##         MX Remote Python Interface           ##
 ##                                              ##
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
-## copyright (c) 2024 Op den Kamp IT Solutions  ##
+## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
 from functools import cached_property
@@ -46,8 +46,8 @@ class FrameBayStatus(FrameBase):
 
         if (self.status is not None):
             self.bay.on_mxr_update(self.status)
-            if not self.status.signal_detected or not self.bay.device.is_v2ip:
-                self.bay.on_mxr_update(SignalStatus(detected=self.status.signal_detected, description=self.signal_type))
+            if BayStatusMask.SIGNAL_DETECTED not in self.status or not self.bay.device.is_v2ip:
+                self.bay.on_mxr_update(SignalStatus(detected=BayStatusMask.SIGNAL_DETECTED in self.status, description=self.signal_type))
 
     def __str__(self) -> str:
         return f"bay status {self.bay} signal '{self.signal_type}' status {self.status} features {self.features}"

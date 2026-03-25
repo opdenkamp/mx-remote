@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
-from enum import Enum
+from enum import IntEnum
 from ..Uid import MxrDeviceUid
 
-class MultiviewerOpcode(Enum):
+class MultiviewerOpcode(IntEnum):
     STATUS            = 0
     VIEW_MODE         = 1
     VIDEO_SOURCE      = 2
@@ -21,7 +21,7 @@ class MultiviewerOpcode(Enum):
     AUTO_ROUTE        = 15
     UNKNOWN           = 0xFF
 
-class MultiviewerViewMode(Enum):
+class MultiviewerViewMode(IntEnum):
     UNKNOWN = 0
     SINGLE = 1
     PIP = 2
@@ -32,20 +32,20 @@ class MultiviewerViewMode(Enum):
     FOUR_SCREEN_LARGE = 7
     FOUR_SCREEN_SMALL = 8
 
-class MultiviewerPipPosition(Enum):
+class MultiviewerPipPosition(IntEnum):
     UNKNOWN = 0
     LEFT_TOP = 1
     LEFT_BOTTOM = 2
     RIGHT_TOP = 3
     RIGHT_BOTTOM = 4
 
-class MultiviewerPipSize(Enum):
+class MultiviewerPipSize(IntEnum):
     UNKNOWN = 0
     SMALL = 1
     MEDIUM = 2
     LARGE = 3
 
-class MultiviewerOutputMode(Enum):
+class MultiviewerOutputMode(IntEnum):
     UNKNOWN = 0
     OUT_4096x2160P60 = 1
     OUT_4096x2160P50 = 2
@@ -62,17 +62,17 @@ class MultiviewerOutputMode(Enum):
     OUT_1280x720P50 = 13
     OUT_1024x768P60 = 14
 
-class MultiviewerHDCPMode(Enum):
+class MultiviewerHDCPMode(IntEnum):
     UNKNOWN = 0
     V1_4 = 1
     V2_2 = 2
 
-class MultiviewerITCMode(Enum):
+class MultiviewerITCMode(IntEnum):
     UNKNOWN = 0
     VIDEO = 1
     PC = 2
 
-class MultiviewerEDIDTemplate(Enum):
+class MultiviewerEDIDTemplate(IntEnum):
     UNKNOWN = 0
     EDID_4K60_STEREO = 1
     EDID_4K60_51 = 2
@@ -94,17 +94,17 @@ class MultiviewerEDIDTemplate(Enum):
     EDID_COPY_OUTPUT = 18
     EDID_CUSTOM = 19
 
-class MultiviewerAspectRatio(Enum):
+class MultiviewerAspectRatio(IntEnum):
     UNKNOWN = 0
     ASPECT_FULL = 1
     ASPECT_16_9 = 2
 
-class MultiviewerBoolSetting(Enum):
+class MultiviewerBoolSetting(IntEnum):
     UNKNOWN = 0xFF
     OFF = 0
     ON = 1
 
-class MultiviewerSource(Enum):
+class MultiviewerSource(IntEnum):
     UNKNOWN = 0
     SOURCE_1 = 1
     SOURCE_2 = 2

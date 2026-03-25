@@ -2,17 +2,17 @@
 ##         MX Remote Python Interface           ##
 ##                                              ##
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
-## copyright (c) 2024 Op den Kamp IT Solutions  ##
+## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
 from functools import cached_property
 from .FrameBase import FrameBase
 from ..Interface import DeviceRegistry, DeviceBase, MxrDeviceUid
-from enum import Enum
+from enum import IntEnum
 import logging
 
 _LOGGER = logging.getLogger(__name__)
-class MeshOperation(Enum):
+class MeshOperation(IntEnum):
     REGISTER = 0
     UNREGISTER = 1
     REPLACE = 2

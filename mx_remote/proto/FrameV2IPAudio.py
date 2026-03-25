@@ -2,10 +2,10 @@
 ##         MX Remote Python Interface           ##
 ##                                              ##
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
-## copyright (c) 2025 Op den Kamp IT Solutions  ##
+## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
-from enum import Enum
+from enum import IntEnum
 from functools import cached_property
 import logging
 from typing import override
@@ -16,7 +16,7 @@ from ..Interface import DeviceRegistry, MxrDeviceUid, V2IPStreamSource, AudioFea
 
 _LOGGER = logging.getLogger(__name__)
 
-class AudioCommandOpcode(Enum):
+class AudioCommandOpcode(IntEnum):
     UNKNOWN = 0xFFFF
     FEATURES = 0
     MUTE = 1
@@ -25,7 +25,7 @@ class AudioCommandOpcode(Enum):
     VOLUME = 4
     LINKS = 5
 
-class AudioEntryType(Enum):
+class AudioEntryType(IntEnum):
     PROCESSOR = 0
     ENDPOINT = 1
     ADDRESS = 2

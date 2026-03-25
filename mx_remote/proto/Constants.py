@@ -2,65 +2,169 @@
 ##         MX Remote Python Interface           ##
 ##                                              ##
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
-## copyright (c) 2024 Op den Kamp IT Solutions  ##
+## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
-from enum import Enum, IntEnum
-from typing import Any
+from enum import IntEnum, IntFlag
 
 MXR_PROTOCOL_VERSION = 20
 
-MXR_DEVICE_FEATURE_IR_RX              = (1 << 0)
-MXR_DEVICE_FEATURE_IR_TX              = (1 << 1)
-MXR_DEVICE_FEATURE_CEC                = (1 << 2)
-MXR_DEVICE_FEATURE_V2IP_SOURCE        = (1 << 3)
-MXR_DEVICE_FEATURE_V2IP_SINK          = (1 << 4)
-MXR_DEVICE_FEATURE_VIDEO_ROUTING      = (1 << 5)
-MXR_DEVICE_FEATURE_AUDIO_ROUTING      = (1 << 6)
-MXR_DEVICE_FEATURE_VOLUME_CONTROL     = (1 << 7)
-MXR_DEVICE_FEATURE_AUDIO_RETURN       = (1 << 8)
-MXR_DEVICE_FEATURE_REMOTE_CONTROL     = (1 << 9)
-MXR_DEVICE_FEATURE_SETUP_COMPLETED    = (1 << 10)
-MXR_DEVICE_FEATURE_MESH_MASTER        = (1 << 11)
-MXR_DEVICE_FEATURE_STATUS_NOTIFY      = (1 << 12)
-MXR_DEVICE_FEATURE_STATUS_WARNING     = (1 << 13)
-MXR_DEVICE_FEATURE_STATUS_ERROR       = (1 << 14)
-MXR_DEVICE_FEATURE_STATUS_REBOOTING   = (1 << 15)
-MXR_DEVICE_FEATURE_MESH_MEMBER        = (1 << 16)
-MXR_DEVICE_FEATURE_AUDIO_AMPLIFIER    = (1 << 17)
-MXR_DEVICE_FEATURE_BOOTING            = (1 << 18)
-MXR_DEVICE_FEATURE_MANAGER            = (1 << 19)
-MXR_DEVICE_FEATURE_STATUS_POWER_SAVE  = (1 << 20)
-MXR_DEVICE_FEATURE_MESH               = (1 << 21)
-MXR_DEVICE_FEATURE_MULTIVIEWER        = (1 << 22)
-MXR_DEVICE_FEATURE_STATUS_CRASHED     = (1 << 23)
-MXR_DEVICE_FEATURE_BOOT_BIT           = (1 << 31)
+class DeviceFeature(IntFlag):
+	IR_RX              = (1 << 0)
+	IR_TX              = (1 << 1)
+	CEC                = (1 << 2)
+	V2IP_SOURCE        = (1 << 3)
+	V2IP_SINK          = (1 << 4)
+	VIDEO_ROUTING      = (1 << 5)
+	AUDIO_ROUTING      = (1 << 6)
+	VOLUME_CONTROL     = (1 << 7)
+	AUDIO_RETURN       = (1 << 8)
+	REMOTE_CONTROL     = (1 << 9)
+	SETUP_COMPLETED    = (1 << 10)
+	MESH_MASTER        = (1 << 11)
+	STATUS_NOTIFY      = (1 << 12)
+	STATUS_WARNING     = (1 << 13)
+	STATUS_ERROR       = (1 << 14)
+	STATUS_REBOOTING   = (1 << 15)
+	MESH_MEMBER        = (1 << 16)
+	AUDIO_AMPLIFIER    = (1 << 17)
+	BOOTING            = (1 << 18)
+	MANAGER            = (1 << 19)
+	STATUS_POWER_SAVE  = (1 << 20)
+	MESH               = (1 << 21)
+	MULTIVIEWER        = (1 << 22)
+	STATUS_CRASHED     = (1 << 23)
+	BOOT_BIT           = (1 << 31)
 
-MX_BAY_FEATURE_HDMI_OUT           = (1 << 0)
-MX_BAY_FEATURE_HDMI_IN            = (1 << 1)
-MX_BAY_FEATURE_AUDIO_DIG_OUT      = (1 << 2)
-MX_BAY_FEATURE_AUDIO_DIG_IN       = (1 << 3)
-MX_BAY_FEATURE_AUDIO_ANA_OUT      = (1 << 4)
-MX_BAY_FEATURE_AUDIO_ANA_IN       = (1 << 5)
-MX_BAY_FEATURE_IR_IN              = (1 << 6)
-MX_BAY_FEATURE_IR_OUT             = (1 << 7)
-MX_BAY_FEATURE_AUDIO_AMP_OUT      = (1 << 8)
-MX_BAY_FEATURE_RC_OUT             = (1 << 9)
-MX_BAY_FEATURE_RC_IN              = (1 << 10)
-MX_BAY_FEATURE_DOLBY              = (1 << 11)
-MX_BAY_FEATURE_AUTO_OFF           = (1 << 12)
-MX_BAY_FEATURE_V2IP_SOURCE_REMOTE = (1 << 13)
-MX_BAY_FEATURE_V2IP_SINK_REMOTE   = (1 << 14)
-MX_BAY_FEATURE_V2IP_SOURCE_LOCAL  = (1 << 15)
-MX_BAY_FEATURE_V2IP_SINK_LOCAL    = (1 << 16)
-MX_BAY_FEATURE_DOLBY_IN_POS       = 24
+BAY_FEATURE_DOLBY_IN_POS = 24
 
-MX_LINK_FEATURE_NONE          = 0
-MX_LINK_FEATURE_VIDEO_HDMI    = (1 << 0)
-MX_LINK_FEATURE_AUDIO_OPTICAL = (1 << 1)
-MX_LINK_FEATURE_AUDIO_ANALOG  = (1 << 2)
-MX_LINK_FEATURE_IR            = (1 << 3)
-MX_LINK_FEATURE_RC            = (1 << 4)
+class BayFeaturesMask(IntFlag):
+	HDMI_OUT           = (1 << 0)
+	HDMI_IN            = (1 << 1)
+	AUDIO_DIG_OUT      = (1 << 2)
+	AUDIO_DIG_IN       = (1 << 3)
+	AUDIO_ANA_OUT      = (1 << 4)
+	AUDIO_ANA_IN       = (1 << 5)
+	IR_IN              = (1 << 6)
+	IR_OUT             = (1 << 7)
+	AUDIO_AMP_OUT      = (1 << 8)
+	RC_OUT             = (1 << 9)
+	RC_IN              = (1 << 10)
+	DOLBY              = (1 << 11)
+	AUTO_OFF           = (1 << 12)
+	V2IP_SOURCE_REMOTE = (1 << 13)
+	V2IP_SINK_REMOTE   = (1 << 14)
+	V2IP_SOURCE_LOCAL  = (1 << 15)
+	V2IP_SINK_LOCAL    = (1 << 16)
+
+	def toJson(self):
+		return '{' + f'"features":"{int(self)}"' + '}'
+
+	def __str__(self) -> str:
+		rv = ""
+		if BayFeaturesMask.HDMI_IN in self:
+			rv += ", HDMI input"
+		if BayFeaturesMask.HDMI_OUT in self:
+			rv += ", HDMI output"
+		if BayFeaturesMask.AUDIO_DIG_OUT in self:
+			rv += ", digital audio output"
+		if BayFeaturesMask.AUDIO_DIG_IN in self:
+			rv += ", digital audio input"
+		if BayFeaturesMask.AUDIO_ANA_OUT in self:
+			rv += ", analog audio output"
+		if BayFeaturesMask.AUDIO_ANA_IN in self:
+			rv += ", analog audio input"
+		if BayFeaturesMask.AUDIO_AMP_OUT in self:
+			rv += ", amplifier audio output"
+		if BayFeaturesMask.DOLBY in self:
+			rv += ", Dolby"
+		if BayFeaturesMask.IR_IN in self:
+			rv += ", IR input"
+		if BayFeaturesMask.IR_OUT in self:
+			rv += ", IR output"
+		if BayFeaturesMask.RC_IN in self:
+			rv += ", remote control input"
+		if BayFeaturesMask.RC_OUT in self:
+			rv += ", remote control output"
+		if BayFeaturesMask.AUTO_OFF in self:
+			rv += ", auto standby"
+		if BayFeaturesMask.V2IP_SOURCE_REMOTE in self:
+			rv += ", V2IP remote source"
+		if BayFeaturesMask.V2IP_SINK_REMOTE in self:
+			rv += ", V2IP remote sink"
+		if BayFeaturesMask.V2IP_SOURCE_LOCAL in self:
+			rv += ", V2IP local source"
+		if BayFeaturesMask.V2IP_SINK_LOCAL in self:
+			rv += ", V2IP local sink"
+
+		if (len(rv) != 0):
+			return rv[2:]
+		return "none"
+
+	def __repr__(self) -> str:
+		return str(self)
+
+class BayStatusMask(IntFlag):
+	FAULT = (1 << 0)
+	HIDDEN = (1 << 1)
+	POWERED = (1 << 2)
+	SIGNAL_DETECTED = (1 << 3)
+	HPD_DETECTED = (1 << 4)
+	SIGNAL_SCRAMBLED = (1 << 5)
+	HDBT_CONNECTED = (1 << 6)
+	CEC_DETECTED = (1 << 7)
+	POWERED_ON = (1 << 8)
+	POWERED_OFF = (1 << 9)
+	AUDIO_ARC_HDMI = (1 << 10)
+	AUDIO_ARC_OPTICAL = (1 << 11)
+	AUDIO_ARC_ANALOG = (1 << 12)
+	OFFLINE = (1 << 13)
+	DECODER_DISABLED = (1 << 14)
+	ENCODER_DISABLED = (1 << 15)
+
+	def __str__(self) -> str:
+		rv = ""
+		if BayStatusMask.FAULT in self:
+			rv += ", fault detected"
+		if BayStatusMask.HIDDEN in self:
+			rv += ", hidden"
+		if BayStatusMask.POWERED in self:
+			rv += ", power enabled"
+		if BayStatusMask.SIGNAL_DETECTED in self:
+			rv += ", signal detected"
+		if BayStatusMask.HPD_DETECTED in self:
+			rv += ", hpd detected"
+		if BayStatusMask.HDBT_CONNECTED in self:
+			rv += ", hdbt link"
+		if BayStatusMask.CEC_DETECTED in self:
+			rv += ", cec detected"
+		if BayStatusMask.POWERED_ON in self:
+			rv += ", remote powered on"
+		if BayStatusMask.POWERED_OFF in self:
+			rv += ", remote powered off"
+		if BayStatusMask.AUDIO_ARC_HDMI in self:
+			rv += ", hdmi arc"
+		if BayStatusMask.AUDIO_ARC_OPTICAL in self:
+			rv += ", optical arc"
+		if BayStatusMask.AUDIO_ARC_ANALOG in self:
+			rv += ", analog arc"
+		if BayStatusMask.OFFLINE in self:
+			rv += ", offline"
+		if BayStatusMask.DECODER_DISABLED in self:
+			rv += ", decoder disabled"
+		if BayStatusMask.ENCODER_DISABLED in self:
+			rv += ", encoder disabled"
+		if len(rv) != 0:
+			return rv[2:]
+		return "none"
+
+class LinkFeature(IntFlag):
+	NONE          = 0
+	VIDEO_HDMI    = (1 << 0)
+	AUDIO_OPTICAL = (1 << 1)
+	AUDIO_ANALOG  = (1 << 2)
+	IR            = (1 << 3)
+	RC            = (1 << 4)
 
 class RCAction(IntEnum):
 	ACTION_POWER_TOGGLE 	= 0
@@ -120,305 +224,7 @@ class RCKey(IntEnum):
     KEY_SKY              = 130
     KEY_CUSTOM_SKY       = 2048
 
-class BayFeaturesMask:
-	HDMI_OUT           = (1 << 0)
-	HDMI_IN            = (1 << 1)
-	AUDIO_DIG_OUT      = (1 << 2)
-	AUDIO_DIG_IN       = (1 << 3)
-	AUDIO_ANA_OUT      = (1 << 4)
-	AUDIO_ANA_IN       = (1 << 5)
-	IR_IN              = (1 << 6)
-	IR_OUT             = (1 << 7)
-	AUDIO_AMP_OUT      = (1 << 8)
-	RC_OUT             = (1 << 9)
-	RC_IN              = (1 << 10)
-	DOLBY              = (1 << 11)
-	AUTO_OFF           = (1 << 12)
-	V2IP_SOURCE_REMOTE = (1 << 13)
-	V2IP_SINK_REMOTE   = (1 << 14)
-	V2IP_SOURCE_LOCAL  = (1 << 15)
-	V2IP_SINK_LOCAL    = (1 << 16)
-	DOLBY_IN_POS       = 24
-
-	def __init__(self, mask:int):
-		self._mask = mask
-
-	def toJson(self):
-		return '{' + f'"features":"{self._mask}"' + '}'
-
-	@property
-	def mask(self) -> int:
-		return self._mask
-
-	@property
-	def hdmi_out(self) -> bool:
-		return (self._mask & self.HDMI_OUT) != 0
-
-	@property
-	def hdmi_in(self) -> bool:
-		return (self._mask & self.HDMI_IN) != 0
-
-	@property
-	def audio_digital_out(self) -> bool:
-		return (self._mask & self.AUDIO_DIG_OUT) != 0
-
-	@property
-	def audio_digital_in(self) -> bool:
-		return (self._mask & self.AUDIO_DIG_IN) != 0
-
-	@property
-	def audio_analog_in(self) -> bool:
-		return (self._mask & self.AUDIO_ANA_IN) != 0
-
-	@property
-	def audio_analog_out(self) -> bool:
-		return (self._mask & self.AUDIO_ANA_OUT) != 0
-
-	@property
-	def audio_amp_out(self) -> bool:
-		return (self._mask & self.AUDIO_AMP_OUT) != 0
-
-	@property
-	def ir_in(self) -> bool:
-		return (self._mask & self.IR_IN) != 0
-
-	@property
-	def ir_out(self) -> bool:
-		return (self._mask & self.IR_OUT) != 0
-
-	@property
-	def rc_out(self) -> bool:
-		return (self._mask & self.RC_OUT) != 0
-
-	@property
-	def rc_in(self) -> bool:
-		return (self._mask & self.RC_IN) != 0
-
-	@property
-	def dolby(self) -> bool:
-		return (self._mask & self.DOLBY) != 0
-
-	@property
-	def auto_off(self) -> bool:
-		return (self._mask & self.AUTO_OFF) != 0
-
-	@property
-	def v2ip_source_remote(self) -> bool:
-		return (self._mask & self.V2IP_SOURCE_REMOTE) != 0
-
-	@property
-	def v2ip_source_local(self) -> bool:
-		return (self._mask & self.V2IP_SOURCE_LOCAL) != 0
-
-	@property
-	def v2ip_sink_remote(self) -> bool:
-		return (self._mask & self.V2IP_SINK_REMOTE) != 0
-
-	@property
-	def v2ip_sink_local(self) -> bool:
-		return (self._mask & self.V2IP_SINK_LOCAL) != 0
-
-	def __eq__(self, mask:Any) -> bool:
-		if isinstance(mask, int):
-			return self._mask == mask
-		if isinstance(mask, BayFeaturesMask):
-			return self._mask == mask._mask
-		return False
-
-	def __ne__(self, mask:Any) -> bool:
-		return not (self == mask)
-
-	def __str__(self) -> str:
-		rv = ""
-		if self.hdmi_in:
-			rv += ", HDMI input"
-		if self.hdmi_out:
-			rv += ", HDMI output"
-		if self.audio_digital_out:
-			rv += ", digital audio output"
-		if self.audio_digital_in:
-			rv += ", digital audio input"
-		if self.audio_analog_out:
-			rv += ", analog audio output"
-		if self.audio_analog_in:
-			rv += ", analog audio input"
-		if self.audio_amp_out:
-			rv += ", amplifier audio output"
-		if self.dolby:
-			rv += ", Dolby"
-		if self.ir_in:
-			rv += ", IR input"
-		if self.ir_out:
-			rv += ", IR output"
-		if self.rc_in:
-			rv += ", remote control input"
-		if self.rc_out:
-			rv += ", remote control output"
-		if self.auto_off:
-			rv += ", auto standby"
-		if self.v2ip_source_remote:
-			rv += ", V2IP remote source"
-		if self.v2ip_sink_remote:
-			rv += ", V2IP remote sink"
-		if self.v2ip_source_local:
-			rv += ", V2IP local source"
-		if self.v2ip_sink_local:
-			rv += ", V2IP local sink"
-
-		if (len(rv) != 0):
-			return rv[2:]
-		return "none"
-
-	def __repr__(self) -> str:
-		return str(self)
-
-class BayStatusMask:
-	FAULT = (1 << 0)
-	HIDDEN = (1 << 1)
-	POWERED = (1 << 2)
-	SIGNAL_DETECTED = (1 << 3)
-	HPD_DETECTED = (1 << 4)
-	SIGNAL_SCRAMBLED =(1 << 5)
-	HDBT_CONNECTED = (1 << 6)
-	CEC_DETECTED = (1 << 7)
-	POWERED_ON = (1 << 8)
-	POWERED_OFF = (1 << 9)
-	AUDIO_ARC_HDMI = (1 << 10)
-	AUDIO_ARC_OPTICAL = (1 << 11)
-	AUDIO_ARC_ANALOG = (1 << 12)
-	OFFLINE = (1 << 13)
-	DECODER_DISABLED = (1 << 14)
-	ENCODER_DISABLED = (1 << 15)
-
-	def __init__(self, mask:int):
-		self._mask = mask
-
-	@property
-	def mask(self) -> int:
-		return self._mask
-
-	@property
-	def fault(self) -> bool:
-		# bay is faulty
-		return (self._mask & self.FAULT) != 0
-
-	@property
-	def hidden(self) -> bool:
-		# bay is hidden
-		return (self._mask & self.HIDDEN) != 0
-
-	@property
-	def powered(self) -> bool:
-		# PoE powered on
-		return (self._mask & self.POWERED) != 0
-
-	@property
-	def signal_detected(self) -> bool:
-		# signal detected
-		return (self._mask & self.SIGNAL_DETECTED) != 0
-
-	@property
-	def hpd_detected(self) -> bool:
-		# hotplug detected
-		return (self._mask & self.HPD_DETECTED) != 0
-
-	@property
-	def hdbt_connected(self) -> bool:
-		# HDBaseT connected
-		return (self._mask & self.HDBT_CONNECTED) != 0
-
-	@property
-	def cec_detected(self) -> bool:
-		# CEC capable device connected to this bay
-		return (self._mask & self.CEC_DETECTED) != 0
-
-	@property
-	def powered_on(self) -> bool:
-		# device is powered on
-		return (self._mask & self.POWERED_ON) != 0
-
-	@property
-	def powered_off(self) -> bool:
-		# device is powered off
-		return (self._mask & self.POWERED_OFF) != 0
-
-	@property
-	def audio_arc_hdmi(self) -> bool:
-		# HDMI ARC active
-		return (self._mask & self.AUDIO_ARC_HDMI) != 0
-
-	@property
-	def audio_arc_optical(self) -> bool:
-		# optical ARC active
-		return (self._mask & self.AUDIO_ARC_OPTICAL) != 0
-
-	@property
-	def audio_arc_analog(self) -> bool:
-		# analog ARC active
-		return (self._mask & self.AUDIO_ARC_ANALOG) != 0
-
-	@property
-	def offline(self) -> bool:
-		# v2ip unit offline
-		return (self._mask & self.OFFLINE) != 0
-
-	@property
-	def decoder_disabled(self) -> bool:
-		# v2ip decoder disabled
-		return (self._mask & self.DECODER_DISABLED) != 0
-
-	@property
-	def encoder_disabled(self) -> bool:
-		# v2ip decoder disabled
-		return (self._mask & self.ENCODER_DISABLED) != 0
-
-	def __str__(self) -> str:
-		rv = ""
-		if self.fault:
-			rv += ", fault detected"
-		if self.hidden:
-			rv += ", hidden"
-		if self.powered:
-			rv += ", power enabled"
-		if self.signal_detected:
-			rv += ", signal detected"
-		if self.hpd_detected:
-			rv += ", hpd detected"
-		if self.hdbt_connected:
-			rv += ", hdbt link"
-		if self.cec_detected:
-			rv += ", cec detected"
-		if self.powered_on:
-			rv += ", remote powered on"
-		if self.powered_off:
-			rv += ", remote powered off"
-		if self.audio_arc_hdmi:
-			rv += ", hdmi arc"
-		if self.audio_arc_optical:
-			rv += ", optical arc"
-		if self.audio_arc_analog:
-			rv += ", analog arc"
-		if self.offline:
-			rv += ", offline"
-		if self.decoder_disabled:
-			rv += ", decoder disabled"
-		if self.encoder_disabled:
-			rv += ", encoder disabled"
-		if len(rv) != 0:
-			return rv[2:]
-		return "none"
-
-	def __eq__(self, mask:Any) -> bool:
-		if isinstance(mask, int):
-			return self._mask == mask
-		if isinstance(mask, BayStatusMask):
-			return self._mask == mask._mask
-		return False
-
-	def __ne__(self, mask:Any) -> bool:
-		return not (self == mask)
-
-class RCType(Enum):
+class RCType(IntEnum):
 	IR = 0
 	CEC = 1
 	SKY_UK = 2
@@ -454,7 +260,7 @@ class RCType(Enum):
 			rv[val] = str(RCType(val))
 		return rv
 
-class EdidProfile(Enum):
+class EdidProfile(IntEnum):
 	def __str__(self) -> str:
 		if self.value == EdidProfile.TEMPLATE_1080P_STEREO.value:
 			return '1080p stereo'
@@ -552,7 +358,7 @@ class EdidProfile(Enum):
 			rv[val] = str(EdidProfile(val))
 		return rv
 
-class FirmwareType(Enum):
+class FirmwareType(IntEnum):
 	UNKNOWN = 0
 	FPGA = 1
 	LINUX = 2
@@ -576,7 +382,7 @@ class FirmwareType(Enum):
 	def __repr__(self) -> str:
 		return str(self)
 
-class UtpLinkSpeed(Enum):
+class UtpLinkSpeed(IntEnum):
     ''' UTP link speed '''
 
     UNKNOWN = 0

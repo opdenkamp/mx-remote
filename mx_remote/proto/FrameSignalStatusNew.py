@@ -2,10 +2,10 @@
 ##         MX Remote Python Interface           ##
 ##                                              ##
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
-## copyright (c) 2024 Op den Kamp IT Solutions  ##
+## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
-from enum import Enum
+from enum import IntEnum
 from functools import cached_property
 from .FrameBase import FrameBase
 from ..Interface import BayBase, SignalStatus
@@ -13,7 +13,7 @@ from ..Uid import MxrDeviceUid
 import struct
 from .Svd import SvdMap, Svd
 
-class VideoColourSpace(Enum):
+class VideoColourSpace(IntEnum):
     RGB = 0
     YUV444 = 1
     YUV422 = 2

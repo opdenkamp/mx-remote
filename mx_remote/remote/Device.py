@@ -2,7 +2,7 @@
 ##         MX Remote Python Interface           ##
 ##                                              ##
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
-## copyright (c) 2024 Op den Kamp IT Solutions  ##
+## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
 from .Bay import Bay
@@ -52,7 +52,8 @@ from datetime import datetime
 import logging
 import time
 
-from ..Interface import DeviceBase, BayBase, DeviceRegistry, DeviceFeatures
+from ..Interface import DeviceBase, BayBase, DeviceRegistry
+from ..proto.Constants import DeviceFeature
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -135,29 +136,29 @@ class Device(DeviceBase):
 			return True
 		return self.online and \
 			(self._hello.features is not None) and \
-			self._hello.features.status_rebooting
+			DeviceFeature.STATUS_REBOOTING in self._hello.features
 
 	@property
 	def booting(self) -> bool:
 		return self.online \
 			and not self.rebooting \
 			and (self.features is not None) \
-			and self.features.booting
+			and DeviceFeature.BOOTING in self.features
 
 	@property
 	def power_save(self) -> bool:
 		return (self.features is not None) \
-			and self.features.power_save
+			and DeviceFeature.STATUS_POWER_SAVE in self.features
 
 	@property
 	def mesh_support(self) -> bool:
 		return (self.features is not None) \
-			and self.features.mesh_support
+			and DeviceFeature.MESH in self.features
 
 	@property
 	def crashed_recently(self) -> bool:
 		return (self.features is not None) \
-			and self.features.crashed_recently
+			and DeviceFeature.STATUS_CRASHED in self.features
 
 	@property
 	def status_message(self) -> str:
@@ -290,7 +291,7 @@ class Device(DeviceBase):
 	@property
 	def is_v2ip(self) -> bool:
 		return (self.features is not None) \
-			and (self.features.v2ip_sink or self.features.v2ip_source)
+			and (DeviceFeature.V2IP_SINK in self.features or DeviceFeature.V2IP_SOURCE in self.features)
 
 	@property
 	def has_local_source(self) -> bool:
@@ -305,22 +306,22 @@ class Device(DeviceBase):
 	@property
 	def is_video_matrix(self) -> bool:
 		# video matrix or not
-		return (self.features is not None) and self.features.video_routing
+		return (self.features is not None) and DeviceFeature.VIDEO_ROUTING in self.features
 
 	@property
 	def is_audio_matrix(self) -> bool:
 		# audio matrix or not
 		return (self.features is not None) \
-			and self.features.audio_routing \
-			and not self.features.video_routing
+			and DeviceFeature.AUDIO_ROUTING in self.features \
+			and DeviceFeature.VIDEO_ROUTING not in self.features
 
 	@property
 	def is_amp(self) -> bool:
 		# amp or not
 		return (self.features is not None) \
-			and self.features.volume_control \
-			and self.features.audio_routing \
-			and not self.features.video_routing
+			and DeviceFeature.VOLUME_CONTROL in self.features \
+			and DeviceFeature.AUDIO_ROUTING in self.features \
+			and DeviceFeature.VIDEO_ROUTING not in self.features
 
 	@property
 	def temperatures(self) -> dict[str,int]:
@@ -338,7 +339,7 @@ class Device(DeviceBase):
 		return rv
 
 	@property
-	def features(self) -> DeviceFeatures|None:
+	def features(self) -> DeviceFeature|None:
 		return self._hello.features
 
 	@property
@@ -439,17 +440,17 @@ class Device(DeviceBase):
 	@property
 	@override
 	def is_mesh_master(self) -> bool:
-		return (self.features is not None) and self.features.mesh_master
+		return (self.features is not None) and DeviceFeature.MESH_MASTER in self.features
 
 	@property
 	@override
 	def is_mesh_member(self) -> bool:
-		return (self.features is not None) and self.features.mesh_member
+		return (self.features is not None) and DeviceFeature.MESH_MEMBER in self.features
 
 	@property
 	@override
 	def is_oneip_multiviewer(self) -> bool:
-		return self.is_v2ip and (self.features is not None) and self.features.multiviewer
+		return self.is_v2ip and (self.features is not None) and DeviceFeature.MULTIVIEWER in self.features
 
 	@property
 	@override
