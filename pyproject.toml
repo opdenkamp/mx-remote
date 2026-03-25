@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mx_remote"
-version = "3.5.0"
+dynamic = ["version"]
 dependencies = [
   "aiohttp>=3.10.5",
   "aiofiles>=24.1.0",
@@ -29,6 +29,11 @@ classifiers = [
   "Programming Language :: Python",
   "Topic :: System :: Networking :: Monitoring",
 ]
+
+[tool.hatch.version]
+source = "regex"
+path = "mx_remote/const.py"
+pattern = "VERSION = '(?P<version>[^']+)'"
 
 [project.urls]
 Homepage = "https://github.com/opdenkamp/mx-remote/"
