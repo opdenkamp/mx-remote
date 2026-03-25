@@ -58,12 +58,19 @@ class Svd:
     def __repr__(self) -> str:
         return str(self)
 
+def _load_svd_csv() -> dict[int, Svd]:
+    result: dict[int, Svd] = {}
+    with open(f'{BASE_PATH}/proto/svd.csv', newline='') as csvfile:
+        reader = csv.reader(csvfile, delimiter=';', quotechar='|')
+        for row in reader:
+            svd = Svd(row)
+            result[svd.id] = svd
+    return result
+
+_SVD_DATA: dict[int, Svd] = _load_svd_csv()
+
 class SvdMap:
     svd:dict[int, Svd] = {}
 
     def __init__(self) -> None:
-        with open(f'{BASE_PATH}/proto/svd.csv', newline='') as csvfile:
-            reader = csv.reader(csvfile, delimiter=';', quotechar='|')
-            for row in reader:
-                svd = Svd(row)
-                self.svd[svd.id] = svd
+        self.svd = _SVD_DATA
