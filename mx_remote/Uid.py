@@ -12,8 +12,10 @@ class MxrDeviceUid:
     ''' Unique ID of an mx_remote device on the network'''
 
     def __init__(self, value: object) -> None:
+        self._value:bytes
+
         if value is None:
-            self._value = [ 0 for _ in range(16)]
+            self._value = bytes([ 0 for _ in range(16)])
             return
         if isinstance(value, MxrDeviceUid):
             self._value = value._value
@@ -22,13 +24,13 @@ class MxrDeviceUid:
             spl = value.split(".")
             if len(spl) < 4:
                 raise Exception(f"invalid uid {value}")
-            self._value = []
+            valuelist:list[int] = []
             for part in spl:
-                self._value += int(part, 16).to_bytes(4, 'little')
-            self._value = bytes(self._value)
+                valuelist += int(part, 16).to_bytes(4, 'little')
+            self._value = bytes(valuelist)
         elif isinstance(value, bytes):
             if len(value) == 0:
-                self._value = None
+                self._value = bytes([ 0 for _ in range(16)])
             elif len(value) < 16:
                 raise Exception(f"invalid uid length {len(value)}")
             else:
@@ -65,9 +67,6 @@ class MxrDeviceUid:
 
     def __repr__(self) -> str:
         return str(self)
-
-    def __hash__(self) -> int:
-        return hash(self.value)
 
     def __eq__(self, value: object) -> bool:
         if isinstance(value, str) or isinstance(value, MxrDeviceUid):
@@ -119,9 +118,6 @@ class MxrBayUid:
     @property
     def port(self) -> int:
         return self._port
-
-    def __hash__(self) -> int:
-        return hash(str(self))
 
     def __str__(self) -> str:
         return f"{str(self.device)}:{self.port}"

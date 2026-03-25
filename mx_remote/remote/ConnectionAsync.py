@@ -10,7 +10,7 @@ import logging
 import os
 import socket
 import ipaddress
-from typing import Coroutine, Tuple
+from typing import Tuple
 from ..Interface import ConnectionCallbacks, mxr_valid_addresses
 
 _LOGGER = logging.getLogger(__name__)

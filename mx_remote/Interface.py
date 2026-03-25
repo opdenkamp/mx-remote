@@ -40,7 +40,7 @@ def mxr_valid_addresses() -> list[str]:
     Returns:
         addresses (list[str]): list of IP addressses that can be used for the local_ip parameter
     """
-    addresses = []
+    addresses:list[str] = []
     for iface in netifaces.interfaces():
         if netifaces.AF_INET in netifaces.ifaddresses(iface):
             addr = netifaces.ifaddresses(iface)[netifaces.AF_INET][0]['addr']
@@ -233,7 +233,7 @@ class AmpZoneSettings:
     """ equalizer right channel """
 
     def __str__(self) -> str:
-        return f"gain:{self.gain_left}/{self.gain_left} volume:{self.volume_min}/{self.volume_max} delay:{self.delay_left}/{self.delay_right} bass:{self.bass} treble:{self.treble} bridged:{self.bridged} eqleft:{self.eq_left} eqright:{self.eq_right} power:{self.power_mode} pwrlevel:{self.power_level} pwrtimeout:{self.power_timeout}"
+        return f"gain:{self.gain_left}/{self.gain_right} volume:{self.volume_min}/{self.volume_max} delay:{self.delay_left}/{self.delay_right} bass:{self.bass} treble:{self.treble} bridged:{self.bridged} eqleft:{self.eq_left} eqright:{self.eq_right} power:{self.power_mode} pwrlevel:{self.power_level} pwrtimeout:{self.power_timeout}"
 
     def __repr__(self) -> str:
         return str(self)
@@ -367,7 +367,7 @@ class AudioFeatures:
 
     @property
     def features(self) -> list[str]:
-        rv = []
+        rv:list[str] = []
         if self.is_input:
             rv.append('input')
         if self.is_output:
@@ -624,12 +624,15 @@ class AudioEndpoints:
 
 class DeviceList(list[MxrDeviceUid]):
     def __init__(self, data:bytes|None=None):
-        super().__init__(self)
+        super().__init__()
         if (data is None):
             return
         while len(data) >= 16:
             self.append(MxrDeviceUid(data[0:16]))
             data = data[16:]
+
+    def append(self, item: MxrDeviceUid) -> None:
+        super().append(item)
 
 class FilteredDevices(DeviceList):
     ''' list of filtered devices '''
@@ -1997,7 +2000,7 @@ class BayLink:
     @property
     def features(self) -> list[str]:
         ''' supported link features as list of string '''
-        ft = []
+        ft:list[str] = []
         m = self.features_mask
         if (m & MX_LINK_FEATURE_VIDEO_HDMI):
             ft.append("HDMI")
@@ -2340,8 +2343,8 @@ class MxrCallbacks:
         volume_str = ""
         if (volume is not None) and (volume.muted is not None):
             muted_str = " not muted" if not volume.muted else " muted"
-        if (volume is not None) and (volume.volume is not None):
-            volume_str = " volume {}%".format(volume.volume)
+        if volume is not None:
+            volume_str = f" volume {volume.volume}%"
         _LOGGER.debug(f"{bay}{volume_str}{muted_str}")
         self.on_bay_update(bay)
 

@@ -391,7 +391,7 @@ class Bay(BayBase):
     @property
     @override
     def available_video_sources(self) -> list[BayBase]:
-        rv = []
+        rv:list[BayBase] = []
         if (not self.is_output):
             return rv
         for _, bay in self.device.inputs.items():
@@ -427,7 +427,7 @@ class Bay(BayBase):
     @property
     @override
     def available_audio_sources(self) -> list[BayBase]:
-        rv = []
+        rv:list[BayBase] = []
         if (not self.is_output):
             return rv
         for _, bay in self.device.inputs.items():
@@ -451,8 +451,7 @@ class Bay(BayBase):
     def audio_endpoint(self, endpoint:AudioEndpoint) -> None:
         if (self._audio_endpoint is None) or (self._audio_endpoint != endpoint):
             self._audio_endpoint = endpoint
-            if (endpoint is not None):
-                self._audio_endpoint.bay = self
+            self._audio_endpoint.bay = self
             self.call_callbacks()
 
     @property
@@ -658,7 +657,7 @@ class Bay(BayBase):
         return self._filtered
 
     @filtered.setter
-    def filtered(self, val) -> None:
+    def filtered(self, val:FilteredDevices) -> None:
         prev = self.filtered
         self._filtered = val
         if prev != val:
@@ -787,7 +786,7 @@ class Bay(BayBase):
             source = self.device.get_by_portnum(source)
         elif isinstance(source, str):
             source = self.bay_by_user_name(name=source)
-        if (source is None) or (not isinstance(source, BayBase)):
+        if (source is None):
             return False
 
         if (endpoint is not None):

@@ -5,10 +5,9 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
-from __future__ import annotations
 from ..proto import LinkConfig
 from ..proto import Constants as proto
-from typing import List, Tuple
+from typing import Any, List, Tuple
 from ..Interface import BayBase, MxrCallbacks
 
 class Link:
@@ -54,7 +53,7 @@ class Link:
 		primary = self.primary
 		return (primary is not None) and (bay == primary)
 
-	def other_bay(self, bay:BayBase) -> BayBase:
+	def other_bay(self, bay:BayBase) -> BayBase|None:
 		# return the other side of this link
 		if not self.connected:
 			return None
@@ -62,7 +61,7 @@ class Link:
 			return self._link.remote_bay
 		return self._link.linked_bay
 
-	def other_serial_bay(self, bay:BayBase) -> Tuple[str,str]:
+	def other_serial_bay(self, bay:BayBase) -> Tuple[str|None,str|None]:
 		# return the configuration for the other end of this link (serial + bay)
 		other_bay = self.other_bay(bay)
 		if other_bay is None:
@@ -111,9 +110,9 @@ class Link:
 		return (self.features_mask & proto.MX_LINK_FEATURE_VIDEO_HDMI) != 0
 
 	@property
-	def features(self) -> List[str]:
+	def features(self) -> list[str]:
 		# features supported by this link (strings)
-		ft = []
+		ft:list[str] = []
 		m = self.features_mask
 		if (m & proto.MX_LINK_FEATURE_VIDEO_HDMI):
 			ft.append("HDMI")
@@ -168,20 +167,19 @@ class Link:
 				rv |= proto.MX_LINK_FEATURE_RC
 		return rv
 
-	def __eq__(self, other:Link) -> bool:
+	def __eq__(self, other:Any) -> bool:
+		if not isinstance(other, Link):
+			return False
 		return (self.configured == other.configured) and \
 			(((self._bay == other._bay) and (self.other_bay(self._bay) == other.other_bay(self._bay))) or \
 				((self.other_bay(self._bay) == other._bay) and (self._bay == other.other_bay(self._bay))))
 
 	def __str__(self) -> str:
-		primary = self.primary
-		if primary is None:
-			return "bay link incomplete"
 		if not self.configured:
-			return "{} not linked".format(str(primary))
-		other = self.other_bay(primary)
+			return "{} not linked".format(str(self.primary))
+		other = self.other_bay(self.primary)
 		if other is None:
-			link_serial, link_bay = self.other_serial_bay(primary)
-			return "{} linked to ({} {}) - disconnected".format(str(primary), link_serial, link_bay)
-		return "{} linked to {} - {}".format(str(primary), str(other), str(self.features))
+			link_serial, link_bay = self.other_serial_bay(self.primary)
+			return "{} linked to ({} {}) - disconnected".format(str(self.primary), link_serial, link_bay)
+		return "{} linked to {} - {}".format(str(self.primary), str(other), str(self.features))
 

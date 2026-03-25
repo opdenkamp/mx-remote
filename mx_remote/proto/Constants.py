@@ -5,7 +5,7 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
-from enum import Enum
+from enum import Enum, IntEnum
 from typing import Any
 
 MXR_PROTOCOL_VERSION = 20
@@ -62,7 +62,7 @@ MX_LINK_FEATURE_AUDIO_ANALOG  = (1 << 2)
 MX_LINK_FEATURE_IR            = (1 << 3)
 MX_LINK_FEATURE_RC            = (1 << 4)
 
-class RCAction(Enum):
+class RCAction(IntEnum):
 	ACTION_POWER_TOGGLE 	= 0
 	ACTION_POWER_ON			= 1
 	ACTION_POWER_OFF		= 2
@@ -70,7 +70,7 @@ class RCAction(Enum):
 	ACTION_VOLUME_UP		= 4
 	ACTION_VOLUME_MUTE		= 5
 
-class RCKey(Enum):
+class RCKey(IntEnum):
     KEY_0                = 0
     KEY_1                = 1
     KEY_2                = 2
@@ -447,6 +447,7 @@ class RCType(Enum):
 			return "MX-Remote"
 		return "Unknown"
 
+	@staticmethod
 	def values() -> dict[int, str]:
 		rv:dict[int, str] = {}
 		for val in range(8):

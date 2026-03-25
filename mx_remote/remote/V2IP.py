@@ -6,11 +6,12 @@
 ##################################################
 
 import logging
-from ..Interface import DeviceV2IPDetailsBase, V2IPStreamSource
+from typing import Any
+from ..Interface import DeviceV2IPDetails, V2IPStreamSource
 
 _LOGGER = logging.getLogger(__name__)
 
-class DeviceV2IPDetails(DeviceV2IPDetailsBase):
+class DeviceV2IPDetailsImpl(DeviceV2IPDetails):
 	def __init__(self) -> None:
 		self._video = None
 		self._audio = None
@@ -70,8 +71,8 @@ class DeviceV2IPDetails(DeviceV2IPDetailsBase):
 	def tx_rate(self, rate:int) -> None:
 		self._tx_rate = rate
 
-	def __eq__(self, value: object) -> bool:
-		if not isinstance(value, DeviceV2IPDetailsBase):
+	def __eq__(self, value:Any) -> bool:
+		if not isinstance(value, DeviceV2IPDetails):
 			return False
 		return self.has_config \
 			and value.has_config \

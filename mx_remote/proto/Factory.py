@@ -31,13 +31,11 @@ def process_mxr_frame(mxr:DeviceRegistry, timestamp:float, data:bytes, addr:tupl
 	# decode a (received) mx_remote frame
 	from .FrameHeader import FrameHeader
 	hdr = FrameHeader(mxr, data, addr)
-	if (hdr is not None):
-		try:
-			return _mxr_frame_factory(hdr=hdr, timestamp=timestamp)
-		except Exception:
-			print(f"failed to process frame: {traceback.format_exc()}")
-			raise
-	logging.warning("frame header missing")
+	try:
+		return _mxr_frame_factory(hdr=hdr, timestamp=timestamp)
+	except Exception:
+		print(f"failed to process frame: {traceback.format_exc()}")
+		raise
 
 def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 	# create a new frame from a decoded mx_remote header

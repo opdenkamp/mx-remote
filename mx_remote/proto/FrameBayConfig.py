@@ -22,7 +22,7 @@ class FrameBayConfig(FrameBase):
     @cached_property
     def bays(self) -> list[BayConfig]:
         # get a list of bay configurations defined in this frame
-        rv = []
+        rv:list[BayConfig] = []
         if self.payload is None:
             return rv
         baynum = 0

@@ -19,7 +19,6 @@ from ..Interface import (
 	AudioEndpoints,
 	AudioChangeSource,
 	AudioLinks,
-	AudioLink,
 )
 from ..proto.BayConfig import BayConfig
 from ..proto.FrameHello import FrameHello
@@ -135,7 +134,6 @@ class Device(DeviceBase):
 		if self._rebooting:
 			return True
 		return self.online and \
-			(self._hello is not None) and \
 			(self._hello.features is not None) and \
 			self._hello.features.status_rebooting
 
@@ -251,7 +249,7 @@ class Device(DeviceBase):
 
 	@property
 	def protocol(self) -> int:
-		if (self._hello is None) or (self._hello.supported_protocol is None):
+		if (self._hello.supported_protocol is None):
 			return 0
 		return self._hello.supported_protocol
 
@@ -273,7 +271,7 @@ class Device(DeviceBase):
 	@property
 	def serial(self) -> str:
 		# device serial number
-		if (self._hello is None) or (self._hello.serial is None):
+		if (self._hello.serial is None):
 			return "Unknown"
 		return self._hello.serial
 
@@ -285,7 +283,7 @@ class Device(DeviceBase):
 	@property
 	def version(self) -> str:
 		# remote firwmare version
-		if (self._hello is None) or (self._hello.version is None):
+		if (self._hello.version is None):
 			return "Unknown"
 		return self._hello.version
 
@@ -332,7 +330,7 @@ class Device(DeviceBase):
 				'FPGA': self._temperatures[1] if len(self._temperatures) > 1 else -1,
 				'Switch': self._temperatures[2] if len(self._temperatures) > 2 else -1,
 			}
-		rv = {}
+		rv:dict[str,int] = {}
 		cnt = 1
 		for temperature in self._temperatures:
 			rv[f'Sensor {cnt}'] = temperature
@@ -351,7 +349,7 @@ class Device(DeviceBase):
 	@property
 	def inputs(self) -> dict[str, BayBase]:
 		# all sources available on this device
-		rv = {}
+		rv:dict[str, BayBase] = {}
 		for _, bay in self.bays.items():
 			if bay.is_input and not bay.hidden:
 				rv[bay.bay_name] = bay
@@ -371,7 +369,7 @@ class Device(DeviceBase):
 	@property
 	def outputs(self) -> dict[str, BayBase]:
 		# all sinks available on this device
-		rv = {}
+		rv:dict[str, BayBase] = {}
 		for _, bay in self.bays.items():
 			if bay.is_output:
 				rv[bay.bay_name] = bay
@@ -596,7 +594,10 @@ class Device(DeviceBase):
 			if ((sources := self._v2ip_sources) is None):
 				self._v2ip_sources = V2IPStreamSourcesList()
 				sources = self._v2ip_sources
-			sources[0] = data
+			if len(sources) > 0:
+				sources[0] = data
+			else:
+				sources.append(data)
 		elif isinstance(data, FrameV2IPBayMapping):
 			if data.first_bay_id is None:
 				return
@@ -744,7 +745,7 @@ class Device(DeviceBase):
 	def __str__(self) -> str:
 		return f"({self.serial} {self.name})"
 
-	def __eq__(self, other) -> bool:
+	def __eq__(self, other:Any) -> bool:
 		return isinstance(other, DeviceBase) and \
 			(self.remote_id == other.remote_id)
 

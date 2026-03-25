@@ -61,7 +61,7 @@ class BayConfig:
 
 	@cached_property
 	def rc_type(self) -> int:
-		return ((int(self.payload[4]) > 4) & 0xF)
+		return ((int(self.payload[4]) >> 4) & 0xF)
 
 	@cached_property
 	def audio_source(self) -> int:

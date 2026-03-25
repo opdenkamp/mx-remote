@@ -45,7 +45,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self.remotes:dict[MxrDeviceUid,Device] = {}
         self._links = BayLinks(self)
         self._last_hello = 0
-        self._tasks = set()
+        self._tasks:set[asyncio.Task[None]] = set()
         self._uid:bytes|None = None
         self._local_ip = local_ip
         self._broadcast = broadcast
@@ -113,11 +113,13 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         try:
             async with aiofiles.open(uid_path, "rb") as f:
                 self._uid = await f.read()
-        except:
+        except Exception:
             _LOGGER.info(f"failed to read {uid_path}. creating new file")
             self._uid = os.urandom(16)
             async with aiofiles.open(uid_path, "wb") as f:
                 await f.write(self._uid)
+        # clear cached uid so it gets recomputed with the loaded value
+        vars(self).pop('uid', None)
 
     @property
     def uid_raw(self) -> bytes|None:
@@ -309,13 +311,13 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 proc = True
                 ts = f'[{timestamp}] ' if (self.conn is None) else ''
                 _LOGGER.debug(f"{ts}rx {addr[0]}: {frame.header.opcode:02X}({len(frame)}) - {str(frame)}")
-        except Exception as e:
+        except Exception:
             _LOGGER.warning(f"failed to decode frame {traceback.format_exc()}")
             raise
         try:
             if (frame is not None) and proc:
                 frame.process()
-        except Exception as e:
+        except Exception:
             _LOGGER.warning(f"failed to process frame: {traceback.format_exc()}")
             raise
 
