@@ -5,4 +5,12 @@
 ## copyright (c) 2024 Op den Kamp IT Solutions  ##
 ##################################################
 
+"""
+mx_remote.proto - MX Remote protocol implementation.
+
+Contains frame definitions, constants, and serialization/deserialization
+logic for the MX Remote UDP protocol. Frames are created via the Factory
+module and processed by the Remote class.
+"""
+
 from .Constants import *
