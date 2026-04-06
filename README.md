@@ -422,7 +422,7 @@ MX Remote Manager / Debugger
 options:
   -h, --help    show this help message and exit
   -i INPUT      capture file to process
-  -f FILTER     ip address filter (only with -i)
+  -f FILTER     only log frames from this ip address
   -o OUTPUT     write output to a file
   -l LOCAL_IP   local ip address of the network interface to use
   -b            use broadcast mode instead of multicast

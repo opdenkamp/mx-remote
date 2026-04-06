@@ -37,7 +37,7 @@ _LOGGER = logging.getLogger(__name__)
 class Remote(DeviceRegistry, ConnectionCallbacks):
     ''' Main component that handles the network connections and registration of remote devices '''
 
-    def __init__(self, target_ip:str|None=None, port:int|None=None, http_session:aiohttp.ClientSession|None=None, open_connection:bool=True, callbacks:MxrCallbacks|None=None, name:str="MXR Python", local_ip:str|None=None, broadcast:bool|None=None) -> None:
+    def __init__(self, target_ip:str|None=None, port:int|None=None, http_session:aiohttp.ClientSession|None=None, open_connection:bool=True, callbacks:MxrCallbacks|None=None, name:str="MXR Python", local_ip:str|None=None, broadcast:bool|None=None, addr_filter:str|None=None) -> None:
         '''Initialise the remote controller.
 
         :param target_ip: multicast/broadcast IP to use, or None for the default
@@ -48,6 +48,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         :param name: human-readable name advertised on the network
         :param local_ip: local interface IP to bind to, or None for any
         :param broadcast: use broadcast instead of multicast when True
+        :param addr_filter: only log frames from this IP address when set
         '''
         DeviceRegistry.__init__(self)
         ConnectionCallbacks.__init__(self)
@@ -65,6 +66,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._target_ip = target_ip
         self._port = port
         self._discover_timeout = 0
+        self._addr_filter = addr_filter
         self._svd = SvdMap()
         if open_connection:
             self.conn = ConnectionAsync(callbacks=self, target_ip=self.target_ip, port=self.port, local_ip=self._local_ip)
@@ -343,8 +345,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             frame = process_mxr_frame(mxr=self, timestamp=timestamp, data=data, addr=addr)
             if (frame is not None) and (frame.header.remote_id != self.uid):
                 proc = True
-                ts = f'[{timestamp}] ' if (self.conn is None) else ''
-                _LOGGER.debug(f"{ts}rx {addr[0]}: {frame.header.opcode:02X}({len(frame)}) - {str(frame)}")
+                if (self._addr_filter is None) or (addr[0] == self._addr_filter):
+                    ts = f'[{timestamp}] ' if (self.conn is None) else ''
+                    _LOGGER.debug(f"{ts}rx {addr[0]}: {frame.header.opcode:02X}({len(frame)}) - {str(frame)}")
         except Exception:
             _LOGGER.warning(f"failed to decode frame {traceback.format_exc()}")
             raise

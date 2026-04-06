@@ -34,15 +34,13 @@ def proto_parser(logger:logging.Logger, file:str, filter:str|None) -> None:
 
     with open(file, "r") as f:
         data = f.read().split("\n")
-        remote = mx_remote.Remote(open_connection=False)
+        remote = mx_remote.Remote(open_connection=False, addr_filter=filter)
         logger.debug(f"processing data from {file}")
         for line in data:
             spl = line.split(",")
             if len(spl) == 3:
                 ts = spl[0]
                 source = spl[1]
-                if filter is not None and source != filter:
-                    continue
                 frame = bytes.fromhex(spl[2])
                 try:
                     remote.process_frame(timestamp=float(ts), data=frame, addr=(source, 8811))
@@ -66,7 +64,7 @@ def mxr_main( extra_args_callback:Callable[[Any,argparse.ArgumentParser],None]|N
     # command line arguments
     argparser = argparse.ArgumentParser(description="MX Remote Manager / Debugger")
     argparser.add_argument("-i", dest='input', help='capture file to process')
-    argparser.add_argument("-f", dest='filter', help='ip address filter (only with -i)')
+    argparser.add_argument("-f", dest='filter', help='only log frames from this ip address')
     argparser.add_argument("-o", dest='output', help='write output to a file')
     argparser.add_argument("-l", dest='local_ip', help='local ip address of the network interface to use')
     argparser.add_argument("-b", dest='broadcast', help='use broadcast mode instead of multicast', action='store_true')
@@ -106,7 +104,7 @@ def mxr_main( extra_args_callback:Callable[[Any,argparse.ArgumentParser],None]|N
 
         # run the console app
         async def _run() -> None:
-            mx = mx_remote.Remote(local_ip=args.local_ip, broadcast=args.broadcast)
+            mx = mx_remote.Remote(local_ip=args.local_ip, broadcast=args.broadcast, addr_filter=args.filter)
             await mx.start_async()
             try:
                 await asyncio.Event().wait()
