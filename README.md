@@ -255,12 +255,13 @@ from mx_remote import RCKey, RCAction
 # send a key press
 await bay.send_key(RCKey.KEY_SELECT)
 await bay.send_key(RCKey.KEY_UP)
-await bay.send_key(RCKey.KEY_VOLUME_UP)
 
-# send a power action
+# send a remote control action
 await bay.tx_action(RCAction.ACTION_POWER_ON)
 await bay.tx_action(RCAction.ACTION_POWER_OFF)
 await bay.tx_action(RCAction.ACTION_POWER_TOGGLE)
+await bay.tx_action(RCAction.ACTION_VOLUME_UP)
+await bay.tx_action(RCAction.ACTION_VOLUME_DOWN)
 ```
 
 ## EDID Profiles

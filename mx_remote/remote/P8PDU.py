@@ -4,9 +4,10 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''PDU (Power Distribution Unit) outlet and device management.'''
 
 from ..proto.PDUState import PDUState
-from typing import Any, List
+from typing import Any
 
 class PDUOutlet:
     ''' One of the 8 PDU outlets '''
@@ -18,7 +19,7 @@ class PDUOutlet:
 
     @property
     def port(self) -> int:
-        # port number
+        '''Return the outlet port number.'''
         return self._port
 
     @property
@@ -26,7 +27,7 @@ class PDUOutlet:
         return self._state
 
     @state.setter
-    def state(self, val: PDUState):
+    def state(self, val: PDUState) -> None:
         self._state = val
 
     @property
@@ -41,10 +42,12 @@ class PDUOutlet:
     def is_rebooting(self) -> bool:
         return self._state.is_rebooting
 
-    async def turn_on(self):
+    async def turn_on(self) -> dict|None:
+        '''Turn this outlet on via the device API.'''
         return await self._pdu.dev.get_api('power/on/{}'.format(self.port))
 
-    async def turn_off(self):
+    async def turn_off(self) -> dict|None:
+        '''Turn this outlet off via the device API.'''
         return await self._pdu.dev.get_api('power/off/{}'.format(self.port))
 
     def __str__(self) -> str:
@@ -55,19 +58,19 @@ class PDUOutlet:
 
 class PDU:
     ''' Optional PDU connected to a matrix '''
-    def __init__(self, dev, init_val:PDUState):
+    def __init__(self, dev:Any, init_val:PDUState) -> None:
         self._dev = dev
         self._val = None
         self._outlets = []
         self.on_mxr_update(init_val)
 
     @property
-    def dev(self):
+    def dev(self) -> Any:
         return self._dev
 
     @property
     def mxr(self) -> Any:
-        # mxremote instance
+        '''Return the MX Remote instance for this PDU.'''
         return self._dev.mxr
 
     @property
@@ -76,53 +79,54 @@ class PDU:
         return (voltage is not None) and (voltage > 0.0)
 
     @property
-    def current(self) -> float:
+    def current(self) -> float|None:
         if self._val is None:
             return None
         return self._val.current
 
     @property
-    def voltage(self) -> float:
+    def voltage(self) -> float|None:
         if self._val is None:
             return None
         return self._val.voltage
 
     @property
-    def power(self) -> float:
+    def power(self) -> float|None:
         if self._val is None:
             return None
         return self._val.power
 
     @property
-    def dissipation(self) -> float:
+    def dissipation(self) -> float|None:
         if self._val is None:
             return None
         return self._val.dissipation
 
     @property
-    def power_factor(self) -> float:
+    def power_factor(self) -> float|None:
         if self._val is None:
             return None
         return self._val.power_factor
 
     @property
-    def frequency(self) -> float:
+    def frequency(self) -> float|None:
         if self._val is None:
             return None
         return self._val.frequency
 
     @property
-    def outlets(self) -> List[PDUOutlet]:
+    def outlets(self) -> list[PDUOutlet]|None:
         if self._val is None:
             return None
         return self._outlets
 
-    def outlet(self, port) -> PDUOutlet:
+    def outlet(self, port:int) -> PDUOutlet|None:
         if self._val is None:
             return None
         return self._outlets[port]
 
     def on_mxr_update(self, pdu_state:PDUState) -> None:
+        '''Update outlet states from an MX Remote PDU status message.'''
         changed = self._val is None or (self._val != pdu_state)
         is_new = (len(self._outlets) == 0)
         self._val = pdu_state
@@ -143,10 +147,10 @@ class PDU:
     def __repr__(self) -> str:
         return str(self)
 
-    def __eq__(self, other) -> bool:
+    def __eq__(self, other:object) -> bool:
         return isinstance(other, PDU) and \
             (self.dev == other.dev)
 
-    def __ne__(self, other) -> bool:
+    def __ne__(self, other:object) -> bool:
         return (not isinstance(other, PDU)) or \
             (self.dev != other.dev)

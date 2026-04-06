@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Video-over-IP stream source configuration and parsing.'''
 
 from typing import override
 from ..Uid import MxrDeviceUid
@@ -12,7 +13,9 @@ import socket
 import struct
 
 class V2IPStreamSourceImpl(V2IPStreamSource):
-    def __init__(self, label, data):
+    '''Concrete implementation of a V2IP stream source with IP and port.'''
+
+    def __init__(self, label:str, data:bytes) -> None:
         self._label = label
         self._ip = int.from_bytes(data[0:4], "big")
         self._port = int(data[5]) << 8 | int(data[4])
@@ -32,12 +35,12 @@ class V2IPStreamSourceImpl(V2IPStreamSource):
     def port(self) -> int:
         return self._port
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{self.label}={self.ip}:{self.port}"
 
 class V2IPConfig:
-    ''' Single source configuration '''
-    def __init__(self, frame, port:int, payload:bytes):
+    '''V2IP source configuration for a single port with video, audio, and ancillary streams.'''
+    def __init__(self, frame:'FrameBase', port:int, payload:bytes) -> None:
         if len(payload) < 40:
             raise Exception(f"invalid size: {len(payload)}")
         self.frame = frame
@@ -48,11 +51,12 @@ class V2IPConfig:
         self.anc = V2IPStreamSourceImpl("anc", self.payload[32:38])
 
     def process(self) -> None:
-        # register or update this link in the local cache
+        '''Register or update this link in the local cache.'''
         pass
 
     @property
     def uid(self) -> MxrDeviceUid:
+        '''Device UID of the V2IP source.'''
         return MxrDeviceUid(self.payload[0:16])
 
     def __repr__(self) -> str:
@@ -62,6 +66,8 @@ class V2IPConfig:
         return f"V2IP port {self.port} source uid {self.uid} - {self.video} {self.audio} {self.anc}"
 
 class V2IPStreamSourcesImpl(V2IPStreamSources):
+    '''Concrete collection of V2IP stream sources (video, audio, ancillary, ARC).'''
+
     def __init__(self, video:V2IPStreamSource, audio:V2IPStreamSource, anc:V2IPStreamSource, arc:V2IPStreamSource|None=None) -> None:
         self._video = video
         self._audio = audio

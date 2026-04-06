@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frames for V2IP multiviewer configuration and control.'''
 
 from enum import Enum
 from typing import override
@@ -12,6 +13,7 @@ from ..Interface import MxrDeviceUid, DeviceBase, DeviceRegistry
 from .Multiviewer import *
 
 class V2IPMultiviewerConfig(FrameBase, MultiviewerConfig):
+    '''Parsed multiviewer configuration status with view mode, PIP, audio, and source settings.'''
     @property
     @override
     def uid(self) -> MxrDeviceUid|None:
@@ -168,16 +170,20 @@ class V2IPMultiviewerConfig(FrameBase, MultiviewerConfig):
         return f"multiviewer config: {self.uid}/{self.device} - mappings: {self.mappings}, mcu={self.mcu_version}, scaler={self.scaler_version}, view mode={self.view_mode}, pip={self.pip_position}/{self.pip_size}, output={self.output_mode}/{self.hdcp_mode}/{self.output_itc_mode}/{self.aspect_ratio}, edid={self.edid_template}, auto switch={self.auto_switch}, audio={self.audio_source} volume={self.audio_volume}% muted={self.audio_muted}, remote={self.remote_control}"
 
 class FrameV2IPMultiviewer(FrameBase):
+    '''V2IP multiviewer command and status frame.'''
     @property
     def target_uid(self) -> MxrDeviceUid|None:
+        '''UID of the target multiviewer device.'''
         return self.payload_uuid(idx=0)
 
     @property
     def target(self) -> DeviceBase|None:
+        '''Target multiviewer device.'''
         return self.payload_device(idx=0)
 
     @property
     def opcode(self) -> MultiviewerOpcode:
+        '''Multiviewer sub-command opcode.'''
         pl = self.payload_u8(idx=16)
         if (pl is None) or (pl > 15):
             return MultiviewerOpcode.UNKNOWN
@@ -185,6 +191,7 @@ class FrameV2IPMultiviewer(FrameBase):
 
     @override
     def process(self) -> None:
+        '''Update the local device cache with multiviewer configuration.'''
         opcode = self.opcode
         if (opcode is None) or (self.payload is None):
             print("unknown multiviewer opcode")
@@ -202,6 +209,7 @@ class FrameV2IPMultiviewer(FrameBase):
 
     @staticmethod
     def construct_set_view_mode(mxr:DeviceRegistry, target:DeviceBase, view_mode:MultiviewerViewMode) -> FrameBase|None:
+        '''Build a frame to set the multiviewer view mode.'''
         payload = bytearray()
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.VIEW_MODE.value)
@@ -211,6 +219,7 @@ class FrameV2IPMultiviewer(FrameBase):
 
     @staticmethod
     def construct_set_video_source(mxr:DeviceRegistry, target:DeviceBase, screen:int, source:MultiviewerSource) -> FrameBase|None:
+        '''Build a frame to set the video source for a screen.'''
         payload = bytearray()
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.VIDEO_SOURCE.value)
@@ -221,6 +230,7 @@ class FrameV2IPMultiviewer(FrameBase):
 
     @staticmethod
     def construct_set_audio_source(mxr:DeviceRegistry, target:DeviceBase, source:MultiviewerSource) -> FrameBase|None:
+        '''Build a frame to set the audio source.'''
         payload = bytearray()
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.AUDIO_SOURCE.value)
@@ -230,6 +240,7 @@ class FrameV2IPMultiviewer(FrameBase):
 
     @staticmethod
     def construct_set_audio_volume(mxr:DeviceRegistry, target:DeviceBase, volume:int, muted:bool) -> FrameBase|None:
+        '''Build a frame to set the audio volume and mute state.'''
         payload = bytearray()
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.AUDIO_VOLUME.value)
@@ -240,6 +251,7 @@ class FrameV2IPMultiviewer(FrameBase):
 
     @staticmethod
     def construct_set_edid_template(mxr:DeviceRegistry, target:DeviceBase, edid:MultiviewerEDIDTemplate) -> FrameBase|None:
+        '''Build a frame to set the EDID template.'''
         payload = bytearray()
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.EDID_TEMPLATE.value)
@@ -249,6 +261,7 @@ class FrameV2IPMultiviewer(FrameBase):
 
     @staticmethod
     def construct_set_remote_control(mxr:DeviceRegistry, target:DeviceBase, source:MultiviewerSource) -> FrameBase|None:
+        '''Build a frame to set the remote control target source.'''
         payload = bytearray()
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.ROUTE_RC.value)
@@ -258,6 +271,7 @@ class FrameV2IPMultiviewer(FrameBase):
 
     @staticmethod
     def construct_set_pip_size(mxr:DeviceRegistry, target:DeviceBase, size:MultiviewerPipSize) -> FrameBase|None:
+        '''Build a frame to set the PIP window size.'''
         payload = bytearray()
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.PIP_SIZE.value)
@@ -267,6 +281,7 @@ class FrameV2IPMultiviewer(FrameBase):
 
     @staticmethod
     def construct_set_pip_position(mxr:DeviceRegistry, target:DeviceBase, position:MultiviewerPipPosition) -> FrameBase|None:
+        '''Build a frame to set the PIP window position.'''
         payload = bytearray()
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.PIP_POSITION.value)
@@ -276,6 +291,7 @@ class FrameV2IPMultiviewer(FrameBase):
 
     @staticmethod
     def construct_set_screen_aspect(mxr:DeviceRegistry, target:DeviceBase, aspect:MultiviewerAspectRatio) -> FrameBase|None:
+        '''Build a frame to set the screen aspect ratio.'''
         payload = bytearray()
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.ASPECT.value)
@@ -285,6 +301,7 @@ class FrameV2IPMultiviewer(FrameBase):
 
     @staticmethod
     def construct_set_auto_switch(mxr:DeviceRegistry, target:DeviceBase, enable:bool) -> FrameBase|None:
+        '''Build a frame to enable or disable auto-switch.'''
         payload = bytearray()
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.AUTO_SWITCH.value)
@@ -294,6 +311,7 @@ class FrameV2IPMultiviewer(FrameBase):
 
     @staticmethod
     def construct_set_output_mode(mxr:DeviceRegistry, target:DeviceBase, mode:MultiviewerOutputMode) -> FrameBase|None:
+        '''Build a frame to set the output resolution mode.'''
         payload = bytearray()
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.OUTPUT_MODE.value)
@@ -303,6 +321,7 @@ class FrameV2IPMultiviewer(FrameBase):
 
     @staticmethod
     def construct_set_output_itc_mode(mxr:DeviceRegistry, target:DeviceBase, mode:MultiviewerITCMode) -> FrameBase|None:
+        '''Build a frame to set the output ITC mode.'''
         payload = bytearray()
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.OUTPUT_ITC_MODE.value)
@@ -312,6 +331,7 @@ class FrameV2IPMultiviewer(FrameBase):
 
     @staticmethod
     def construct_set_hdcp_mode(mxr:DeviceRegistry, target:DeviceBase, mode:MultiviewerHDCPMode) -> FrameBase|None:
+        '''Build a frame to set the HDCP mode.'''
         payload = bytearray()
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.HDCP_MODE.value)
@@ -321,6 +341,7 @@ class FrameV2IPMultiviewer(FrameBase):
 
     @staticmethod
     def construct_set_connected_source(mxr:DeviceRegistry, target:DeviceBase, input:int, source:MxrDeviceUid|None) -> FrameBase|None:
+        '''Build a frame to assign a source device to a multiviewer input.'''
         payload = bytearray()
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.CONFIG_SOURCE.value)
@@ -334,6 +355,7 @@ class FrameV2IPMultiviewer(FrameBase):
 
     @staticmethod
     def construct_auto_route(mxr:DeviceRegistry, target:DeviceBase) -> FrameBase|None:
+        '''Build a frame to trigger automatic source routing.'''
         payload = bytearray()
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.AUTO_ROUTE.value)

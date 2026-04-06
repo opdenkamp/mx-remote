@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Link management between bays on MX Remote devices.'''
 
 from ..proto import LinkConfig
 from ..proto import Constants as proto
@@ -41,7 +42,7 @@ class Link:
 
 	@property
 	def primary(self) -> BayBase:
-		# source type bay for linked bays. if only 1 side has been registered, that bay will be returned
+		'''Return the source-type bay for linked bays, or the only registered bay.'''
 		if not self.connected:
 			return self._bay
 		if self._link.remote_bay.is_input:
@@ -49,12 +50,12 @@ class Link:
 		return self._link.linked_bay
 
 	def is_primary(self, bay:BayBase) -> bool:
-		# check whether the given bay is the primary bay of this link
+		'''Check whether the given bay is the primary bay of this link.'''
 		primary = self.primary
 		return (primary is not None) and (bay == primary)
 
 	def other_bay(self, bay:BayBase) -> BayBase|None:
-		# return the other side of this link
+		'''Return the bay on the other side of this link.'''
 		if not self.connected:
 			return None
 		if bay == self._link.linked_bay:
@@ -62,21 +63,21 @@ class Link:
 		return self._link.linked_bay
 
 	def other_serial_bay(self, bay:BayBase) -> Tuple[str|None,str|None]:
-		# return the configuration for the other end of this link (serial + bay)
+		'''Return the serial and bay name for the other end of this link.'''
 		other_bay = self.other_bay(bay)
 		if other_bay is None:
 			return (None, None)
 		return (other_bay.device.serial, other_bay.port)
 
 	def other_serial_bay_str(self, bay:BayBase) -> str:
-		# return the link configuration for the given bay as string
+		'''Return the link configuration for the given bay as a string.'''
 		link_serial, link_bay = self.other_serial_bay(bay)
 		if (link_serial is None) or (link_bay is None):
 			return ""
 		return f"{link_serial} {link_bay}"
 
 	def serial_bays(self) -> List[str]:
-		# return this link configuration as list of strings
+		'''Return this link configuration as a list of serial+bay strings.'''
 		rv = []
 		primary = self.primary
 		rv.append(f"{primary.device.serial} {primary.bay_name}")
@@ -86,8 +87,8 @@ class Link:
 		return rv
 
 	def update(self, config:LinkConfig) -> None:
+		'''Update this link configuration with new data from mx_remote.'''
 		link = Link(config.remote_bay, config)
-		# update this link configuration with the new data from mx_remote
 		if (self.configured and not link.configured) or (self.other_bay(self._bay) != link.other_bay(self._bay)):
 			self.callbacks.on_bay_unlinked(self._bay, self)
 			self.callbacks.on_bay_unlinked(self.other_bay(self._bay), self)
@@ -99,18 +100,18 @@ class Link:
 
 	@property
 	def is_audio(self) -> bool:
-		# audio link
+		'''Return True if this link carries audio (optical or analog).'''
 		ft = self.features_mask
 		return proto.LinkFeature.AUDIO_OPTICAL in ft or proto.LinkFeature.AUDIO_ANALOG in ft
 
 	@property
 	def is_video(self) -> bool:
-		# video link
+		'''Return True if this link carries HDMI video.'''
 		return proto.LinkFeature.VIDEO_HDMI in self.features_mask
 
 	@property
 	def features(self) -> list[str]:
-		# features supported by this link (strings)
+		'''Return human-readable names of features supported by this link.'''
 		ft:list[str] = []
 		m = self.features_mask
 		if proto.LinkFeature.VIDEO_HDMI in m:
@@ -127,7 +128,7 @@ class Link:
 
 	@property
 	def features_mask(self) -> proto.LinkFeature:
-		# features supported by this link (bitmask)
+		'''Return features supported by this link as a bitmask.'''
 		bays = self.bays
 		if len(bays) < 2:
 			return proto.LinkFeature(0)

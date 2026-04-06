@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame for amplifier zone settings (gain, EQ, delay, power mode).'''
 
 from functools import cached_property
 from .FrameBase import FrameBase
@@ -14,8 +15,10 @@ import logging
 _LOGGER = logging.getLogger(__name__)
 
 class FrameAmpZoneSettings(FrameBase):
+    '''Amplifier zone settings for a bay (gain, EQ, delay, power mode, etc.).'''
     @staticmethod
     def construct(mxr:DeviceRegistry, target:BayBase, settings:AmpZoneSettings) -> FrameBase|None:
+        '''Build an amplifier zone settings frame for transmission.'''
         payload = bytearray()
         payload += target.device.remote_id.byte_value
         payload.append(target.port & 0xFF)
@@ -138,8 +141,8 @@ class FrameAmpZoneSettings(FrameBase):
         settings.eq_right = self.eq_right
         return settings
 
-    def process(self):
-        # update the local cache
+    def process(self) -> None:
+        '''Update the local device cache with amplifier zone settings.'''
         bay = self.bay
         if bay is not None:
             bay.amp_settings = self.as_settings

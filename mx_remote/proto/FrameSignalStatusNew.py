@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame for detailed signal status with AV stream information.'''
 
 from enum import IntEnum
 from functools import cached_property
@@ -14,6 +15,7 @@ import struct
 from .Svd import SvdMap, Svd
 
 class VideoColourSpace(IntEnum):
+    '''Video colour space encoding format.'''
     RGB = 0
     YUV444 = 1
     YUV422 = 2
@@ -31,6 +33,7 @@ class VideoColourSpace(IntEnum):
         return 'unknown'
 
 class AvDetailsSupportFlags:
+    '''Bitmask indicating which AV detail fields are present in the frame.'''
     def __init__(self, data:int) -> None:
         self.data = data & 0xFF
 
@@ -67,6 +70,7 @@ class AvDetailsSupportFlags:
         return (self.data & (1 << 7) != 0)
 
 class AvDetailsStreamFlags:
+    '''Bitmask of stream characteristics (scrambled, interlaced, 3D, HDR, etc.).'''
     def __init__(self, data:int) -> None:
         self.data = data & 0xFF
 
@@ -103,6 +107,7 @@ class AvDetailsStreamFlags:
         return (self.data & (1 << 7) != 0)
 
 class SignalStatusAvDetailsVideo:
+    '''Parsed video signal details including resolution, colour space, and timing.'''
     def __init__(self, svd:SvdMap, data:bytes) -> None:
         if len(data) != 16:
             raise Exception(f"invalid length: {len(data)}")
@@ -244,13 +249,13 @@ class FrameSignalStatusNew(FrameBase):
         return self.video.frame_rate
 
     def process(self) -> None:
+        '''Update the local device cache with detailed signal status.'''
         if (self.payload is None):
             return
         if len(self.payload) < 8:
             return
         if len(self.payload) < 112:
             return
-        # update the local cache
         bay = self.bay
         if bay is None:
             return

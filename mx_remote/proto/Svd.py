@@ -4,11 +4,14 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Short Video Descriptor (SVD) definitions loaded from CSV data.'''
 
 import csv
 from ..const import *
 
 class Svd:
+    '''A single Short Video Descriptor with resolution and timing data.'''
+
     def __init__(self, data:list[str]) -> None:
         self._data = data
 
@@ -70,6 +73,8 @@ def _load_svd_csv() -> dict[int, Svd]:
 _SVD_DATA: dict[int, Svd] = _load_svd_csv()
 
 class SvdMap:
+    '''Lookup map of SVD entries keyed by ID.'''
+
     svd:dict[int, Svd] = {}
 
     def __init__(self) -> None:

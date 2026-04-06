@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame for V2IP bay-to-device UID mapping.'''
 
 from functools import cached_property
 from typing import override
@@ -11,8 +12,10 @@ from ..Interface import MxrDeviceUid
 from .FrameBase import FrameBase
 
 class FrameV2IPBayMapping(FrameBase):
+    '''V2IP bay mapping associating bay indices with device UIDs.'''
     @cached_property
     def nb_bays(self) -> int:
+        '''Number of bay mappings in this frame.'''
         val = self.payload_u16(0)
         if (val is None):
             return 0
@@ -20,6 +23,7 @@ class FrameV2IPBayMapping(FrameBase):
 
     @cached_property
     def is_input(self) -> bool:
+        '''Whether these are input bay mappings.'''
         val = self.payload_u16(0)
         if (val is None):
             return False
@@ -27,6 +31,7 @@ class FrameV2IPBayMapping(FrameBase):
 
     @cached_property
     def is_output(self) -> bool:
+        '''Whether these are output bay mappings.'''
         val = self.payload_u16(0)
         if (val is None):
             return False
@@ -38,6 +43,7 @@ class FrameV2IPBayMapping(FrameBase):
 
     @cached_property
     def bays(self) -> list[MxrDeviceUid]:
+        '''List of device UIDs mapped to bay indices.'''
         rv = []
         for x in range(self.nb_bays):
             pl = self.payload_uuid(8 + (16 * x))
@@ -60,6 +66,7 @@ class FrameV2IPBayMapping(FrameBase):
 
     @override
     def process(self) -> None:
+        '''Update the local device cache with bay-to-device mapping.'''
         if (self.remote_device is not None):
             self.remote_device.on_mxr_update(self)
 

@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame for V2IP device configuration (stream addresses, scaling, options).'''
 
 from functools import cached_property
 from .FrameBase import FrameBase
@@ -13,6 +14,7 @@ from ..Interface import DeviceV2IPDetails, DeviceV2IPScalingSettings, V2IPStream
 from .V2IPConfig import V2IPStreamSourceImpl
 
 class V2IPDeviceOptions:
+    '''Parsed V2IP device options (TX rate, etc.).'''
     def __init__(self, data:bytes) -> None:
         self._tx_rate = int.from_bytes(data[0:1], "little")
 
@@ -24,8 +26,9 @@ class V2IPDeviceOptions:
         return f"tx rate: {self.tx_rate * 10}Mb/s"
 
 class V2IPScalingSettingsImpl(DeviceV2IPScalingSettings):
-    def __init__(self, data):
-        self._mode = data[0:2]
+    '''Concrete implementation of V2IP output scaling settings.'''
+    def __init__(self, data:bytes) -> None:
+        self._mode = int.from_bytes(data[0:2], 'little')
         self._refresh = (int(data[3]) << 8) | int(data[2])
         self._flags = data[4]
 
@@ -42,6 +45,7 @@ class V2IPScalingSettingsImpl(DeviceV2IPScalingSettings):
         return self._flags
 
 class FrameV2IPDeviceConfiguration(FrameBase):
+    '''V2IP device configuration with stream addresses and scaling settings.'''
     def __init__(self, header:FrameHeader, timestamp:float):
         super().__init__(header=header, timestamp=timestamp)
         if (self.payload is None) or (len(self.payload) < 61):
@@ -66,6 +70,7 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         return DeviceV2IPDetails(video=self.video, audio=self.audio, anc=self.anc, arc=self.arc, tx_rate=self.options.tx_rate, scaling=self.scaling)
 
     def process(self) -> None:
+        '''Update the local device cache with V2IP configuration details.'''
         if ((dev := self.remote_device) is None):
             return
         dev.on_mxr_update(self.details)

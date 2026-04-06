@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Unique device and bay identifier types for mx_remote.'''
 
 import logging
 import json
@@ -38,7 +39,7 @@ class MxrDeviceUid:
         else:
             raise Exception(f"invalid uid type {str(type(value))}")
 
-    def toJson(self):
+    def toJson(self) -> str:
         return json.dumps(self, default=lambda o: o.__dict__)
 
     @property
@@ -77,6 +78,8 @@ class MxrDeviceUid:
         return hash(str(self))
 
 class MxrBayUidOld:
+    '''Legacy bay identifier using serial number and port name.'''
+
     def __init__(self, serial:str, port_name:str) -> None:
         self._serial = serial
         self._port_name = port_name
@@ -107,6 +110,8 @@ class MxrBayUidOld:
         return hash(str(self))
 
 class MxrBayUid:
+    '''Bay identifier using a device UID and port number.'''
+
     def __init__(self, device:MxrDeviceUid, port_number:int) -> None:
         self._device = device
         self._port = port_number

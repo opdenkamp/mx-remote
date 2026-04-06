@@ -5,11 +5,14 @@
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
+'''Protocol constants, feature flags, and enumeration types for the MX Remote binary protocol.'''
+
 from enum import IntEnum, IntFlag
 
 MXR_PROTOCOL_VERSION = 20
 
 class DeviceFeature(IntFlag):
+	'''Device feature flags reported in hello frames.'''
 	IR_RX              = (1 << 0)
 	IR_TX              = (1 << 1)
 	CEC                = (1 << 2)
@@ -39,6 +42,7 @@ class DeviceFeature(IntFlag):
 BAY_FEATURE_DOLBY_IN_POS = 24
 
 class BayFeaturesMask(IntFlag):
+	'''Bay feature flags reported in bay config frames.'''
 	HDMI_OUT           = (1 << 0)
 	HDMI_IN            = (1 << 1)
 	AUDIO_DIG_OUT      = (1 << 2)
@@ -57,7 +61,7 @@ class BayFeaturesMask(IntFlag):
 	V2IP_SOURCE_LOCAL  = (1 << 15)
 	V2IP_SINK_LOCAL    = (1 << 16)
 
-	def toJson(self):
+	def toJson(self) -> str:
 		return '{' + f'"features":"{int(self)}"' + '}'
 
 	def __str__(self) -> str:
@@ -105,6 +109,7 @@ class BayFeaturesMask(IntFlag):
 		return str(self)
 
 class BayStatusMask(IntFlag):
+	'''Bay status flags.'''
 	FAULT = (1 << 0)
 	HIDDEN = (1 << 1)
 	POWERED = (1 << 2)
@@ -159,6 +164,7 @@ class BayStatusMask(IntFlag):
 		return "none"
 
 class LinkFeature(IntFlag):
+	'''Virtual link feature flags.'''
 	NONE          = 0
 	VIDEO_HDMI    = (1 << 0)
 	AUDIO_OPTICAL = (1 << 1)
@@ -167,6 +173,7 @@ class LinkFeature(IntFlag):
 	RC            = (1 << 4)
 
 class RCAction(IntEnum):
+	'''Remote control actions.'''
 	ACTION_POWER_TOGGLE 	= 0
 	ACTION_POWER_ON			= 1
 	ACTION_POWER_OFF		= 2
@@ -175,6 +182,7 @@ class RCAction(IntEnum):
 	ACTION_VOLUME_MUTE		= 5
 
 class RCKey(IntEnum):
+    '''Remote control key codes (CEC/IR).'''
     KEY_0                = 0
     KEY_1                = 1
     KEY_2                = 2
@@ -225,6 +233,7 @@ class RCKey(IntEnum):
     KEY_CUSTOM_SKY       = 2048
 
 class RCType(IntEnum):
+	'''Remote control protocol type.'''
 	IR = 0
 	CEC = 1
 	SKY_UK = 2
@@ -261,6 +270,7 @@ class RCType(IntEnum):
 		return rv
 
 class EdidProfile(IntEnum):
+	'''EDID profile presets for HDMI sources.'''
 	def __str__(self) -> str:
 		if self.value == EdidProfile.TEMPLATE_1080P_STEREO.value:
 			return '1080p stereo'
@@ -359,6 +369,7 @@ class EdidProfile(IntEnum):
 		return rv
 
 class FirmwareType(IntEnum):
+	'''Firmware component type identifiers.'''
 	UNKNOWN = 0
 	FPGA = 1
 	LINUX = 2

@@ -15,7 +15,7 @@ import traceback
 logging.basicConfig(level=logging.DEBUG)
 
 def create_mxr_frame(uid:bytes, opcode:int, payload:bytes|None=None) -> bytes:
-	# create a new mx_remote frame for transmission
+	'''Create a new MX Remote frame for transmission.'''
 	pkt = [80, 56, 1, 0 ]
 	pkt.extend(uid)
 	pkt.extend([(opcode & 0xFF), ((opcode >> 8) & 0xFF)])
@@ -28,7 +28,7 @@ def create_mxr_frame(uid:bytes, opcode:int, payload:bytes|None=None) -> bytes:
 	return bytes(pkt)
 
 def process_mxr_frame(mxr:DeviceRegistry, timestamp:float, data:bytes, addr:tuple[str,int]) -> FrameBase|None:
-	# decode a (received) mx_remote frame
+	'''Decode a received MX Remote frame and return the appropriate frame object.'''
 	from .FrameHeader import FrameHeader
 	hdr = FrameHeader(mxr, data, addr)
 	try:
@@ -38,7 +38,7 @@ def process_mxr_frame(mxr:DeviceRegistry, timestamp:float, data:bytes, addr:tupl
 		raise
 
 def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
-	# create a new frame from a decoded mx_remote header
+	'''Create a typed frame object from a decoded MX Remote header.'''
 	if hdr.opcode == 0x00:
 		from .FrameHello import FrameHello
 		return FrameHello(header=hdr, timestamp=timestamp)

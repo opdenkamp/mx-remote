@@ -5,6 +5,8 @@
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
+'''Bay configuration data parsed from bay config protocol frames.'''
+
 from __future__ import annotations
 from functools import cached_property
 from .Constants import BayStatusMask, BayFeaturesMask
@@ -17,17 +19,17 @@ class BayConfig:
 
 	@cached_property
 	def port(self) -> int:
-		# port number
+		'''Port number.'''
 		return int(self.payload[0])
 
 	@cached_property
 	def modenum(self) -> int:
-		# port mode number
+		'''Port mode number.'''
 		return int(self.payload[1])
 
 	@cached_property
 	def mode(self) -> str:
-		# port mode
+		'''Port mode as string (Input/Output).'''
 		nb = self.modenum
 		if nb == 0:
 			return 'Input'
@@ -37,22 +39,22 @@ class BayConfig:
 
 	@cached_property
 	def is_input(self) -> bool:
-		# input bay
+		'''True if this is an input bay.'''
 		return self.modenum == 0
 
 	@cached_property
 	def is_output(self) -> bool:
-		# output bay
+		'''True if this is an output bay.'''
 		return self.modenum == 1
 
 	@cached_property
 	def bay(self) -> int:
-		# bay number
+		'''Bay number.'''
 		return int(self.payload[2])
 
 	@cached_property
 	def video_source(self) -> int:
-		# video source bay number
+		'''Video source bay number.'''
 		return int(self.payload[3])
 
 	@cached_property
@@ -65,39 +67,39 @@ class BayConfig:
 
 	@cached_property
 	def audio_source(self) -> int:
-		# audio source bay number
+		'''Audio source bay number.'''
 		return int(self.payload[4])
 
 	@cached_property
 	def bay_name(self) -> str:
-		# bay name
+		'''Bay name.'''
 		return self.payload[5:21].split(b'\0',1)[0].decode('ascii')
 
 	@cached_property
 	def user_name(self) -> str:
-		# user set name
+		'''User-assigned name.'''
 		return self.payload[21:37].split(b'\0',1)[0].decode('ascii')
 
 	@cached_property
 	def signal_type(self) -> str:
-		# video signal type
+		'''Video signal type.'''
 		return self.payload[37:53].split(b'\0',1)[0].decode('ascii')
 
 	@cached_property
 	def status(self) -> BayStatusMask:
-		# bay status
+		'''Bay status.'''
 		return BayStatusMask(struct.unpack('<L', self.payload[53:57])[0])
 
 	@cached_property
 	def features(self) -> BayFeaturesMask:
-		# features mask
+		'''Features mask.'''
 		return BayFeaturesMask(struct.unpack('<L', self.payload[57:61])[0])
 
 	def __str__(self) -> str:
 		return f"{self.mode} {self.bay + 1} (port {self.port}): {self.user_name} - {self.signal_type}"
 
 	def bay_match(self, other: BayConfig) -> bool:
-		# check whether other is a configuration for the same bay as this one
+		'''Check whether other is a configuration for the same bay as this one.'''
 		return (self.port == other.port) and \
 				(self.modenum == other.modenum) and \
 				(self.bay == other.bay) and \

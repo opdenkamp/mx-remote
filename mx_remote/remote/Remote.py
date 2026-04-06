@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Remote device discovery and management over UDP multicast/broadcast.'''
 
 from functools import cached_property
 import logging
@@ -37,6 +38,17 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
     ''' Main component that handles the network connections and registration of remote devices '''
 
     def __init__(self, target_ip:str|None=None, port:int|None=None, http_session:aiohttp.ClientSession|None=None, open_connection:bool=True, callbacks:MxrCallbacks|None=None, name:str="MXR Python", local_ip:str|None=None, broadcast:bool|None=None) -> None:
+        '''Initialise the remote controller.
+
+        :param target_ip: multicast/broadcast IP to use, or None for the default
+        :param port: UDP port to use, or None for the default
+        :param http_session: shared aiohttp session for API calls, or None to create one
+        :param open_connection: open the UDP connection immediately when True
+        :param callbacks: event callbacks for device state changes
+        :param name: human-readable name advertised on the network
+        :param local_ip: local interface IP to bind to, or None for any
+        :param broadcast: use broadcast instead of multicast when True
+        '''
         DeviceRegistry.__init__(self)
         ConnectionCallbacks.__init__(self)
         self._name = name
@@ -87,7 +99,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         return proto
 
     @cached_property
-    def target_ip(self):
+    def target_ip(self) -> str:
         if self._target_ip is None:
             return MX_MCAST_UDP_IP if (self._broadcast is None or not self._broadcast) else MX_BCAST_UDP_IP
         return self._target_ip
@@ -101,7 +113,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         return ((self._broadcast is not None) and self._broadcast)
 
     @property
-    def port(self):
+    def port(self) -> int:
         if self._port is None:
             return MX_MCAST_UDP_PORT if (self._broadcast is None or not self._broadcast) else MX_BCAST_UDP_PORT
         return self._port
@@ -147,6 +159,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         return self._svd
 
     async def update_config(self, callbacks:MxrCallbacks|None=None, name:str|None=None, target_ip:str|None=None, port:int|None=None, local_ip:str|None=None, broadcast:bool|None=None) -> None:
+        '''Update runtime configuration, reconnecting if network parameters changed.'''
         if (callbacks is not None):
             self._callbacks = State(callbacks, self.http_session)
         if (name is not None):
@@ -179,6 +192,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 await self.conn.start_srv()
 
     def has_completed_devices(self) -> bool:
+        '''Return True if at least one registered device has completed configuration.'''
         for _, device in self.remotes.items():
             if device.configuration_complete:
                 return True
@@ -199,7 +213,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 self.tx_discover()
 
     async def start_async(self) -> None:
-        # start the server that listens for mx_remote frames from other devices
+        '''Start the server that listens for mx_remote frames from other devices.'''
         if (self.conn is None):
             raise Exception("connection not open")
         await self._load_uid()
@@ -209,10 +223,11 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         checker.add_done_callback(self._tasks.discard)
 
     async def stop_async(self) -> None:
+        '''Stop the server and close all connections.'''
         await self.close()
 
     async def close(self) -> None:
-        # close all open connections
+        '''Close all open connections.'''
         _LOGGER.debug("closing mx_remote listener")
         if self.conn is not None:
             self.conn.close()
@@ -220,14 +235,14 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             await self.http_session.close()
 
     def get_by_serial(self, serial:str) -> DeviceBase|None:
-        # get the local cache for a device, given it's serial number
+        '''Get the cached device matching the given serial number, or None.'''
         for _, remote in self.remotes.items():
             if serial == remote.serial:
                 return remote
         return None
 
     def get_by_uid(self, remote_id:str|MxrDeviceUid|None) -> DeviceBase|None:
-        # get the local cache for a device, given it's unique id
+        '''Get the cached device matching the given unique id, or None.'''
         if (remote_id is None):
             return None
         uid = MxrDeviceUid(remote_id)
@@ -257,7 +272,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         return None
     
     def get_bay_by_portnum(self, remote_id:str|MxrDeviceUid, portnum:int) -> BayBase|None:
-        # get the local cache for a bay, given the device's unique id and port number
+        '''Get the cached bay for a device, given the device id and port number.'''
         device = self.get_by_uid(remote_id=remote_id) if isinstance(remote_id, MxrDeviceUid) else self.get_by_serial(serial=remote_id)
         if device is None:
             return None
@@ -280,12 +295,13 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         return self._links
 
     def transmit(self, data: bytes) -> int:
+        '''Transmit raw data over the UDP connection. Returns bytes sent.'''
         if (self.conn is None):
             raise Exception("connection closed")
         return self.conn.transmit(data=data)
 
     def tx_discover(self) -> int:
-        # transmit a discover frame. all remotes will send a hello frame as response
+        '''Transmit a discover frame. All remotes will respond with a hello frame.'''
         pkt = constructFrameDiscover(self)
         if (pkt is None):
             return 0
@@ -294,6 +310,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         return self.transmit(pkt.frame)
 
     def tx_hello(self) -> int:
+        '''Transmit a hello frame to announce this device on the network.'''
         pkt = constructFrameHello(self)
         if (pkt is None):
             return 0
@@ -302,11 +319,12 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         return self.transmit(pkt.frame)
 
     def on_connection_made(self) -> None:
-        # callback called after the server got started by ConnectionAsync
+        '''Callback invoked after ConnectionAsync has started the server.'''
         self.tx_hello()
         self.tx_discover()
 
     def process_frame(self, timestamp:float, data: bytes, addr: tuple[str, int]) -> None:
+        '''Decode and process a received mx_remote frame.'''
         proc = False
         try:
             frame = process_mxr_frame(mxr=self, timestamp=timestamp, data=data, addr=addr)
@@ -325,7 +343,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             raise
 
     def on_datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
-        # called when a udp frame was received
+        '''Called when a UDP frame was received.'''
         timestamp = time.time()
         self.process_frame(timestamp=timestamp, data=data, addr=addr)
 
@@ -339,7 +357,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             self._on_mxr_hello(data)
 
     def _on_mxr_hello(self, hello_frame:FrameHello) -> None:
-        # hello frame received. register or update the local device cache
+        '''Hello frame received. Register or update the local device cache.'''
         d = self.get_by_uid(hello_frame.remote_id)
         if d is None:
             d = Device(self, hello_frame)

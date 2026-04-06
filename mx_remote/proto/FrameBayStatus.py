@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame for bay status updates (signal, features, status flags).'''
 
 from functools import cached_property
 from .Constants import BayStatusMask, BayFeaturesMask
@@ -14,16 +15,20 @@ import logging
 _LOGGER = logging.getLogger(__name__)
 
 class FrameBayStatus(FrameBase):
+    '''Bay status report including signal type, status flags, and feature mask.'''
     @cached_property
     def bay(self) -> BayBase|None:
+        '''Bay this status report applies to.'''
         return self.payload_bay(device=self.remote_device, idx=0)
 
     @cached_property
     def signal_type(self) -> str|None:
+        '''Signal type description string.'''
         return self.payload_str(2, 16)
 
     @cached_property
     def status(self) -> BayStatusMask|None:
+        '''Bay status flags bitmask.'''
         pl = self.payload_u32(20)
         if (pl is None):
             return None
@@ -31,12 +36,14 @@ class FrameBayStatus(FrameBase):
 
     @cached_property
     def features(self) -> BayFeaturesMask|None:
+        '''Bay features bitmask.'''
         pl = self.payload_u32(24)
         if pl is not None:
             return BayFeaturesMask(pl)
         return None
 
     def process(self) -> None:
+        '''Update the local device cache with bay status, features, and signal info.'''
         if self.bay is None:
             _LOGGER.debug("bay not registered yet")
             return

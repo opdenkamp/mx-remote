@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame for secondary bay configuration data.'''
 
 from functools import cached_property
 from .BayConfig import BayConfig
@@ -13,15 +14,15 @@ import logging
 _LOGGER = logging.getLogger(__name__)
 
 class FrameBayConfigSecondary(FrameBase):
-    ''' Bay configuration and information for all bays that are available on a remote device '''
+    '''Bay configuration and information for all bays that are available on a remote device.'''
     @cached_property
     def nb_bays(self) -> int:
-        # total number of bay descriptors in this frame
+        '''Total number of bay descriptors in this frame.'''
         return int(len(self) / 61)
 
     @cached_property
     def bays(self) -> list[BayConfig]:
-        # get a list of bay configurations defined in this frame
+        '''List of bay configurations defined in this frame.'''
         rv:list[BayConfig] = []
         if self.payload is None:
             return rv
@@ -33,7 +34,7 @@ class FrameBayConfigSecondary(FrameBase):
         return rv
 
     def process(self) -> None:
-        # register or update bay in the local cache
+        '''Register or update bays in the local device cache.'''
         if ((dev := self.remote_device) is None):
             _LOGGER.debug("hello not received")
             return

@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame for network port status, cable diagnostics, and link errors.'''
 
 from functools import cached_property
 from .FrameBase import FrameBase
@@ -12,7 +13,8 @@ import socket
 import struct
 
 class UtpCableStatusImpl(UtpCableStatus):
-    def __init__(self, data):
+    '''Concrete UTP cable status with polarity, pair, skew, and length.'''
+    def __init__(self, data:bytes) -> None:
         self._data = data
 
     @property
@@ -31,14 +33,15 @@ class UtpCableStatusImpl(UtpCableStatus):
     def length(self) -> int:
         return struct.unpack('<L', self._data[8:12])[0]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"pair {self.pair} polarity {self.polarity} skew {self.skew}"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return str(self)
 
 class UtpLinkErrorStatusImpl(UtpLinkErrorStatus):
-    def __init__(self, data):
+    '''Concrete UTP link error status with individual error flags.'''
+    def __init__(self, data:int) -> None:
         self._data = data
 
     @property
@@ -96,6 +99,7 @@ class UtpLinkErrorStatusImpl(UtpLinkErrorStatus):
         return errs
 
 class NetworkPortStatusImplPre22(NetworkPortStatus):
+    '''Network port status for protocol versions before 0x22.'''
     def __init__(self, data:bytes, protocol:int) -> None:
         self.data = data
         self.protocol = protocol
@@ -154,6 +158,7 @@ class NetworkPortStatusImplPre22(NetworkPortStatus):
         return f"network status port {self.name} status: {self.errors} ip: {self.ip} vct: {self.vct_status} speed: {self.link_speed} full duplex: {self.link_full_duplex} cable: {str(self.cable_status)}"
 
 class NetworkPortStatusFeatures:
+    '''Bitmask of supported network port diagnostic features.'''
     def __init__(self, value:int) -> None:
         self._value = value
 
@@ -186,6 +191,7 @@ class NetworkPortStatusFeatures:
         return ((self._value & (1 << 6)) != 0)
 
 class NetworkPortStatusImpl(NetworkPortStatus):
+    '''Network port status for protocol version 0x22 and later.'''
     def __init__(self, data:bytes, protocol:int) -> None:
         self.data = data
         self.protocol = protocol
@@ -258,8 +264,10 @@ class NetworkPortStatusImpl(NetworkPortStatus):
         return f"network status port {self.name} ip: {self.ip} mac: {self.mac_address} querier: {self.querier} errors: {self.errors} vct: {self.vct_status} speed: {self.link_speed} full duplex: {self.link_full_duplex} cable: {str(self.cable_status)}"
 
 class FrameNetworkStatus(FrameBase):
+    '''Network port status report with link speed, errors, and cable diagnostics.'''
     @property
     def status(self) -> NetworkPortStatus|None:
+        '''Parsed network port status, version-dependent.'''
         if (self.payload is None):
             return None
         if (self.protocol < 0x22):
@@ -267,6 +275,7 @@ class FrameNetworkStatus(FrameBase):
         return NetworkPortStatusImpl(data=self.payload, protocol=self.protocol)
 
     def process(self) -> None:
+        '''Update the local device cache with network port status.'''
         dev = self.remote_device
         if (dev is not None) and (self.status is not None):
             dev.on_mxr_update(self.status)

@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame for bay volume change notifications.'''
 
 from __future__ import annotations
 from .FrameBase import FrameBase
@@ -12,10 +13,10 @@ from .Data import VolumeMuteStatus, MuteStatus
 from ..Interface import BayBase
 
 class FrameVolume(FrameBase):
-    ''' bay volume change information frame '''
+    '''Bay volume change information frame.'''
     @property
     def bay(self) -> BayBase|None:
-        # bay on which the volume changed
+        '''Bay on which the volume changed.'''
         portnum = self.payload_u8(0)
         if (portnum is None):
             return None
@@ -26,7 +27,7 @@ class FrameVolume(FrameBase):
 
     @property
     def volume_left(self) -> int|None:
-        # left channel volume %
+        '''Left channel volume percentage.'''
         r = self.payload_u8(1)
         if (r is None) or (r > 100):
             return None
@@ -34,7 +35,7 @@ class FrameVolume(FrameBase):
 
     @property
     def volume_right(self) -> int|None:
-        # right channel volume %
+        '''Right channel volume percentage.'''
         r = self.payload_u8(2)
         if (r is None) or (r > 100):
             return None
@@ -42,14 +43,14 @@ class FrameVolume(FrameBase):
 
     @property
     def muted(self) -> MuteStatus|None:
-        # mute status
+        '''Mute status.'''
         r = self.payload_u8(3)
         if (r is None):
             return None
         return MuteStatus(r)
 
     def process(self) -> None:
-        # update the local cache
+        '''Update the local device cache with the new volume and mute status.'''
         bay = self.bay
         if bay is None:
             return

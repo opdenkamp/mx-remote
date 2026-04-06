@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame for mesh network operations (register, unregister, promote, etc.).'''
 
 from functools import cached_property
 from .FrameBase import FrameBase
@@ -13,6 +14,7 @@ import logging
 
 _LOGGER = logging.getLogger(__name__)
 class MeshOperation(IntEnum):
+    '''Mesh network operation types.'''
     REGISTER = 0
     UNREGISTER = 1
     REPLACE = 2
@@ -46,6 +48,7 @@ class FrameMeshOperation(FrameBase):
 
     @staticmethod
     def construct(mxr:DeviceRegistry, operation:MeshOperation, target:DeviceBase, option:DeviceBase|None=None) -> FrameBase|None:
+        '''Build a mesh operation frame for transmission.'''
         payload = bytes([operation.value, 0, 0, 0]) + target.remote_id.byte_value
         if option is not None:
             payload += option.remote_id.byte_value
@@ -55,6 +58,7 @@ class FrameMeshOperation(FrameBase):
 
     @cached_property
     def operation(self) -> MeshOperation|None:
+        '''Mesh operation type.'''
         pl = self.payload_u8(0)
         if (pl is None):
             return None
@@ -62,13 +66,16 @@ class FrameMeshOperation(FrameBase):
 
     @cached_property
     def target_uid(self) -> MxrDeviceUid|None:
+        '''UID of the target device for the operation.'''
         return self.payload_uuid(4)
 
     @cached_property
     def parameter(self) -> MxrDeviceUid|None:
+        '''Optional parameter UID (e.g. replacement device for REPLACE operation).'''
         return self.payload_uuid(20)
 
     def process(self) -> None:
+        '''Update the local device cache with the mesh operation.'''
         _LOGGER.debug(f"mesh operation {str(self.operation)} by {str(self.remote_device)} target={self.uid_to_user_string(self.target_uid)} param={self.uid_to_user_string(self.parameter)}")
         if ((dev := self.remote_device) is not None):
             dev.on_mxr_update(self)

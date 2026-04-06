@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame containing all configured links for a device.'''
 
 from functools import cached_property
 from .LinkConfig import LinkConfig
@@ -11,15 +12,15 @@ from .FrameBase import FrameBase
 import logging
 
 class FrameLinks(FrameBase):
-    ''' All configured links for the device that sent this frame '''
+    '''All configured links for the device that sent this frame.'''
     @cached_property
     def nb_links(self) -> int:
-        # number of links defined in this frame
+        '''Number of links defined in this frame.'''
         return int(len(self) / 38)
 
     @cached_property
     def links(self) -> list[LinkConfig]:
-        # list of all links defined in this frame
+        '''List of all links defined in this frame.'''
         rv = []
         linknum = 0
         if (self.payload is None):
@@ -32,7 +33,7 @@ class FrameLinks(FrameBase):
         return rv
 
     def process(self) -> None:
-        # update the cached link status
+        '''Update the local device cache with link configuration.'''
         dev = self.remote_device
         if dev is None:
             logging.debug("not processing link config - hello not received")

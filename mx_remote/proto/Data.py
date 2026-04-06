@@ -5,6 +5,8 @@
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
+'''Data structures for volume and mute status used in protocol frames.'''
+
 class MuteStatus:
     ''' mute left/right status '''
     def __init__(self, val:int):
@@ -16,17 +18,17 @@ class MuteStatus:
 
     @property
     def left(self) -> bool:
-        # left channel muted
+        '''Left channel muted.'''
         return ((self._val & (1 << 0)) != 0)
 
     @property
     def right(self) -> bool:
-        # right channel muted
+        '''Right channel muted.'''
         return ((self._val & (1 << 1)) != 0)
 
     @property
     def muted(self) -> bool:
-        # left or right channel muted (or both)
+        '''Left or right channel muted (or both).'''
         return (self._val != 0)
 
     def __str__(self) -> str:
@@ -60,7 +62,7 @@ class VolumeMuteStatus:
 
     @property
     def volume(self) -> int:
-        # combined left/right volume %
+        '''Combined left/right volume %.'''
         vr = self._volume_right
         if vr is None:
             return self._volume_left if self._volume_left is not None else 0
@@ -74,7 +76,7 @@ class VolumeMuteStatus:
 
     @property
     def volume_left(self) -> int:
-        # left channel volume
+        '''Left channel volume.'''
         return self._volume_left if (self._volume_left is not None) else self.volume
 
     @volume_left.setter
@@ -83,7 +85,7 @@ class VolumeMuteStatus:
 
     @property
     def volume_right(self) -> int:
-        # right channel volume
+        '''Right channel volume.'''
         return self._volume_right if (self._volume_right is not None) else self.volume
 
     @volume_right.setter
@@ -92,7 +94,7 @@ class VolumeMuteStatus:
 
     @property
     def muted(self) -> bool|None:
-        # combined mute left/right status
+        '''Combined mute left/right status.'''
         if (self._muted_left is None) and (self._muted_right is None):
             return None
         return ((self._muted_left is not None) and self._muted_left) or \
@@ -106,7 +108,7 @@ class VolumeMuteStatus:
 
     @property
     def muted_left(self) -> bool|None:
-        # left channel muted
+        '''Left channel muted.'''
         return self._muted_left if (self._muted_left is not None) else self.muted
 
     @muted_left.setter
@@ -115,7 +117,7 @@ class VolumeMuteStatus:
 
     @property
     def muted_right(self) -> bool|None:
-        # right channel muted
+        '''Right channel muted.'''
         return self._muted_right if (self._muted_right is not None) else self.muted
 
     @muted_right.setter

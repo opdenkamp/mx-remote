@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame listing all V2IP stream sources for a device.'''
 
 from functools import cached_property
 from .V2IPConfig import V2IPConfig
@@ -12,15 +13,15 @@ from .V2IPConfig import V2IPStreamSourcesImpl
 from ..Interface import V2IPStreamSourcesList
 
 class FrameV2IPSources(FrameBase):
-    ''' All configured v2ip sources for the device that sent this frame '''
+    '''All configured V2IP sources for the device that sent this frame.'''
     @property
     def nb_sources(self) -> int:
-        # number of sources defined in this frame
+        '''Number of sources defined in this frame.'''
         return int(len(self) / 40)
 
     @cached_property
     def sources(self) -> V2IPStreamSourcesList:
-        # list of all sources defined in this frame
+        '''List of all V2IP stream sources defined in this frame.'''
         rv = V2IPStreamSourcesList()
         srcnum = 0
         while srcnum < self.nb_sources:
@@ -33,6 +34,7 @@ class FrameV2IPSources(FrameBase):
         return rv
 
     def process(self) -> None:
+        '''Update the local device cache with V2IP stream sources.'''
         if ((dev := self.remote_device) is not None):
             dev.on_mxr_update(self.sources)
 

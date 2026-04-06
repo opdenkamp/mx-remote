@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame for V2IP encoder/decoder statistics.'''
 
 from functools import cached_property
 import warnings
@@ -12,9 +13,10 @@ from .V2IPStats import V2IPRxStats, V2IPTxStats, V2IPDeviceStats
 from ..Interface import DeviceBase, DeviceRegistry
 
 class FrameV2IPStats(FrameBase):
-    ''' V2IP encoder/decoder statistics '''
+    '''V2IP encoder/decoder statistics report.'''
     @staticmethod
     def construct(registry:DeviceRegistry, device:DeviceBase, enable:bool) -> FrameBase|None:
+        '''Build a stats enable/disable request frame for transmission.'''
         payload = device.remote_id.byte_value
         payload += bytes([1]) if enable else bytes([0])
         return FrameBase.construct_base(mxr=registry, opcode=0x3F, payload=payload)
@@ -27,7 +29,7 @@ class FrameV2IPStats(FrameBase):
     def stats_enabled(self) -> bool:
         pl = self.payload_bool(16)
         if (pl is None):
-            return True #XXX
+            return True
         return pl
 
     @cached_property
@@ -68,6 +70,7 @@ class FrameV2IPStats(FrameBase):
         return rv
 
     def process(self) -> None:
+        '''Update the local device cache with V2IP statistics.'''
         if (not self.is_request) and ((dev := self.remote_device) is not None):
             dev.on_mxr_update(self.stats)
 

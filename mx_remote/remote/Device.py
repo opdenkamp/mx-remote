@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Device implementation for MX Remote network devices (matrix, OneIP, amplifier).'''
 
 from .Bay import Bay
 from ..Interface import (
@@ -58,10 +59,10 @@ from ..proto.Constants import DeviceFeature
 _LOGGER = logging.getLogger(__name__)
 
 class Device(DeviceBase):
-	''' remote device '''
+	'''Remote device on the MX network (matrix, OneIP unit, or amplifier).'''
 
 	def __init__(self, registry:DeviceRegistry, hello:FrameHello) -> None:
-		# initialise a new device after receiving a hello frame
+		'''Initialise a new device after receiving a hello frame.'''
 		self._bays:dict[int, BayBase] = {}
 		self._registry = registry
 		self._hello = hello
@@ -125,7 +126,7 @@ class Device(DeviceBase):
 
 	@property
 	def online(self) -> bool:
-		# check whether this device has pinged in the last minute
+		'''Check whether this device has pinged recently.'''
 		if (self.protocol >= 0x20):
 			return ((datetime.now() - self._last_ping).total_seconds() < 15)
 		return ((datetime.now() - self._last_ping).total_seconds() < 120)
@@ -256,7 +257,7 @@ class Device(DeviceBase):
 
 	@property
 	def name(self) -> str:
-		# remote device name
+		'''Remote device name.'''
 		name = self._hello.device_name
 		if (name is None):
 			return "Unknown"
@@ -266,24 +267,24 @@ class Device(DeviceBase):
 
 	@property
 	def address(self) -> str:
-		# remote ip address
+		'''Remote IP address.'''
 		return self._hello.address
 
 	@property
 	def serial(self) -> str:
-		# device serial number
+		'''Device serial number.'''
 		if (self._hello.serial is None):
 			return "Unknown"
 		return self._hello.serial
 
 	@property
 	def remote_id(self) -> MxrDeviceUid:
-		# device uid
+		'''Device UID.'''
 		return self._hello.remote_id
 
 	@property
 	def version(self) -> str:
-		# remote firwmare version
+		'''Remote firmware version.'''
 		if (self._hello.version is None):
 			return "Unknown"
 		return self._hello.version
@@ -305,19 +306,19 @@ class Device(DeviceBase):
 
 	@property
 	def is_video_matrix(self) -> bool:
-		# video matrix or not
+		'''True if this device is a video matrix.'''
 		return (self.features is not None) and DeviceFeature.VIDEO_ROUTING in self.features
 
 	@property
 	def is_audio_matrix(self) -> bool:
-		# audio matrix or not
+		'''True if this device is an audio matrix.'''
 		return (self.features is not None) \
 			and DeviceFeature.AUDIO_ROUTING in self.features \
 			and DeviceFeature.VIDEO_ROUTING not in self.features
 
 	@property
 	def is_amp(self) -> bool:
-		# amp or not
+		'''True if this device is an amplifier.'''
 		return (self.features is not None) \
 			and DeviceFeature.VOLUME_CONTROL in self.features \
 			and DeviceFeature.AUDIO_ROUTING in self.features \
@@ -344,12 +345,12 @@ class Device(DeviceBase):
 
 	@property
 	def has_bays(self) -> bool:
-		# check whether the configuration for all bays has been received
+		'''Check whether the configuration for all bays has been received.'''
 		return len(self.bays) >= (self.nb_inputs + self.nb_outputs)
 
 	@property
 	def inputs(self) -> dict[str, BayBase]:
-		# all sources available on this device
+		'''All sources available on this device.'''
 		rv:dict[str, BayBase] = {}
 		for _, bay in self.bays.items():
 			if bay.is_input and not bay.hidden:
@@ -369,7 +370,7 @@ class Device(DeviceBase):
 
 	@property
 	def outputs(self) -> dict[str, BayBase]:
-		# all sinks available on this device
+		'''All sinks available on this device.'''
 		rv:dict[str, BayBase] = {}
 		for _, bay in self.bays.items():
 			if bay.is_output:
@@ -389,14 +390,12 @@ class Device(DeviceBase):
 
 	@property
 	def nb_hdbt(self) -> int:
-		# TODO hardcoded
-		if self.name[0:4] == 'FF88':
-			return 8
-		if self.name == 'PROAMP8':
-			return 0
-		if (self.name == 'FFMB44') or (self.name == 'FFMS44') or (self.name == 'SP14'):
+		'''Number of HDBaseT ports. Hardcoded per model name (not in hello frame for older models).'''
+		if self.name[0:4] == 'FF88' or self.name[0:4] == 'FF66' or self.name[0:4] == 'FF64':
+			return 8 if self.name[0:4] == 'FF88' else 6 if self.name[0:4] == 'FF66' else 4
+		if (self.name == 'FFMB44') or (self.name == 'FFMS44') or (self.name == 'FFMG44') \
+			or self.name[0:4] == 'SP14':
 			return 4
-		#unknown model
 		return 0
 
 	@property
@@ -409,21 +408,26 @@ class Device(DeviceBase):
 			if self.has_local_source:
 				return 'OneIP Transmitter'
 			return 'OneIP Receiver'
-		if (self.name == 'PROAMP8'):
-			return 'ProAmp8'
-		if (self.name == 'FFMB44'):
-			return 'neo:4 Bronze'
-		if (self.name == 'FFMS44'):
-			return 'neo:4 Silver'
-		if (self.name == 'FF88SA'):
-			return 'neo:X'
-		if (self.name == 'FF88S'):
-			return 'neo:X'
-		if (self.name == 'FF88'):
-			return 'neo:8'
-		if (self.name == 'SP14'):
-			return 'neo:4 Splitter'
-		return self.name
+		_MODEL_NAMES:dict[str, str] = {
+			'PROAMP8':  'ProAmp8',
+			'PROAMPv2': 'ProAmp8 v2',
+			'FFMB44':   'neo:4 Bronze',
+			'FFMS44':   'neo:4 Silver',
+			'FFMG44':   'neo:4 Gold',
+			'FF88SA':   'neo:X',
+			'FF88S':    'neo:X',
+			'FF88T':    'neo:X',
+			'FF88':     'neo:8',
+			'FF88A':    'neo:8 Audio',
+			'FF88A1':   'neo:8 Audio',
+			'FF66SA':   'neo:6 X',
+			'FF66A':    'neo:6 Audio',
+			'FF66A1':   'neo:6 Audio',
+			'FF64S':    'neo:6',
+			'SP14':     'neo:4 Splitter',
+			'SP142':    'neo:4 Splitter',
+		}
+		return _MODEL_NAMES.get(self.name, self.name)
 
 	@property
 	def mesh_master(self) -> 'DeviceBase|None':
@@ -469,21 +473,21 @@ class Device(DeviceBase):
 
 	@property
 	def need_link_config(self) -> bool:
-		# check whether the link configuration has been received
+		'''Check whether the link configuration has been received.'''
 		if (self.is_amp or self.is_video_matrix or self.is_audio_matrix or self.is_v2ip):
 			return not self._link_config_received
 		return False
 
 	@override
 	def get_by_portnum(self, portnum: int) -> BayBase|None:
-		# get a bay given its port number
+		'''Get a bay given its port number.'''
 		if portnum in self.bays.keys():
 			return self.bays[portnum]
 		return None
 
 	@override
 	def get_by_portname(self, portname: str) -> BayBase|None:
-		# get a bay given its port name
+		'''Get a bay given its port name.'''
 		for _, bay in self.bays.items():
 			if bay.bay_name == portname:
 				return bay
@@ -684,11 +688,12 @@ class Device(DeviceBase):
 	def network_status(self) -> dict[int, NetworkPortStatus]:
 		return self._network
 
-	def update_network_status(self, status:NetworkPortStatus):
+	def update_network_status(self, status:NetworkPortStatus) -> None:
 		self._network[status.port] = status
 		self.call_callbacks()
 
-	async def get_api(self, uri:str) -> Any:
+	async def get_api(self, uri:str) -> dict[str, Any]|None:
+		'''Perform an HTTP GET request against the device API.'''
 		cmd = f"http://{self.address}/{uri}"
 		_LOGGER.debug(f"tx: {cmd}")
 		try:
@@ -701,6 +706,7 @@ class Device(DeviceBase):
 		return None
 
 	async def get_log(self) -> str|None:
+		'''Retrieve the system log from the device.'''
 		cmd = f"http://{self.address}/system/log"
 		_LOGGER.debug(f"tx: {cmd}")
 		try:
@@ -712,6 +718,7 @@ class Device(DeviceBase):
 		return None
 
 	async def reboot(self) -> bool:
+		'''Send a reboot command to the device.'''
 		frame = FrameReboot.construct(mxr=self.registry, target=self)
 		if frame is not None:
 			self.registry.transmit(frame.frame)
@@ -720,6 +727,7 @@ class Device(DeviceBase):
 		return False
 
 	async def mesh_promote(self) -> bool:
+		'''Promote this device to mesh controller.'''
 		frame = FrameMeshOperation.construct(mxr=self.registry, target=self, operation=MeshOperation.PROMOTE_CONTROLLER)
 		if frame is not None:
 			self.registry.transmit(frame.frame)
@@ -727,6 +735,7 @@ class Device(DeviceBase):
 		return False
 
 	async def mesh_remove(self) -> bool:
+		'''Remove this device from the mesh network.'''
 		frame = FrameMeshOperation.construct(mxr=self.registry, target=self, operation=MeshOperation.UNREGISTER)
 		if frame is not None:
 			self.registry.transmit(frame.frame)
@@ -734,6 +743,7 @@ class Device(DeviceBase):
 		return False
 
 	async def read_stats(self, enable:bool) -> bool:
+		'''Enable or disable V2IP statistics reporting on the device.'''
 		frame = FrameV2IPStats.construct(registry=self.registry, device=self, enable=enable)
 		if frame is not None:
 			self.registry.transmit(frame.frame)
@@ -751,6 +761,8 @@ class Device(DeviceBase):
 			(self.remote_id == other.remote_id)
 
 class MultiviewerImpl(Multiviewer):
+	'''Multiviewer configuration and control for a OneIP multiviewer device.'''
+
 	def __init__(self, device:Device) -> None:
 		self._device = device
 		self._config:MultiviewerConfig|None = None

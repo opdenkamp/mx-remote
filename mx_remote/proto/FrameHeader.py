@@ -5,6 +5,8 @@
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
+'''MX Remote frame header parsing and construction.'''
+
 from functools import cached_property
 from ..Uid import MxrDeviceUid
 from ..Interface import DeviceRegistry
@@ -22,7 +24,7 @@ class FrameHeader:
 
     @staticmethod
     def construct(mxr:DeviceRegistry, opcode:int, protocol:int=1) -> 'FrameHeader|None':
-        # create a new mx_remote frame for transmission
+        '''Create a new MX Remote frame header for transmission.'''
         if (mxr.uid_raw is None):
             return None
         pkt = [80, 56, protocol, 0 ]
@@ -105,13 +107,13 @@ class FrameHeader:
 
     @cached_property
     def protocol(self) -> int:
-        # frame protocol version
+        '''Frame protocol version.'''
         protocol = self.data_u16(2)
         return protocol if (protocol is not None) else 255
 
     @cached_property
     def remote_id(self) -> MxrDeviceUid:
-        # unique id of the device that sent this frame
+        '''Unique id of the device that sent this frame.'''
         uid = self.data_uuid(4)
         if (uid is None):
             raise Exception("invalid frame size")
@@ -119,24 +121,24 @@ class FrameHeader:
 
     @cached_property
     def remote_id_raw(self) -> bytes:
-        # unique id of the device that sent this frame
+        '''Unique id of the device that sent this frame as raw bytes.'''
         return self.remote_id.byte_value
 
     @cached_property
     def opcode(self) -> int:
-        # command opcode
+        '''Command opcode.'''
         opcode = self.data_u16(20)
         return opcode if (opcode is not None) else 0
 
     @cached_property
     def payload_len(self) -> int:
-        # number of payload bytes
+        '''Number of payload bytes.'''
         length = self.data_u16(22)
         return length if (length is not None) else 0
 
     @property
     def payload(self) -> bytes|None:
-        # frame payload bytes
+        '''Frame payload bytes.'''
         if len(self) < 25:
             return None
         return self.data[24:]
@@ -155,7 +157,7 @@ class FrameHeader:
         self.data = bytes(data)
 
     def __len__(self) -> int:
-        # number of bytes in this frame
+        '''Number of bytes in this frame.'''
         return len(self.data)
 
     def __str__(self) -> str:

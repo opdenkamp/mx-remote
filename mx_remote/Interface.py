@@ -29,7 +29,7 @@ from .proto.Multiviewer import (
 	MultiviewerHDCPMode,
 )
 from .proto.Svd import SvdMap
-from typing import Callable
+from typing import Any, Callable
 from .Uid import MxrDeviceUid, MxrBayUid
 
 _LOGGER = logging.getLogger(__name__)
@@ -780,7 +780,7 @@ class BayBase(ABC):
         '''Bay mode name'''
 
     @property
-    def other_mode(self) -> str|None:
+    def other_mode(self) -> str:
         '''Bay mode name of the opposite side (so Output if this bay is an Input)'''
 
     @property
@@ -911,7 +911,7 @@ class BayBase(ABC):
     @property
     @abstractmethod
     def muted(self) -> bool|None:
-        '''True if audio has been muted'''
+        '''True if audio has been muted, None if not available'''
 
     @property
     @abstractmethod
@@ -1415,7 +1415,7 @@ class DeviceBase(ABC):
     @property
     @abstractmethod
     def is_audio_matrix(self) -> bool:
-        '''True if thie device supports audio matrixing'''
+        '''True if this device supports audio matrixing'''
 
     @property
     @abstractmethod
@@ -1546,7 +1546,7 @@ class DeviceBase(ABC):
         '''internal callback'''
 
     @abstractmethod
-    async def get_api(self, uri:str) -> object:
+    async def get_api(self, uri:str) -> dict[str, Any]|None:
         '''call an HTTP API method and return the result'''
 
     @abstractmethod

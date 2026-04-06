@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Command-line entry points for the mx_remote library.'''
 
 import argparse
 import asyncio
@@ -116,4 +117,5 @@ def mxr_main( extra_args_callback:Callable[[Any,argparse.ArgumentParser],None]|N
         loop.close()
 
 def mxr_console() -> None:
+    '''Console script entry point for the mx_remote application.'''
     mxr_main()

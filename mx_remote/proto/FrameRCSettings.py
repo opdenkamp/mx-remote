@@ -4,11 +4,14 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame for remote control settings.'''
 
 from .FrameBase import FrameBase
 
 class FrameRCSettings(FrameBase):
+    '''Remote control settings notification.'''
     def process(self) -> None:
+        '''No-op; RC settings are informational only.'''
         pass
 
     def __str__(self) -> str:

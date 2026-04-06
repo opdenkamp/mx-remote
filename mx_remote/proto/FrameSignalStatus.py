@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame for signal status change notifications.'''
 
 from functools import cached_property
 from .FrameBase import FrameBase
@@ -17,18 +18,18 @@ class FrameSignalStatus(FrameBase):
 
     @cached_property
     def signal(self) -> bool|None:
-        # signal detected
+        '''Signal detected.'''
         return self.payload_bool(1)
 
     @cached_property
     def signal_type(self) -> str|None:
-        # signal type description
+        '''Signal type description.'''
         if len(self) <= 2:
             return None
         return self.payload_str(2)
 
     def process(self) -> None:
-        # update the local cache
+        '''Update the local device cache with the new signal status.'''
         if ((bay := self.bay) is None) or ((signal := self.signal) is None):
             return
         bay.on_mxr_update(SignalStatus(detected=signal, description=self.signal_type))

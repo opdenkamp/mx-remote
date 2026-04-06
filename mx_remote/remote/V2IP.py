@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''V2IP (Video over IP) stream source details for OneIP devices.'''
 
 import logging
 from typing import Any
@@ -12,6 +13,8 @@ from ..Interface import DeviceV2IPDetails, V2IPStreamSource
 _LOGGER = logging.getLogger(__name__)
 
 class DeviceV2IPDetailsImpl(DeviceV2IPDetails):
+	'''Concrete implementation of V2IP stream source details for a device.'''
+
 	def __init__(self) -> None:
 		self._video = None
 		self._audio = None

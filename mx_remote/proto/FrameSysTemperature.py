@@ -4,21 +4,22 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame for system temperature sensor readings.'''
 
 from functools import cached_property
 from .FrameBase import FrameBase
 from ..Interface import SystemTemperature
 
 class FrameSysTemperature(FrameBase):
-    ''' system temperature frame, sent every minute by devices on the network '''
+    '''System temperature frame, sent periodically by devices on the network.'''
     @cached_property
     def nb_sensors(self) -> int|None:
-        # number of temperature sensor readings
+        '''Number of temperature sensor readings in this frame.'''
         return self.payload_u8(0)
 
     @cached_property
     def temperature(self) -> SystemTemperature:
-        # list of all readings in this frame
+        '''List of all temperature readings in this frame.'''
         rv = SystemTemperature([])
         ptr = 0
         if (self.nb_sensors is None):
@@ -31,6 +32,7 @@ class FrameSysTemperature(FrameBase):
         return rv
 
     def process(self) -> None:
+        '''Update the local device cache with temperature readings.'''
         if ((dev := self.remote_device) is not None):
             dev.on_mxr_update(self.temperature)
 

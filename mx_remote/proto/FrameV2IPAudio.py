@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frames for V2IP audio configuration, routing, and control.'''
 
 from enum import IntEnum
 from functools import cached_property
@@ -17,6 +18,7 @@ from ..Interface import DeviceRegistry, MxrDeviceUid, V2IPStreamSource, AudioFea
 _LOGGER = logging.getLogger(__name__)
 
 class AudioCommandOpcode(IntEnum):
+    '''Opcodes for V2IP audio sub-commands.'''
     UNKNOWN = 0xFFFF
     FEATURES = 0
     MUTE = 1
@@ -26,6 +28,7 @@ class AudioCommandOpcode(IntEnum):
     LINKS = 5
 
 class AudioEntryType(IntEnum):
+    '''Type discriminator for audio configuration entries.'''
     PROCESSOR = 0
     ENDPOINT = 1
     ADDRESS = 2
@@ -34,6 +37,7 @@ class AudioEntryType(IntEnum):
     UNKNOWN = 0xFF
 
 class EndpointStatus:
+    '''Mute and trigger status flags for an audio endpoint.'''
     STATUS_TRIGGER = (1 << 7)
     STATUS_MUTE = (1 << 8)
 
@@ -62,6 +66,7 @@ class EndpointStatus:
         return str(self)
 
 class StreamAddress(V2IPStreamSource):
+    '''IP stream address for an audio endpoint.'''
     def __init__(self, data:bytes|None) -> None:
         self.data = data
         if (self.data is None) or (len(self.data) < 6):
@@ -89,6 +94,7 @@ class StreamAddress(V2IPStreamSource):
         return str(self)
 
 class AudioEntry:
+    '''Single entry in the audio configuration descriptor.'''
     def __init__(self, frame:FrameBase, idx:int) -> None:
         self._frame = frame
         self._idx = idx
@@ -157,6 +163,7 @@ class AudioEntry:
         return str(self)
 
 class AudioEndpointImpl(AudioEndpoint):
+    '''Concrete implementation of an audio endpoint with features and routing.'''
     def __init__(self, container:AudioEndpoints, id:int, features:AudioFeatures) -> None:
         AudioEndpoint.__init__(self, container=container)
         self._id = id
@@ -272,6 +279,7 @@ class AudioEndpointImpl(AudioEndpoint):
         return str(self)
 
 class AudioLinkImpl(AudioLink):
+    '''Concrete implementation of a link between two audio endpoints.'''
     def __init__(self, frame:FrameBase, idx:int) -> None:
         self._frame = frame
         self._idx = idx
@@ -308,6 +316,7 @@ class AudioLinkImpl(AudioLink):
         return str(self)
 
 class AudioLinksImpl(AudioLinks):
+    '''Collection of audio links parsed from a frame payload.'''
     def __init__(self, data:FrameBase, idx:int=0) -> None:
         self.data = data
         self._idx = idx
@@ -335,6 +344,7 @@ class AudioLinksImpl(AudioLinks):
         return str(self)
 
 class AudioConfig:
+    '''Parsed audio configuration containing endpoints and their properties.'''
     def __init__(self, data:FrameBase) -> None:
         self.data = data
 
@@ -413,6 +423,7 @@ class AudioConfig:
         return f"endpoint config: ({len(self.entries)} for {len(self.endpoints.endpoints)} endpoints) {self.endpoints}"
 
 class AudioChangeSourceImpl(AudioChangeSource):
+    '''Parsed audio source change request with source and target identifiers.'''
     def __init__(self, data:FrameBase) -> None:
         self.data = data
 
@@ -439,6 +450,7 @@ class AudioChangeSourceImpl(AudioChangeSource):
         return str(self)
 
 class AudioMute:
+    '''Parsed audio mute state for an endpoint.'''
     def __init__(self, data:FrameBase) -> None:
         self.data = data
 
@@ -454,6 +466,7 @@ class AudioMute:
         return f"mute endpoint {self.endpoint}: {self.mute}"
 
 class AudioTrigger:
+    '''Parsed audio trigger state for an endpoint.'''
     def __init__(self, data:FrameBase) -> None:
         self.data = data
 
@@ -469,6 +482,7 @@ class AudioTrigger:
         return f"trigger endpoint {self.endpoint}: {self.trigger}"
 
 class AudioVolume:
+    '''Parsed audio volume level for an endpoint.'''
     def __init__(self, data:FrameBase) -> None:
         self.data = data
 
@@ -484,8 +498,10 @@ class AudioVolume:
         return f"volume endpoint {self.endpoint}: {self.volume}"
 
 class FrameV2IPAudio(FrameBase):
+    '''V2IP audio frame dispatcher that delegates to sub-type frames based on opcode.'''
     @cached_property
     def _frame(self) -> 'FrameV2IPAudio':
+        '''Resolve to the appropriate sub-type frame based on the audio command opcode.'''
         if (self.opcode == AudioCommandOpcode.FEATURES):
             return FrameV2IPAudioConfig(header=self.header)
         elif (self.opcode == AudioCommandOpcode.MUTE):
@@ -501,6 +517,7 @@ class FrameV2IPAudio(FrameBase):
         raise Exception(f"unhandled audio opcode {self.opcode}")
 
     def process(self) -> None:
+        '''Dispatch processing to the resolved sub-type frame.'''
         if (self.remote_device is None):
             return
         try:
@@ -510,6 +527,7 @@ class FrameV2IPAudio(FrameBase):
 
     @staticmethod
     def construct_select_input(mxr:DeviceRegistry, sink:MxrDeviceUid, sink_ep:AudioEndpoint, source:MxrDeviceUid, source_ep:AudioEndpoint) -> FrameBase|None:
+        '''Build an audio input selection frame for transmission.'''
         return FrameV2IPAudioChangeSource.construct(mxr=mxr, sink=sink, sink_ep=sink_ep, source=source, source_ep=source_ep)
 
     @cached_property
@@ -529,6 +547,7 @@ class FrameV2IPAudio(FrameBase):
         except Exception as e:
             return str(e)
 class FrameV2IPAudioConfig(FrameV2IPAudio):
+    '''Audio endpoint configuration and features report.'''
     def __init__(self, header: FrameHeader):
         super().__init__(header)
         if (self.opcode != AudioCommandOpcode.FEATURES):
@@ -550,6 +569,7 @@ class FrameV2IPAudioConfig(FrameV2IPAudio):
 
     @override
     def process(self) -> None:
+        '''Update the local device cache with audio endpoint configuration and links.'''
         if (self.remote_device is None):
             return
         self.remote_device.on_mxr_update(data=self.audio_config.endpoints)
@@ -562,6 +582,7 @@ class FrameV2IPAudioConfig(FrameV2IPAudio):
         return f"{str(self.remote_device)} audio config: {self.audio_config}{links_str}"
 
 class FrameV2IPAudioChangeSource(FrameV2IPAudio):
+    '''Audio input source change notification or command.'''
     def __init__(self, header: FrameHeader):
         super().__init__(header)
         if (self.opcode != AudioCommandOpcode.SELECT_INPUT):
@@ -575,24 +596,27 @@ class FrameV2IPAudioChangeSource(FrameV2IPAudio):
 
     @override
     def process(self) -> None:
+        '''Update the local device cache with the audio source change.'''
         if (self.remote_device is None):
             return
         self.remote_device.on_mxr_update(data=self.select_input)
 
     @staticmethod
     def construct(mxr:DeviceRegistry, sink:MxrDeviceUid, sink_ep:AudioEndpoint, source:MxrDeviceUid, source_ep:AudioEndpoint) -> FrameBase|None:
-        payload = bytes([AudioCommandOpcode.SELECT_INPUT.value >> 8, AudioCommandOpcode.SELECT_INPUT.value & 0xF, 0, 0]) \
+        '''Build an audio source change frame for transmission.'''
+        payload = AudioCommandOpcode.SELECT_INPUT.value.to_bytes(2, 'little') + bytes(2) \
+            + sink.byte_value \
             + sink.byte_value \
             + source.byte_value \
-            + sink.byte_value \
-            + bytes([source_ep.id >> 8, source_ep.id & 0xF]) \
-            + bytes([sink_ep.id >> 8, sink_ep.id & 0xF])
+            + sink_ep.id.to_bytes(2, 'little') \
+            + source_ep.id.to_bytes(2, 'little')
         return FrameBase.construct_base(mxr=mxr, opcode=0x43, payload=payload)
 
     def __str__(self) -> str:
         return f"{str(self.remote_device)} audio route: {self.select_input}"
 
 class FrameV2IPAudioLinks(FrameV2IPAudio):
+    '''Audio link configuration between endpoints on different devices.'''
     def __init__(self, header: FrameHeader):
         super().__init__(header)
         if (self.opcode != AudioCommandOpcode.LINKS):
@@ -604,6 +628,7 @@ class FrameV2IPAudioLinks(FrameV2IPAudio):
 
     @override
     def process(self) -> None:
+        '''Update the local device cache with audio link configuration.'''
         if (self.remote_device is None):
             return
         self.remote_device.on_mxr_update(data=self.audio_links)
@@ -612,6 +637,7 @@ class FrameV2IPAudioLinks(FrameV2IPAudio):
         return f"{str(self.remote_device)} audio links: {self.audio_links}"
 
 class FrameV2IPAudioMute(FrameV2IPAudio):
+    '''Audio endpoint mute state notification.'''
     def __init__(self, header: FrameHeader):
         super().__init__(header)
         if (self.opcode != AudioCommandOpcode.MUTE):
@@ -625,6 +651,7 @@ class FrameV2IPAudioMute(FrameV2IPAudio):
         return f"{str(self.remote_device)} {self.param}"
 
 class FrameV2IPAudioTrigger(FrameV2IPAudio):
+    '''Audio endpoint trigger state notification.'''
     def __init__(self, header: FrameHeader):
         super().__init__(header)
         if (self.opcode != AudioCommandOpcode.TRIGGER):
@@ -638,6 +665,7 @@ class FrameV2IPAudioTrigger(FrameV2IPAudio):
         return f"{str(self.remote_device)} {self.param}"
 
 class FrameV2IPAudioVolume(FrameV2IPAudio):
+    '''Audio endpoint volume level notification.'''
     def __init__(self, header: FrameHeader):
         super().__init__(header)
         if (self.opcode != AudioCommandOpcode.VOLUME):

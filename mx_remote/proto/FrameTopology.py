@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame for network topology information.'''
 
 from functools import cached_property
 
@@ -12,6 +13,7 @@ from ..Uid import MxrDeviceUid
 import struct
 
 class TopologyEntry:
+    '''Single entry in the topology map (device UID and connection mask).'''
     def __init__(self, uid:MxrDeviceUid, mask:int):
         self.uid = uid
         self.mask = mask
@@ -23,8 +25,10 @@ class TopologyEntry:
         return str(self)
 
 class FrameTopology(FrameBase):
+    '''Network topology data listing all known devices and their connectivity.'''
     @cached_property
     def topology(self) -> list[TopologyEntry]:
+        '''List of topology entries parsed from the payload.'''
         topo = []
         data = self.payload
         if (data is None):
@@ -42,6 +46,7 @@ class FrameTopology(FrameBase):
         return rv
 
     def process(self) -> None:
+        '''Update the local device cache with topology data.'''
         if ((dev := self.remote_device) is not None):
             dev.on_mxr_update(self)
 

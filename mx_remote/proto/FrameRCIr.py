@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame for infrared (IR) remote control key press events.'''
 
 from functools import cached_property
 from .FrameBase import FrameBase
@@ -13,13 +14,15 @@ import logging
 _LOGGER = logging.getLogger(__name__)
 
 class FrameRCIr(FrameBase):
-    ''' IR key press '''
+    '''IR key press event received by a bay.'''
     @cached_property
     def bay(self) -> BayBase|None:
+        '''Bay that received the IR key press.'''
         return self.payload_bay(device=self.remote_device, idx=0, u16=True)
 
     @cached_property
     def timestamp(self) -> int|None:
+        '''Timestamp of the IR key press event.'''
         return self.payload_u32(idx=2)
 
     def __str__(self) -> str:

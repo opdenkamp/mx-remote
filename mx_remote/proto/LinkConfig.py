@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Link configuration protocol message parsing for MX Remote device connections.'''
 
 from typing import List
 from .FrameBase import FrameBase
@@ -19,17 +20,17 @@ class LinkConfig:
 
     @property
     def remote_device(self) -> DeviceBase|None:
-        # device instance of the device that sent this frame
+        '''Device instance of the device that sent this frame.'''
         return self.frame.remote_device
 
     @property
     def remote_port(self) -> int:
-        # remote port number
+        '''Remote port number.'''
         return int(self.payload[0])
 
     @property
     def remote_bay(self) -> BayBase|None:
-        # bay instance of the bay that sent this link configuration
+        '''Bay instance of the bay that sent this link configuration.'''
         dev = self.remote_device
         if dev is None:
             return None
@@ -37,39 +38,39 @@ class LinkConfig:
 
     @property
     def auto_config(self) -> bool:
-        # auto-configuration enabled
+        '''Auto-configuration enabled.'''
         return (int(self.payload[1]) == 1)
 
     @property
     def linked_serial(self) -> str:
-        # serial number of the device linked to this bay, or an empty string if not linked
+        '''Serial number of the device linked to this bay, or empty if not linked.'''
         return self.payload[2:18].split(b'\0',1)[0].decode('ascii')
 
     @property
     def linked_bay_name(self) -> str:
-        # name of the bay linked to this bay, or an empty string if not linked
+        '''Name of the bay linked to this bay, or empty if not linked.'''
         return self.payload[18:34].split(b'\0',1)[0].decode('ascii')
 
     @property
     def features(self) -> int:
-        # supported features bitmask for this link
+        '''Supported features bitmask for this link.'''
         return struct.unpack('<L', self.payload[34:38])[0]
 
     @property
     def is_linked(self) -> bool:
-        # bay linked or not
+        '''Whether this bay is linked to another bay.'''
         return (len(self.linked_serial) != 0) and (len(self.linked_bay_name) != 0)
 
     @property
     def linked_device(self) -> DeviceBase|None:
-        # device instance of the device that's linked to this bay
+        '''Device instance of the device linked to this bay.'''
         if not self.is_linked:
             return None
         return self.frame.mxr.get_by_serial(self.linked_serial)
 
     @property
     def linked_bay(self) -> BayBase|None:
-        # bay instance of the bay that's linked to this bay
+        '''Bay instance of the bay linked to this bay.'''
         dev = self.linked_device
         if dev is None:
             return None
@@ -77,6 +78,7 @@ class LinkConfig:
 
     @property
     def bays(self) -> list[BayBase]:
+        '''Both bays in this link, or only the remote bay if not linked.'''
         if (self.remote_bay is None):
             return []
         linked_bay = self.linked_bay
@@ -86,12 +88,14 @@ class LinkConfig:
 
     @property
     def connected(self) -> bool:
+        '''Whether this link is confirmed from both sides.'''
         if not self.is_linked:
             return False
         return self._confirm is not None
 
     @property
     def online(self) -> bool:
+        '''Whether this link is confirmed and both bays are online.'''
         if not self.is_linked:
             return False
         if self._confirm is None:
@@ -102,6 +106,7 @@ class LinkConfig:
             self.linked_bay.online
 
     def is_linked_to(self, bay:BayBase) -> bool:
+        '''Check whether the given bay is part of this link.'''
         if self.remote_bay == bay:
             return True
         linked_bay = self.linked_bay
@@ -110,6 +115,7 @@ class LinkConfig:
         return linked_bay == bay
 
     def other_bay(self, bay:BayBase) -> BayBase|None:
+        '''Return the other bay in this link, given one of the two bays.'''
         if not self.is_linked:
             return None
         if self.remote_bay == bay:
@@ -117,7 +123,7 @@ class LinkConfig:
         return self.remote_bay
 
     def process(self) -> None:
-        # register or update this link in the local cache
+        '''Register or update this link in the local cache.'''
         self.frame.mxr.links.update(bay=self.remote_bay, linked_serial=self.linked_serial, linked_bay=self.linked_bay_name, features=self.features)
 
     def __str__(self) -> str:

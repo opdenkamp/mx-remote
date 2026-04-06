@@ -5,6 +5,8 @@
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
 
+'''Base class and utilities for decoded MX Remote protocol frames.'''
+
 from functools import cached_property
 import time
 from .Constants import MXR_PROTOCOL_VERSION
@@ -13,6 +15,7 @@ from ..Interface import DeviceBase, DeviceRegistry, BayBase
 from ..Uid import MxrDeviceUid
 
 def append_payload_str(payload:list[int], value:str, sz:int) -> list[int]:
+    '''Append a fixed-size ASCII string to a payload byte list, zero-padded to sz.'''
     value = value[0:16]
     return payload + list(value.encode('ascii')) + [ 0 for _ in range(sz - len(value))]
 
@@ -25,6 +28,7 @@ class FrameBase:
 
     @staticmethod
     def construct_base(mxr:DeviceRegistry, opcode:int, protocol:int=MXR_PROTOCOL_VERSION, payload:bytes=bytes([]), size:int|None=None) -> 'FrameBase|None':
+        '''Construct a new frame for transmission with the given opcode and payload.'''
         header = FrameHeader.construct(mxr=mxr, opcode=opcode, protocol=protocol)
         if (header is None):
             return None
@@ -33,24 +37,24 @@ class FrameBase:
             if len(payload) > size:
                 payload = payload[:size]
             elif len(payload) < size:
-                payload += bytes([0 for _ in range(size - len(rv))])
+                payload += bytes([0 for _ in range(size - len(payload))])
         rv.payload = payload
         return rv
 
     @property
     def mxr(self) -> DeviceRegistry:
-        # remote instance
+        '''Remote instance.'''
         return self.header.mxr
 
     @property
     def address(self) -> str:
-        # address that sent this frame
+        '''Address that sent this frame.'''
         (addr, _) = self.header.addr
         return addr
 
     @property
     def protocol(self) -> int:
-        # frame protocol version
+        '''Frame protocol version.'''
         return self.header.protocol
 
     @property
@@ -61,20 +65,21 @@ class FrameBase:
 
     @property
     def remote_id(self) -> MxrDeviceUid:
-        # unique id of the device that sent this frame
+        '''Unique id of the device that sent this frame.'''
         return self.header.remote_id
 
     @cached_property
     def remote_device(self) -> DeviceBase|None:
-        # device instance for the device that sent this frame
+        '''Device instance for the device that sent this frame.'''
         return self.mxr.get_by_uid(self.remote_id)
 
     @property
     def payload(self) -> bytes|None:
-        # frame payload bytes
+        '''Frame payload bytes.'''
         return self.header.payload
 
     def payload_idx(self, start:int=0, end:int=-1) -> bytes|None:
+        '''Return a slice of the payload from start to end.'''
         if (self.payload is None):
             return None
         l = len(self.payload)
@@ -85,6 +90,7 @@ class FrameBase:
         return self.payload[start:end]
 
     def payload_bay(self, device:DeviceBase|None, idx:int, u16:bool=False) -> BayBase|None:
+        '''Look up a bay by port number extracted from the payload at idx.'''
         if (device is None):
             return None
         portnum = self.payload_u16(idx=idx) if u16 else self.payload_u8(idx=idx)
@@ -93,6 +99,7 @@ class FrameBase:
         return device.get_by_portnum(portnum)
 
     def payload_device(self, idx:int) -> DeviceBase|None:
+        '''Look up a device by UUID extracted from the payload at idx.'''
         if (self.remote_device is None):
             return None
         return self.remote_device.registry.get_by_uid(self.payload_uuid(idx=idx))
@@ -127,10 +134,11 @@ class FrameBase:
         return self.header.data
 
     def process(self) -> None:
-        # update the local cache with the new data that was received in this frame
+        '''Update the local cache with the new data that was received in this frame.'''
         pass
 
     def uid_to_user_string(self, uid:str|MxrDeviceUid|bytes|None) -> str:
+        '''Convert a device UID to a human-readable name via the device registry.'''
         if (uid is None):
             return '<none>'
         if not isinstance(uid, MxrDeviceUid):
@@ -140,7 +148,7 @@ class FrameBase:
         return self.remote_device.registry.uid_to_user_string(uid)
 
     def __len__(self) -> int:
-        # number of payload bytes
+        '''Number of payload bytes.'''
         return self.header.payload_len
 
     def __str__(self) -> str:

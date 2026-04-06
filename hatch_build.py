@@ -1,11 +1,16 @@
+'''Custom Hatch build hook to generate and include type stubs.'''
+
 from pathlib import Path
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
 
 class CustomBuildHook(BuildHookInterface):
+    '''Build hook that generates .pyi type stubs via mypy stubgen.'''
+
     PLUGIN_NAME = "custom"
 
     def initialize(self, version, build_data):
+        '''Generate type stubs and add them to the wheel build artifacts.'''
         from mypy.stubgen import generate_stubs, Options
 
         root = Path(self.root)

@@ -4,9 +4,12 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''PDU (Power Distribution Unit) state and outlet status parsing.'''
+
+from typing import Any
 
 class PDUOutletState:
-	''' pdu outlet state '''
+	'''State of a single PDU outlet (on, off, or rebooting).'''
 	OFF = 0
 	ON = 1
 	REBOOTING = 2
@@ -16,17 +19,17 @@ class PDUOutletState:
 
 	@property
 	def is_on(self) -> bool:
-		# outlet powered on
+		'''Whether the outlet is powered on.'''
 		return (self._state == self.ON)
 
 	@property
 	def is_off(self) -> bool:
-		# outlet powered off
+		'''Whether the outlet is powered off or rebooting.'''
 		return (self._state == self.OFF) or self.is_rebooting
 
 	@property
 	def is_rebooting(self) -> bool:
-		# outlet rebooting
+		'''Whether the outlet is currently rebooting.'''
 		return (self._state == self.REBOOTING)
 
 	def __str__(self) -> str:
@@ -42,7 +45,9 @@ class PDUOutletState:
 		return str(self)
 
 class PDUState:
-	def __init__(self, frame):
+	'''Aggregated PDU state including power readings and outlet states.'''
+
+	def __init__(self, frame:Any) -> None:
 		self._current     = frame.current
 		self._voltage     = frame.voltage
 		self._power       = frame.power
@@ -57,36 +62,36 @@ class PDUState:
 
 	@property
 	def current(self) -> float:
-		# current (A)
+		'''Current draw in amperes.'''
 		return self._current
 
 	@property
 	def voltage(self) -> float:
-		# voltage (V)
+		'''Voltage in volts.'''
 		return self._voltage
 
 	@property
 	def power(self) -> float:
-		# power consumption (W)
+		'''Power consumption in watts.'''
 		return self._power
 
 	@property
 	def dissipation(self) -> float:
-		# power dissipation (W)
+		'''Power dissipation in watts.'''
 		return self._dissipation
 
 	@property
 	def frequency(self) -> float:
-		# AC frequency
+		'''AC frequency in hertz.'''
 		return self._frequency
 
 	@property
 	def outlets(self) -> list[PDUOutletState]:
-		# list of all outlets defined in this frame
+		'''List of all outlet states in this frame.'''
 		return self._outlets
 
-	def outlet(self, outlet) -> PDUOutletState|None:
-		# get the state of a single outlet
+	def outlet(self, outlet:int) -> PDUOutletState|None:
+		'''Get the state of a single outlet by index, or None if out of range.'''
 		return self._outlets[outlet] if outlet < 8 else None
 
 	def __str__(self) -> str:

@@ -1,8 +1,11 @@
+'''Multiviewer configuration enums and abstract configuration interface.'''
+
 from abc import ABC, abstractmethod
 from enum import IntEnum
 from ..Uid import MxrDeviceUid
 
 class MultiviewerOpcode(IntEnum):
+    '''Opcodes for multiviewer configuration commands.'''
     STATUS            = 0
     VIEW_MODE         = 1
     VIDEO_SOURCE      = 2
@@ -22,6 +25,7 @@ class MultiviewerOpcode(IntEnum):
     UNKNOWN           = 0xFF
 
 class MultiviewerViewMode(IntEnum):
+    '''Screen layout modes for the multiviewer output.'''
     UNKNOWN = 0
     SINGLE = 1
     PIP = 2
@@ -33,6 +37,7 @@ class MultiviewerViewMode(IntEnum):
     FOUR_SCREEN_SMALL = 8
 
 class MultiviewerPipPosition(IntEnum):
+    '''Picture-in-picture window position on screen.'''
     UNKNOWN = 0
     LEFT_TOP = 1
     LEFT_BOTTOM = 2
@@ -40,12 +45,14 @@ class MultiviewerPipPosition(IntEnum):
     RIGHT_BOTTOM = 4
 
 class MultiviewerPipSize(IntEnum):
+    '''Picture-in-picture window size.'''
     UNKNOWN = 0
     SMALL = 1
     MEDIUM = 2
     LARGE = 3
 
 class MultiviewerOutputMode(IntEnum):
+    '''Output resolution and refresh rate modes.'''
     UNKNOWN = 0
     OUT_4096x2160P60 = 1
     OUT_4096x2160P50 = 2
@@ -63,16 +70,19 @@ class MultiviewerOutputMode(IntEnum):
     OUT_1024x768P60 = 14
 
 class MultiviewerHDCPMode(IntEnum):
+    '''HDCP content protection version modes.'''
     UNKNOWN = 0
     V1_4 = 1
     V2_2 = 2
 
 class MultiviewerITCMode(IntEnum):
+    '''IT Content mode for output signal type.'''
     UNKNOWN = 0
     VIDEO = 1
     PC = 2
 
 class MultiviewerEDIDTemplate(IntEnum):
+    '''EDID template presets for input source negotiation.'''
     UNKNOWN = 0
     EDID_4K60_STEREO = 1
     EDID_4K60_51 = 2
@@ -95,16 +105,19 @@ class MultiviewerEDIDTemplate(IntEnum):
     EDID_CUSTOM = 19
 
 class MultiviewerAspectRatio(IntEnum):
+    '''Output aspect ratio modes.'''
     UNKNOWN = 0
     ASPECT_FULL = 1
     ASPECT_16_9 = 2
 
 class MultiviewerBoolSetting(IntEnum):
+    '''Boolean on/off setting for multiviewer features.'''
     UNKNOWN = 0xFF
     OFF = 0
     ON = 1
 
 class MultiviewerSource(IntEnum):
+    '''Input source selection for multiviewer screens.'''
     UNKNOWN = 0
     SOURCE_1 = 1
     SOURCE_2 = 2
@@ -113,6 +126,8 @@ class MultiviewerSource(IntEnum):
 
 
 class MultiviewerConfig(ABC):
+    '''Abstract interface for multiviewer device configuration.'''
+
     @property
     @abstractmethod
     def uid(self) -> MxrDeviceUid|None:

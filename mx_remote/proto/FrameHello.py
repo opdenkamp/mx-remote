@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame for device advertisement (hello/discovery response).'''
 
 from functools import cached_property
 import warnings
@@ -15,8 +16,10 @@ import struct
 from typing import Any
 
 class FrameHello(FrameBase):
+    '''Hello frame, sent by devices to advertise themselves on the network.'''
     @staticmethod
     def construct(mxr:DeviceRegistry) -> FrameBase|None:
+        '''Build a hello frame for transmission to advertise this client.'''
         payload = [ (MXR_PROTOCOL_VERSION & 0xFF), ((MXR_PROTOCOL_VERSION >> 8) & 0xFF) ]
         payload = append_payload_str(payload=payload, value=mxr.name, sz=16)
         payload = append_payload_str(payload=payload, value="P9SN00000000", sz=16)
@@ -25,36 +28,35 @@ class FrameHello(FrameBase):
         payload += [ (features >> 0) & 0xFF, (features >> 8) & 0xFF, (features >> 16) & 0xFF, (features >> 24) & 0xFF ]
         return FrameBase.construct_base(mxr=mxr, opcode=0, payload=bytes(payload))
 
-    ''' Hello frame, sent by devices to advertise themselves on the network '''
     @cached_property
     def supported_protocol(self) -> int|None:
-        # supported protocol version, which may be higher than this frame's protocol version
+        '''Supported protocol version, which may be higher than this frame's protocol version.'''
         return self.payload_u16(0)
 
     @cached_property
     def device_name(self) -> str|None:
-        # device name
+        '''Device name.'''
         return self.payload_str(2, 16)
 
     @cached_property
     def serial(self) -> str|None:
-        # device serial
+        '''Device serial number.'''
         return self.payload_str(18, 16)
 
     @cached_property
     def version(self) -> str|None:
-        # firmware version
+        '''Firmware version string.'''
         return self.payload_str(34, 16)
 
     @cached_property
     def features(self) -> DeviceFeature|None:
-        # supported features bitmask
+        '''Supported features bitmask.'''
         if (self.payload is None) or (len(self.payload) < 54):
             return None
         return DeviceFeature(struct.unpack('<L', self.payload[50:54])[0])
 
     def process(self) -> None:
-        # register or update this device in the local cache
+        '''Register or update this device in the local device cache.'''
         self.mxr.on_mxr_update(self)
 
     def __eq__(self, other: Any) -> bool:

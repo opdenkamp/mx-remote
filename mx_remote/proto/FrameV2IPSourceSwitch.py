@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Protocol frame for V2IP source switching between encoder and decoder.'''
 
 from functools import cached_property
 from .FrameBase import FrameBase
@@ -17,8 +18,10 @@ import logging
 _LOGGER = logging.getLogger(__name__)
 
 class FrameV2IPSourceSwitch(FrameBase):
+    '''V2IP source switch command for routing video and audio streams.'''
     @staticmethod
     def construct(mxr:DeviceRegistry, target:BayBase, video:BayBase|str|None=None, audio:BayBase|str|None=None) -> FrameBase|None:
+        '''Build a V2IP source switch frame for transmission.'''
         if video is not None:
             if isinstance(video, BayBase):
                 if BayFeaturesMask.V2IP_SOURCE_LOCAL not in video.features and BayFeaturesMask.V2IP_SOURCE_REMOTE not in video.features:
@@ -48,14 +51,17 @@ class FrameV2IPSourceSwitch(FrameBase):
 
     @cached_property
     def target_device(self) -> DeviceBase|None:
+        '''Target device for the source switch.'''
         return self.mxr.get_by_uid(self.target_uid)
 
     @cached_property
     def target_uid(self) -> MxrDeviceUid|None:
+        '''UID of the target device.'''
         return self.payload_uuid(0)
 
     @cached_property
     def video(self) -> str:
+        '''Video stream source IP address.'''
         if (self.payload is None) or (len(self.payload) < 24):
             raise Exception("invalid FrameV2IPSourceSwitch size")
         ip = int.from_bytes(self.payload[16:20], "big")
@@ -63,10 +69,12 @@ class FrameV2IPSourceSwitch(FrameBase):
 
     @cached_property
     def video_bay(self) -> BayBase|None:
+        '''Bay that is the video stream source.'''
         return self.mxr.get_by_stream_ip(ip=self.video, audio=False)
 
     @cached_property
     def audio(self) -> str:
+        '''Audio stream source IP address.'''
         if (self.payload is None) or (len(self.payload) < 24):
             raise Exception("invalid FrameV2IPSourceSwitch size")
         ip = int.from_bytes(self.payload[20:24], "big")
@@ -74,10 +82,11 @@ class FrameV2IPSourceSwitch(FrameBase):
 
     @cached_property
     def audio_bay(self) -> BayBase|None:
+        '''Bay that is the audio stream source.'''
         return self.mxr.get_by_stream_ip(ip=self.audio, audio=True)
 
-    def process(self):
-        # update the local cache
+    def process(self) -> None:
+        '''Update the local device cache with the new source routing.'''
         if (self.target_device is not None):
             sink_bay = self.target_device.first_output
             if (sink_bay is not None):

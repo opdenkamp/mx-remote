@@ -4,6 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
 ## copyright (c) 2026 Op den Kamp IT Solutions  ##
 ##################################################
+'''Async UDP connection for MX Remote multicast/broadcast communication.'''
 
 import asyncio
 import logging
@@ -16,6 +17,7 @@ from ..Interface import ConnectionCallbacks, mxr_valid_addresses
 _LOGGER = logging.getLogger(__name__)
 
 def is_posix_os() -> bool:
+    '''Return True if the current OS is POSIX-compatible.'''
     return (os.name == 'posix')
 
 class ConnectionAsync(asyncio.DatagramProtocol):
@@ -88,6 +90,7 @@ class ConnectionAsync(asyncio.DatagramProtocol):
 
         if self.is_multicast:
             if (self.local_ip is None):
+                sock.close()
                 return None
             sock.setsockopt(
                 socket.IPPROTO_IP,
@@ -101,6 +104,7 @@ class ConnectionAsync(asyncio.DatagramProtocol):
         return sock
 
     async def start_srv(self) -> tuple[asyncio.DatagramTransport, 'ConnectionAsync']:
+        '''Start the UDP datagram service and return the transport and protocol.'''
         _LOGGER.debug(f"starting service on {self.target_ip}:{self.port}")
         try:
             loop = asyncio.get_event_loop()
@@ -113,21 +117,28 @@ class ConnectionAsync(asyncio.DatagramProtocol):
             raise
 
     def close(self) -> None:
+        '''Close the connection and underlying transport.'''
         if self.is_open:
             _LOGGER.debug(f"closing {self.target_ip}:{self.port}")
             if (self._transport is not None):
                 self._transport.close()
+            if (self._tx_socket is not None):
+                self._tx_socket.close()
+                self._tx_socket = None
             self._closed = True
 
     def connection_made(self, transport:asyncio.DatagramTransport) -> None:
+        '''Called when the datagram endpoint is established.'''
         _LOGGER.debug(f"listening on {self.target_ip}:{self.port} - {str(type(transport))}")
         self._transport = transport
         self._callbacks.on_connection_made()
 
     def datagram_received(self, data: bytes, addr: Tuple[str, int]) -> None:
+        '''Called when a UDP datagram is received; forwards to callbacks.'''
         self._callbacks.on_datagram_received(data, addr)
 
     def transmit(self, data: bytes) -> int:
+        '''Send a UDP datagram to the target. Returns bytes sent, or 0 if closed.'''
         if self._closed or (self.tx_socket is None):
             return 0
 
