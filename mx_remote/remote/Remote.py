@@ -19,7 +19,7 @@ import time
 from .ConnectionAsync import ConnectionAsync
 from ..const import __version__
 from .Device import Device
-from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint
+from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, mxr_broadcast_address
 from ..proto.Constants import MXR_PROTOCOL_VERSION
 from ..proto.FrameDiscover import constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
@@ -30,7 +30,7 @@ from .State import State
 
 import traceback
 
-from ..const import MX_BCAST_UDP_IP, MX_BCAST_UDP_PORT, MX_MCAST_UDP_IP, MX_MCAST_UDP_PORT
+from ..const import MX_BCAST_UDP_PORT, MX_MCAST_UDP_IP, MX_MCAST_UDP_PORT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,7 +52,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         DeviceRegistry.__init__(self)
         ConnectionCallbacks.__init__(self)
         self._name = name
-        self._close_session = False
+        self._closing = False
+        self._own_session = (http_session is None)
         self._callbacks = State(callbacks, http_session)
         self.remotes:dict[MxrDeviceUid,Device] = {}
         self._links = BayLinks(self)
@@ -101,7 +102,13 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
     @cached_property
     def target_ip(self) -> str:
         if self._target_ip is None:
-            return MX_MCAST_UDP_IP if (self._broadcast is None or not self._broadcast) else MX_BCAST_UDP_IP
+            if self._broadcast is None or not self._broadcast:
+                return MX_MCAST_UDP_IP
+            bcast = mxr_broadcast_address(self._local_ip)
+            if bcast is not None:
+                return bcast
+            _LOGGER.warning("failed to determine broadcast address, using multicast")
+            return MX_MCAST_UDP_IP
         return self._target_ip
 
     @property
@@ -199,7 +206,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         return False
 
     async def _background_probe(self) -> None:
-        while not self._close_session:
+        while not self._closing:
             await asyncio.sleep(1)
             tx_discover = False
             if (not self.has_completed_devices()):
@@ -227,11 +234,17 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         await self.close()
 
     async def close(self) -> None:
-        '''Close all open connections.'''
+        '''Close all open connections and cancel background tasks.'''
         _LOGGER.debug("closing mx_remote listener")
+        self._closing = True
+        for task in self._tasks:
+            task.cancel()
+        if self._tasks:
+            await asyncio.gather(*self._tasks, return_exceptions=True)
+        self._tasks.clear()
         if self.conn is not None:
             self.conn.close()
-        if self._close_session:
+        if self._own_session:
             await self.http_session.close()
 
     def get_by_serial(self, serial:str) -> DeviceBase|None:

@@ -49,6 +49,23 @@ def mxr_valid_addresses() -> list[str]:
                 addresses.append(addr)
     return addresses
 
+def mxr_broadcast_address(local_ip:str|None=None) -> str|None:
+    '''Get the broadcast address for the interface matching local_ip, or the first non-loopback interface.'''
+    for iface in netifaces.interfaces():
+        addrs = netifaces.ifaddresses(iface)
+        if netifaces.AF_INET not in addrs:
+            continue
+        info = addrs[netifaces.AF_INET][0]
+        addr = info.get('addr', '')
+        if ipaddress.IPv4Address(addr).is_loopback:
+            continue
+        if (local_ip is not None) and (addr != local_ip):
+            continue
+        bcast = info.get('broadcast')
+        if bcast is not None:
+            return bcast
+    return None
+
 class DeviceStatus(IntEnum):
     """
     Status of a device on the network

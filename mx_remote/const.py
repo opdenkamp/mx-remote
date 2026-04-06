@@ -10,15 +10,12 @@ Network and version constants for mx_remote.
 
 Default communication modes:
     Multicast: 224.8.8.8:8812 (default)
-    Broadcast: 10.8.8.255:8811
+    Broadcast: <interface broadcast address>:8811
 """
 import os
 
 VERSION = '4.0.1'
 __version__ = VERSION
-
-MX_BCAST_UDP_IP = '10.8.8.255'
-"""Broadcast IP address for device discovery."""
 
 MX_BCAST_UDP_PORT = 8811
 """UDP port used in broadcast mode."""

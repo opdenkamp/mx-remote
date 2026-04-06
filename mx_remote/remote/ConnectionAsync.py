@@ -107,7 +107,7 @@ class ConnectionAsync(asyncio.DatagramProtocol):
         '''Start the UDP datagram service and return the transport and protocol.'''
         _LOGGER.debug(f"starting service on {self.target_ip}:{self.port}")
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             self._closed = False
             self._tx_socket = self._create_tx_socket()
             return await loop.create_datagram_endpoint(

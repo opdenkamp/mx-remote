@@ -415,17 +415,17 @@ await mx.update_config(
 The `mxr` console application is installed with the package. It discovers devices and logs all received frames in human-readable form.
 
 ```
-usage: mxr [-h] [-i INPUT] [-f FILTER] [-o OUTPUT] [-l LOCAL_IP] [-b BROADCAST]
+usage: mxr [-h] [-i INPUT] [-f FILTER] [-o OUTPUT] [-l LOCAL_IP] [-b]
 
 MX Remote Manager / Debugger
 
 options:
   -h, --help    show this help message and exit
   -i INPUT      capture file to process
-  -f FILTER     ip address to process in the capture file
+  -f FILTER     ip address filter (only with -i)
   -o OUTPUT     write output to a file
   -l LOCAL_IP   local ip address of the network interface to use
-  -b BROADCAST  use broadcast mode instead of multicast mode
+  -b            use broadcast mode instead of multicast
 ```
 
 ### Examples
@@ -438,7 +438,7 @@ mxr
 mxr -l 192.168.1.100
 
 # use broadcast mode
-mxr -b true
+mxr -b
 
 # log output to a file
 mxr -o /path/to/output.txt

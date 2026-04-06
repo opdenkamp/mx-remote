@@ -65,11 +65,11 @@ def mxr_main( extra_args_callback:Callable[[Any,argparse.ArgumentParser],None]|N
 
     # command line arguments
     argparser = argparse.ArgumentParser(description="MX Remote Manager / Debugger")
-    argparser.add_argument("-i", dest='input', help='capture file to process', required=False)
-    argparser.add_argument("-f", dest='filter', help='ip address to process in the capture file', required=False)
-    argparser.add_argument("-o", dest='output', help='write output to a file', required=False)
-    argparser.add_argument("-l", dest='local_ip', help='local ip address of the network interface to use', required=False)
-    argparser.add_argument("-b", dest='broadcast', help='use broadcast mode instead of multicast mode', required=False, type=bool)
+    argparser.add_argument("-i", dest='input', help='capture file to process')
+    argparser.add_argument("-f", dest='filter', help='ip address filter (only with -i)')
+    argparser.add_argument("-o", dest='output', help='write output to a file')
+    argparser.add_argument("-l", dest='local_ip', help='local ip address of the network interface to use')
+    argparser.add_argument("-b", dest='broadcast', help='use broadcast mode instead of multicast', action='store_true')
     if (extra_args_callback is not None):
         extra_args_callback(callback_param, argparser)
     args = argparser.parse_args()
@@ -105,16 +105,20 @@ def mxr_main( extra_args_callback:Callable[[Any,argparse.ArgumentParser],None]|N
             return
 
         # run the console app
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        mx = mx_remote.Remote(local_ip=args.local_ip, broadcast=(args.broadcast is not None and args.broadcast))
+        async def _run() -> None:
+            mx = mx_remote.Remote(local_ip=args.local_ip, broadcast=args.broadcast)
+            await mx.start_async()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                pass
+            finally:
+                await mx.close()
+
         try:
-            loop.run_until_complete(mx.start_async())
-            loop.run_forever()
+            asyncio.run(_run())
         except KeyboardInterrupt:
             pass
-        loop.run_until_complete(mx.close())
-        loop.close()
 
 def mxr_console() -> None:
     '''Console script entry point for the mx_remote application.'''
