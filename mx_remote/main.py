@@ -95,28 +95,28 @@ def mxr_main( extra_args_callback:Callable[[Any,argparse.ArgumentParser],None]|N
                 logging.StreamHandler()
             ])
 
-    if (args.input is not None):
-        proto_parser(_LOGGER, args.input, args.filter)
-    else:
-        if (entry_callback is not None) and entry_callback(callback_param, args):
-            # handled externally
-            return
+    try:
+        if (args.input is not None):
+            proto_parser(_LOGGER, args.input, args.filter)
+        else:
+            if (entry_callback is not None) and entry_callback(callback_param, args):
+                # handled externally
+                return
 
-        # run the console app
-        async def _run() -> None:
-            mx = mx_remote.Remote(local_ip=args.local_ip, broadcast=args.broadcast, addr_filter=args.filter)
-            await mx.start_async()
-            try:
-                await asyncio.Event().wait()
-            except asyncio.CancelledError:
-                pass
-            finally:
-                await mx.close()
+            # run the console app
+            async def _run() -> None:
+                mx = mx_remote.Remote(local_ip=args.local_ip, broadcast=args.broadcast, addr_filter=args.filter)
+                await mx.start_async()
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    pass
+                finally:
+                    await mx.close()
 
-        try:
             asyncio.run(_run())
-        except KeyboardInterrupt:
-            pass
+    except KeyboardInterrupt:
+        _LOGGER.info("exiting")
 
 def mxr_console() -> None:
     '''Console script entry point for the mx_remote application.'''
