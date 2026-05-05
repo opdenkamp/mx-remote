@@ -104,7 +104,8 @@ def mxr_main( extra_args_callback:Callable[[Any,argparse.ArgumentParser],None]|N
             return
 
         # run the console app
-        loop = asyncio.get_event_loop()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         mx = mx_remote.Remote(local_ip=args.local_ip, broadcast=(args.broadcast is not None and args.broadcast))
         try:
             loop.run_until_complete(mx.start_async())
