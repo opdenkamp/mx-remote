@@ -32,7 +32,7 @@ class FrameBayHide(FrameBase):
 
     @cached_property
     def hidden(self) -> HiddenStatus:
-        pl = self.payload_bool(24)
+        pl = self.payload_bool(18)
         if (pl is None):
             return HiddenStatus.UNKNOWN
         return HiddenStatus.HIDDEN if pl else HiddenStatus.VISIBLE
