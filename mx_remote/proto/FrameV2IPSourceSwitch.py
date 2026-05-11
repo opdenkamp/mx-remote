@@ -38,12 +38,14 @@ class FrameV2IPSourceSwitch(FrameBase):
 
         payload = target.device.remote_id.byte_value
         if video is not None:
-            ip = socket.inet_aton(video.v2ip_source.video.ip if isinstance(video, BayBase) else video) # pyright: ignore[reportOptionalMemberAccess]
+            video_ip = video.v2ip_source.video.ip if isinstance(video, BayBase) else video.split(':', 1)[0] # pyright: ignore[reportOptionalMemberAccess]
+            ip = socket.inet_aton(video_ip)
             payload += bytes([int(ip[0]), int(ip[1]), int(ip[2]), int(ip[3])])
         else:
             payload += bytes([0, 0, 0, 0])
         if audio is not None:
-            ip = socket.inet_aton(audio.v2ip_source.audio.ip if isinstance(audio, BayBase) else audio) # pyright: ignore[reportOptionalMemberAccess]
+            audio_ip = audio.v2ip_source.audio.ip if isinstance(audio, BayBase) else audio.split(':', 1)[0] # pyright: ignore[reportOptionalMemberAccess]
+            ip = socket.inet_aton(audio_ip)
             payload += bytes([int(ip[0]), int(ip[1]), int(ip[2]), int(ip[3])])
         else:
             payload += bytes([0, 0, 0, 0])

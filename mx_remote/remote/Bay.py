@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 import logging
+import socket
 from typing import Any, Callable, override
 from ..proto.Constants import BayStatusMask, BayFeaturesMask, EdidProfile, RCType, RCAction, RCKey
 from ..proto.BayConfig import BayConfig
@@ -789,11 +790,14 @@ class Bay(BayBase):
         if isinstance(source, int):
             source = self.device.get_by_portnum(source)
         elif isinstance(source, str):
-            source = self.bay_by_user_name(name=source)
-        if (source is None):
+            try:
+                socket.inet_aton(source.split(':', 1)[0])
+            except OSError:
+                source = self.bay_by_user_name(name=source)
+        if (source is None) or (not isinstance(source, (BayBase, str))):
             return False
 
-        if (endpoint is not None):
+        if (endpoint is not None) and isinstance(source, BayBase):
             ep = source.device.audio_endpoint_by_name(name=endpoint)
             if (ep is None) or (self.audio_endpoint is None):
                 return False
