@@ -9,7 +9,12 @@
 
 from enum import IntEnum, IntFlag
 
-MXR_PROTOCOL_VERSION = 20
+MXR_PROTOCOL_VERSION = 0x25
+
+V2IP_AUDIO_DEFAULT_SAMPLE_RATE = 48000
+V2IP_AUDIO_DEFAULT_CHANNELS    = 2
+V2IP_AUDIO_MIN_CHANNELS        = 1
+V2IP_AUDIO_MAX_CHANNELS        = 8
 
 class DeviceFeature(IntFlag):
 	'''Device feature flags reported in hello frames.'''

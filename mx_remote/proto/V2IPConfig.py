@@ -12,6 +12,50 @@ from ..Interface import V2IPStreamSource, V2IPStreamSources
 import socket
 import struct
 
+class V2IPAudioFormat:
+    '''Optional manual-switch audio format (sample rate + channels). Zero = use defaults.'''
+    _WIRE_SIZE = 8
+
+    def __init__(self, sample_rate:int=0, channels:int=0) -> None:
+        self._sample_rate = sample_rate
+        self._channels = channels
+
+    @classmethod
+    def from_bytes(cls, data:bytes) -> 'V2IPAudioFormat':
+        if len(data) < cls._WIRE_SIZE:
+            raise ValueError(f"invalid V2IPAudioFormat size: {len(data)}")
+        return cls(
+            sample_rate=int.from_bytes(data[0:4], "little"),
+            channels=int(data[4]),
+        )
+
+    @property
+    def sample_rate(self) -> int:
+        '''Sample rate in Hz, or 0 to fall back to the firmware default (48000).'''
+        return self._sample_rate
+
+    @property
+    def channels(self) -> int:
+        '''Channel count 1..8, or 0 to fall back to the firmware default (2).'''
+        return self._channels
+
+    @property
+    def value(self) -> bytes:
+        return bytes([
+            (self._sample_rate >> 0)  & 0xFF,
+            (self._sample_rate >> 8)  & 0xFF,
+            (self._sample_rate >> 16) & 0xFF,
+            (self._sample_rate >> 24) & 0xFF,
+            self._channels & 0xFF,
+            0, 0, 0,
+        ])
+
+    def __str__(self) -> str:
+        return f"{self.sample_rate}Hz/{self.channels}ch"
+
+    def __repr__(self) -> str:
+        return str(self)
+
 class V2IPStreamSourceImpl(V2IPStreamSource):
     '''Concrete implementation of a V2IP stream source with IP and port.'''
 

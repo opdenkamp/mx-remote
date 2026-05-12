@@ -105,6 +105,9 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 	if hdr.opcode == 0x23:
 		from .FrameBayConfigSecondary import FrameBayConfigSecondary
 		return FrameBayConfigSecondary(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x24:
+		from .FrameV2IPManualSourceSwitch import FrameV2IPManualSourceSwitch
+		return FrameV2IPManualSourceSwitch(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x26:
 		from .FrameV2IPSources import FrameV2IPSources
 		return FrameV2IPSources(header=hdr, timestamp=timestamp)
