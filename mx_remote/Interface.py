@@ -884,6 +884,12 @@ class BayBase(ABC):
 
     @property
     @abstractmethod
+    def video_route_endpoint(self) -> 'str|None':
+        '''Current video route as 'ip:port' literal when the sink is subscribed to a
+        multicast that does not map to any registered input bay; else None.'''
+
+    @property
+    @abstractmethod
     def available_video_sources(self) -> 'list[BayBase]':
         '''Video sources that can be selected'''
 
@@ -891,6 +897,12 @@ class BayBase(ABC):
     @abstractmethod
     def audio_source(self) -> 'BayBase|None':
         '''Current audio source (output only)'''
+
+    @property
+    @abstractmethod
+    def audio_route_endpoint(self) -> 'str|None':
+        '''Current audio route as 'ip:port' literal when the sink is subscribed to a
+        multicast that does not map to any registered input bay; else None.'''
 
     @property
     @abstractmethod
@@ -1093,7 +1105,7 @@ class BayBase(ABC):
         '''change the video source of an output bay'''
 
     @abstractmethod
-    async def select_audio_source(self, source:'int|BayBase|str|None', endpoint:str|None=None) -> bool:
+    async def select_audio_source(self, source:'int|BayBase|str|None', endpoint:str|None=None, audio_fmt:'V2IPAudioFormat|None'=None) -> bool:
         '''change the audio source of an output bay'''
 
     @abstractmethod

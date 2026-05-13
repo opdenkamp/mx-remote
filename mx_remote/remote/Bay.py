@@ -14,6 +14,8 @@ from ..proto.Constants import BayStatusMask, BayFeaturesMask, EdidProfile, RCTyp
 from ..proto.BayConfig import BayConfig
 from ..proto.Data import VolumeMuteStatus
 from ..proto.FrameV2IPSourceSwitch import FrameV2IPSourceSwitch
+from ..proto.FrameV2IPManualSourceSwitch import FrameV2IPManualSourceSwitch
+from ..proto.V2IPConfig import V2IPAudioFormat
 from ..proto.FrameEDIDProfile import FrameEDIDProfile
 from ..proto.FrameBayHide import FrameBayHide
 from ..proto.FrameSetName import FrameSetName
@@ -379,6 +381,11 @@ class Bay(BayBase):
             return None
         return self._video_source
 
+    @property
+    @override
+    def video_route_endpoint(self) -> str|None:
+        return self._sink_route_endpoint(audio=False)
+
     @video_source.setter
     def video_source(self, source:BayBase|None) -> None:
         if not self.is_output:
@@ -425,6 +432,27 @@ class Bay(BayBase):
         if (prev != self.audio_source):
             self.callbacks.on_audio_source_changed(bay=self, audio_source=self.audio_source)
             self.call_callbacks()
+
+    @property
+    @override
+    def audio_route_endpoint(self) -> str|None:
+        return self._sink_route_endpoint(audio=True)
+
+    def _sink_route_endpoint(self, audio:bool) -> str|None:
+        '''Return 'ip:port' for an active sink subscription that doesn't map to any
+        known input bay; None otherwise (no sink state, no active stream, or the
+        multicast resolves to a registered source bay).'''
+        if not self.is_output or not self.is_v2ip_sink:
+            return None
+        sink = self.device.v2ip_sink
+        if sink is None or sink.addresses is None:
+            return None
+        stream = sink.addresses.audio if audio else sink.addresses.video
+        if stream is None or stream.port == 0:
+            return None
+        if self.device.registry.get_by_stream_ip(ip=stream.ip, audio=audio) is not None:
+            return None
+        return f"{stream.ip}:{stream.port}"
 
     @property
     @override
@@ -783,8 +811,13 @@ class Bay(BayBase):
         return False
 
     @override
-    async def select_audio_source(self, source:int|BayBase|str|None, endpoint:str|None=None) -> bool:
-        '''Select the audio source for this output bay.'''
+    async def select_audio_source(self, source:int|BayBase|str|None, endpoint:str|None=None, audio_fmt:V2IPAudioFormat|None=None) -> bool:
+        '''Select the audio source for this output bay.
+
+        When ``audio_fmt`` is provided, the manual V2IP source switch frame (0x24)
+        is used so the receiver's audio sample rate and channel count can be
+        overridden; video/anc are sent as 0.0.0.0:0 (no change).
+        '''
         if not self.is_v2ip_sink:
             return False
         if isinstance(source, int):
@@ -797,7 +830,24 @@ class Bay(BayBase):
         if (source is None) or (not isinstance(source, (BayBase, str))):
             return False
 
-        if (endpoint is not None) and isinstance(source, BayBase):
+        if audio_fmt is not None:
+            if isinstance(source, BayBase):
+                if (source.v2ip_source is None) or (source.v2ip_source.audio is None):
+                    return False
+                audio_ip = source.v2ip_source.audio.ip
+                audio_port = source.v2ip_source.audio.port
+            else:
+                host, _, port_s = source.partition(':')
+                audio_ip = host
+                audio_port = int(port_s) if port_s else 0
+            frame = FrameV2IPManualSourceSwitch.construct(
+                mxr=self.device.registry, target=self.device,
+                video_ip="0.0.0.0", video_port=0,
+                audio_ip=audio_ip, audio_port=audio_port,
+                anc_ip="0.0.0.0", anc_port=0,
+                audio_fmt=audio_fmt,
+            )
+        elif (endpoint is not None) and isinstance(source, BayBase):
             ep = source.device.audio_endpoint_by_name(name=endpoint)
             if (ep is None) or (self.audio_endpoint is None):
                 return False
