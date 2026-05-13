@@ -13,6 +13,7 @@ from ..Interface import (
 	AmpDolbySettings,
 	DeviceStatus,
 	DeviceV2IPDetails,
+	DeviceV2IPSink,
 	SystemTemperature,
 	V2IPStreamSourcesList,
 	Multiviewer,
@@ -76,6 +77,7 @@ class Device(DeviceBase):
 		self._v2ip_sources:V2IPStreamSourcesList|None = None
 		self._v2ip_stats:V2IPDeviceStats|None = None
 		self._v2ip_details:DeviceV2IPDetails|None = None
+		self._v2ip_sink:DeviceV2IPSink|None = None
 		self._mesh_master_uid:MxrDeviceUid|None = None
 		self._v2ip_in_mapping:list[MxrDeviceUid]|None = None
 		self._v2ip_out_mapping:list[MxrDeviceUid]|None = None
@@ -221,6 +223,15 @@ class Device(DeviceBase):
 	@v2ip_details.setter
 	def v2ip_details(self, details:DeviceV2IPDetails) -> None:
 		self._v2ip_details = details
+		self.call_callbacks()
+
+	@property
+	def v2ip_sink(self) -> DeviceV2IPSink|None:
+		return self._v2ip_sink
+
+	@v2ip_sink.setter
+	def v2ip_sink(self, sink:DeviceV2IPSink) -> None:
+		self._v2ip_sink = sink
 		self.call_callbacks()
 
 	@property
@@ -591,6 +602,8 @@ class Device(DeviceBase):
 			self._on_mxr_temperature(data)
 		elif isinstance(data, DeviceV2IPDetails):
 			self.v2ip_details = data
+		elif isinstance(data, DeviceV2IPSink):
+			self.v2ip_sink = data
 		elif isinstance(data, V2IPStreamSourcesList):
 			self.v2ip_sources = data
 		elif isinstance(data, V2IPDeviceStats):

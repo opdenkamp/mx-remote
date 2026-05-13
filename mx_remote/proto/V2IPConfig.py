@@ -8,53 +8,12 @@
 
 from typing import override
 from ..Uid import MxrDeviceUid
-from ..Interface import V2IPStreamSource, V2IPStreamSources
+from ..Interface import V2IPStreamSource, V2IPStreamSources, V2IPAudioFormat
 import socket
 import struct
 
-class V2IPAudioFormat:
-    '''Optional manual-switch audio format (sample rate + channels). Zero = use defaults.'''
-    _WIRE_SIZE = 8
-
-    def __init__(self, sample_rate:int=0, channels:int=0) -> None:
-        self._sample_rate = sample_rate
-        self._channels = channels
-
-    @classmethod
-    def from_bytes(cls, data:bytes) -> 'V2IPAudioFormat':
-        if len(data) < cls._WIRE_SIZE:
-            raise ValueError(f"invalid V2IPAudioFormat size: {len(data)}")
-        return cls(
-            sample_rate=int.from_bytes(data[0:4], "little"),
-            channels=int(data[4]),
-        )
-
-    @property
-    def sample_rate(self) -> int:
-        '''Sample rate in Hz, or 0 to fall back to the firmware default (48000).'''
-        return self._sample_rate
-
-    @property
-    def channels(self) -> int:
-        '''Channel count 1..8, or 0 to fall back to the firmware default (2).'''
-        return self._channels
-
-    @property
-    def value(self) -> bytes:
-        return bytes([
-            (self._sample_rate >> 0)  & 0xFF,
-            (self._sample_rate >> 8)  & 0xFF,
-            (self._sample_rate >> 16) & 0xFF,
-            (self._sample_rate >> 24) & 0xFF,
-            self._channels & 0xFF,
-            0, 0, 0,
-        ])
-
-    def __str__(self) -> str:
-        return f"{self.sample_rate}Hz/{self.channels}ch"
-
-    def __repr__(self) -> str:
-        return str(self)
+# Re-exported for back-compat: V2IPAudioFormat lives in Interface so abstract types can reference it.
+__all__ = ["V2IPAudioFormat", "V2IPStreamSourceImpl", "V2IPConfig", "V2IPStreamSourcesImpl", "parse_v2ip_av_source"]
 
 class V2IPStreamSourceImpl(V2IPStreamSource):
     '''Concrete implementation of a V2IP stream source with IP and port.'''
@@ -159,3 +118,16 @@ class V2IPStreamSourcesImpl(V2IPStreamSources):
 
     def __repr__(self) -> str:
         return str(self)
+
+# Wire size of a v2ip_av_source (3 × v2ip_stream_source, ALIGN(8) each = 24 bytes).
+V2IP_AV_SOURCE_WIRE_SIZE = 24
+
+def parse_v2ip_av_source(data:bytes, offset:int=0) -> V2IPStreamSourcesImpl:
+    '''Parse a v2ip_av_source struct (24 bytes) into a V2IPStreamSourcesImpl with video/audio/anc.'''
+    if len(data) < (offset + V2IP_AV_SOURCE_WIRE_SIZE):
+        raise ValueError(f"invalid v2ip_av_source size: {len(data) - offset}")
+    return V2IPStreamSourcesImpl(
+        video=V2IPStreamSourceImpl("video", data[offset + 0:offset + 6]),
+        audio=V2IPStreamSourceImpl("audio", data[offset + 8:offset + 14]),
+        anc=V2IPStreamSourceImpl("anc", data[offset + 16:offset + 22]),
+    )

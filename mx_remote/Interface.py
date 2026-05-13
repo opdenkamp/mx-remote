@@ -256,6 +256,58 @@ class AmpZoneSettings:
     def __repr__(self) -> str:
         return str(self)
 
+class V2IPAudioFormat:
+    '''V2IP audio format (sample rate + channels). Zero values mean "use firmware defaults".'''
+    _WIRE_SIZE = 8
+
+    def __init__(self, sample_rate:int=0, channels:int=0) -> None:
+        self._sample_rate = sample_rate
+        self._channels = channels
+
+    @classmethod
+    def from_bytes(cls, data:bytes) -> 'V2IPAudioFormat':
+        if len(data) < cls._WIRE_SIZE:
+            raise ValueError(f"invalid V2IPAudioFormat size: {len(data)}")
+        return cls(
+            sample_rate=int.from_bytes(data[0:4], "little"),
+            channels=int(data[4]),
+        )
+
+    @property
+    def sample_rate(self) -> int:
+        '''Sample rate in Hz, or 0 to fall back to the firmware default (48000).'''
+        return self._sample_rate
+
+    @property
+    def channels(self) -> int:
+        '''Channel count 1..8, or 0 to fall back to the firmware default (2).'''
+        return self._channels
+
+    @property
+    def value(self) -> bytes:
+        return bytes([
+            (self._sample_rate >> 0)  & 0xFF,
+            (self._sample_rate >> 8)  & 0xFF,
+            (self._sample_rate >> 16) & 0xFF,
+            (self._sample_rate >> 24) & 0xFF,
+            self._channels & 0xFF,
+            0, 0, 0,
+        ])
+
+    def __eq__(self, other:Any) -> bool:
+        if not isinstance(other, V2IPAudioFormat):
+            return False
+        return (self._sample_rate == other._sample_rate) and (self._channels == other._channels)
+
+    def __hash__(self) -> int:
+        return hash((self._sample_rate, self._channels))
+
+    def __str__(self) -> str:
+        return f"{self.sample_rate}Hz/{self.channels}ch"
+
+    def __repr__(self) -> str:
+        return str(self)
+
 class V2IPStreamSource(ABC):
     """
     V2IP multicast IP address and port number
@@ -1164,6 +1216,34 @@ class DeviceV2IPDetails:
     def scaling(self) -> DeviceV2IPScalingSettings|None:
         return self._scaling
 
+class DeviceV2IPSink:
+    """
+    A V2IP sink's effective multicast subscriptions and resolved audio format.
+
+    Mirrors the sink-side state broadcast alongside v2ip_device_config updates and
+    manual-switch frames. ``addresses`` is None when no active route is announced;
+    when present, each stream may still carry an all-zero ip when that stream is
+    inactive. ``audio_fmt`` carries the resolved sink audio format (zero fields
+    fall back to firmware defaults of 48kHz / 2 channels).
+    """
+    def __init__(self, addresses:V2IPStreamSources|None, audio_fmt:V2IPAudioFormat|None) -> None:
+        self._addresses = addresses
+        self._audio_fmt = audio_fmt
+
+    @property
+    def addresses(self) -> V2IPStreamSources|None:
+        return self._addresses
+
+    @property
+    def audio_fmt(self) -> V2IPAudioFormat|None:
+        return self._audio_fmt
+
+    def __str__(self) -> str:
+        return f"addresses=[{self._addresses}] audio_fmt={self._audio_fmt}"
+
+    def __repr__(self) -> str:
+        return str(self)
+
 class UtpLinkErrorStatus(ABC):
     ''' UTP link error status bits '''
 
@@ -1453,6 +1533,11 @@ class DeviceBase(ABC):
     @abstractmethod
     def v2ip_details(self) -> DeviceV2IPDetails|None:
         '''V2IP encoder/decoder configuration'''
+
+    @property
+    @abstractmethod
+    def v2ip_sink(self) -> DeviceV2IPSink|None:
+        '''V2IP sink-side multicast subscriptions and resolved audio format (None until first announced)'''
 
     @property
     @abstractmethod

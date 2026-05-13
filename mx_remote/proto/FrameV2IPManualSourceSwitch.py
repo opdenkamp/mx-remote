@@ -8,8 +8,8 @@
 
 from functools import cached_property
 from .FrameBase import FrameBase
-from .V2IPConfig import V2IPStreamSourceImpl, V2IPAudioFormat
-from ..Interface import BayBase, DeviceBase, DeviceRegistry, SelectedBays
+from .V2IPConfig import V2IPStreamSourceImpl, V2IPStreamSourcesImpl
+from ..Interface import BayBase, DeviceBase, DeviceRegistry, DeviceV2IPSink, SelectedBays, V2IPAudioFormat
 from ..Uid import MxrDeviceUid
 import socket
 
@@ -92,6 +92,14 @@ class FrameV2IPManualSourceSwitch(FrameBase):
     def audio_bay(self) -> BayBase|None:
         return self.mxr.get_by_stream_ip(ip=self.audio.ip, audio=True)
 
+    @cached_property
+    def sink(self) -> DeviceV2IPSink:
+        '''Effective sink-side state announced by this manual switch (mirrors what /v2ip/sink reports).'''
+        return DeviceV2IPSink(
+            addresses=V2IPStreamSourcesImpl(video=self.video, audio=self.audio, anc=self.anc),
+            audio_fmt=self.audio_fmt,
+        )
+
     def process(self) -> None:
         '''Update the local cache with the new manual route.'''
         if (self.target_device is None):
@@ -99,6 +107,9 @@ class FrameV2IPManualSourceSwitch(FrameBase):
         sink_bay = self.target_device.first_output
         if (sink_bay is not None):
             sink_bay.on_mxr_update(SelectedBays(self.video_bay, self.audio_bay))
+        # Refresh the target device's cached sink subscriptions so /port/details consumers
+        # see the new route before the next periodic v2ip_device_config broadcast.
+        self.target_device.on_mxr_update(self.sink)
 
     def __str__(self) -> str:
         fmt = f" fmt={self.audio_fmt}" if (self.audio_fmt is not None) else ""
