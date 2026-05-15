@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling", "mypy"]
+requires = ["hatchling", "mypy<2"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.hooks.custom]
