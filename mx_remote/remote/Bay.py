@@ -509,12 +509,13 @@ class Bay(BayBase):
         if self.is_hdmi:
             if self.is_input:
                 return PowerStatus.ON if self.signal_detected else PowerStatus.OFF
-            if self.is_output and not self.hpd_detected:
+            if not self.hpd_detected:
                 return PowerStatus.OFF
             if not self.signal_detected:
                 return PowerStatus.OFF
             if self.is_hdbaset and not self.hdbt_connected:
                 return PowerStatus.OFF
+            return PowerStatus.ON
         elif self.is_audio:
             if self.muted:
                 return PowerStatus.OFF
