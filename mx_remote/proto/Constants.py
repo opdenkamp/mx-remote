@@ -9,7 +9,91 @@
 
 from enum import IntEnum, IntFlag
 
-MXR_PROTOCOL_VERSION = 0x25
+MXR_PROTOCOL_VERSION = 0x27
+"""Highest mx_remote protocol version this library understands.
+
+Mirrors MXR_PROTOCOL_VERSION in libP8/mx_remote/inc/mx_remote_proto.h. Bump
+when adding RX support for an opcode revision; transmitters stamp the
+per-opcode minimum from MXR_OPCODE_VERSIONS so older peers still parse the
+frame."""
+
+MXR_OPCODE_VERSIONS: dict[int, int] = {
+    0x00: 0x01,  # SYS_HELLO
+    0x01: 0x01,  # SYS_DISCOVER
+    0x02: 0x01,  # SYS_BAY_CONFIG
+    0x03: 0x01,  # SYS_LINKS
+    0x04: 0x1B,  # DEV_CONNECT
+    0x05: 0x01,  # DEV_POWER_CHANGE
+    0x06: 0x01,  # DEV_SIGNAL_OLD
+    0x07: 0x01,  # DEV_EDID
+    0x08: 0x01,  # MX_ROUTE
+    0x09: 0x01,  # MX_SET_ROUTE
+    0x0A: 0x19,  # RC_IR
+    0x0B: 0x01,  # RC_KEY
+    0x0C: 0x0C,  # RC_TX_KEY
+    0x0D: 0x01,  # RC_ACTION
+    0x0E: 0x0C,  # RC_TX_ACTION
+    0x0F: 0x01,  # AUDIO_VOLUME_UP
+    0x10: 0x01,  # AUDIO_VOLUME_DOWN
+    0x11: 0x01,  # AUDIO_CLIP
+    0x12: 0x01,  # AUDIO_VOLUME_MUTE
+    0x13: 0x01,  # AUDIO_SET_ROUTE
+    0x14: 0x11,  # AUDIO_SET_VOLUME
+    0x15: 0x01,  # SYS_TEMPERATURE
+    0x16: 0x01,  # PDU_STATE
+    0x17: 0x01,  # CEC_RAW_RX
+    0x18: 0x01,  # CEC_RAW_TX
+    0x19: 0x01,  # CEC_SET_TYPE
+    0x1A: 0x01,  # CEC_GET_TYPE
+    0x1B: 0x01,  # CEC_SET_ADDRESS
+    0x1C: 0x01,  # CEC_GET_ADDRESS
+    0x1D: 0x01,  # CEC_GET_BUS_STATUS
+    0x1E: 0x01,  # CEC_GET_DEVICE_STATUS
+    0x1F: 0x06,  # V2IP_SOURCE_SWITCH
+    0x20: 0x06,  # V2IP_LINK_REMOTE
+    0x21: 0x06,  # V2IP_DETECT_BAYS
+    0x22: 0x06,  # CHANGE_BAY_NAME
+    0x23: 0x07,  # SYS_BAY_CONFIG_SECONDARY
+    0x24: 0x25,  # V2IP_MANUAL_SOURCE_SWITCH
+    0x26: 0x09,  # SYS_BAY_V2IP_SOURCES
+    0x27: 0x06,  # BAY_HIDE
+    0x28: 0x01,  # SYS_REBOOT
+    0x29: 0x22,  # NET_LINK_STATUS
+    0x2A: 0x06,  # FIRMWARE_VERSION
+    0x2B: 0x01,  # SYS_MONITORING_PULSE
+    0x2C: 0x06,  # V2IP_UPGRADE_FPGA
+    0x2D: 0x02,  # VIDEO_CLOCK_RATE_OLD
+    0x2E: 0x06,  # V2IP_BLIST_REGISTER
+    0x2F: 0x06,  # V2IP_BLIST_UNREGISTER
+    0x30: 0x06,  # TOPOLOGY
+    0x31: 0x06,  # BAY_SIGNAL_STATUS
+    0x32: 0x06,  # BAY_MIRROR_STATUS
+    0x34: 0x08,  # BAY_EDID_PROFILE
+    0x35: 0x0A,  # SETUP_STATUS
+    0x36: 0x0B,  # SET_MASTER
+    0x37: 0x0C,  # SET_INSTALLER
+    0x38: 0x0E,  # BAY_FILTER_STATUS
+    0x39: 0x0F,  # BAY_STATUS
+    0x3A: 0x0F,  # SYS_FACTORY_RESET
+    0x3B: 0x1D,  # MESH_OPERATION
+    0x3C: 0x26,  # V2IP_DEVICE_CFG
+    0x3D: 0x1C,  # AMP_ZONE_SETTINGS
+    0x3E: 0x1C,  # AMP_DOLBY_STATE
+    0x3F: 0x13,  # V2IP_STATS
+    0x40: 0x14,  # V2IP_TILING
+    0x41: 0x15,  # V2IP_POWER_SAVE
+    0x42: 0x16,  # V2IP_MULTIVIEWER
+    0x43: 0x1A,  # V2IP_AUDIO
+    0x44: 0x1C,  # V2IP_BAY_MAPPINGS
+    0x45: 0x24,  # RC_SETTINGS
+    0x46: 0x1E,  # SYSSTATUS
+    0x47: 0x1F,  # DEBUG
+    0x48: 0x23,  # RC_IR_TX
+}
+"""Per-opcode minimum compatible protocol version, mirroring the third arg of
+MXR_OPCODE() in libP8/mx_remote/inc/mx_opcodes.h. Transmitters stamp the
+header.protocol with the value for the opcode being sent so that older
+receivers correctly reject frames they cannot decode."""
 
 V2IP_AUDIO_DEFAULT_SAMPLE_RATE = 48000
 V2IP_AUDIO_DEFAULT_CHANNELS    = 2
@@ -131,6 +215,8 @@ class BayStatusMask(IntFlag):
 	OFFLINE = (1 << 13)
 	DECODER_DISABLED = (1 << 14)
 	ENCODER_DISABLED = (1 << 15)
+	CEC_DISABLED = (1 << 20)
+	ENCODER_ERROR = (1 << 21)
 
 	def __str__(self) -> str:
 		rv = ""
@@ -164,9 +250,29 @@ class BayStatusMask(IntFlag):
 			rv += ", decoder disabled"
 		if BayStatusMask.ENCODER_DISABLED in self:
 			rv += ", encoder disabled"
+		if BayStatusMask.CEC_DISABLED in self:
+			rv += ", cec disabled"
+		if BayStatusMask.ENCODER_ERROR in self:
+			rv += ", encoder error"
 		if len(rv) != 0:
 			return rv[2:]
 		return "none"
+
+
+# Bay status bit-field accessors (not flag bits). Mirrors MXR_BAY_STATUS_RC_TYPE
+# and MXR_BAY_STATUS_HDCP_STATUS in mx_remote_proto.h.
+BAY_STATUS_RC_TYPE_SHIFT = 16
+BAY_STATUS_RC_TYPE_MASK = (0xF << BAY_STATUS_RC_TYPE_SHIFT)
+BAY_STATUS_HDCP_STATUS_SHIFT = 22
+BAY_STATUS_HDCP_STATUS_MASK = (0x3 << BAY_STATUS_HDCP_STATUS_SHIFT)
+
+def bay_status_rc_type(status: int) -> int:
+	'''Return the RC type (4 bits at MXR_BAY_STATUS_RC_TYPE) from a bay-status word.'''
+	return (status & BAY_STATUS_RC_TYPE_MASK) >> BAY_STATUS_RC_TYPE_SHIFT
+
+def bay_status_hdcp(status: int) -> int:
+	'''Return the HDCP status (2 bits at MXR_BAY_STATUS_HDCP_STATUS) from a bay-status word.'''
+	return (status & BAY_STATUS_HDCP_STATUS_MASK) >> BAY_STATUS_HDCP_STATUS_SHIFT
 
 class LinkFeature(IntFlag):
 	'''Virtual link feature flags.'''
