@@ -245,7 +245,7 @@ class MultiviewerHWViewMode(IntEnum):
 
 
 _MV_SETTINGS_SIZE = 168
-_MV_CONFIG_SIZE = 18
+_MV_CONFIG_SIZE = 19
 
 
 class MultiviewerConfigData:
@@ -353,7 +353,7 @@ def pack_multiviewer_settings(
         + fw_mcu_b + b"\x00" * (32 - len(fw_mcu_b))
         + fw_scaler_b + b"\x00" * (32 - len(fw_scaler_b))
         + cfg
-        + b"\x00" * 6
+        + b"\x00" * 5
     )
     if len(out) != _MV_SETTINGS_SIZE:
         raise AssertionError(f"settings must be {_MV_SETTINGS_SIZE} bytes, got {len(out)}")
