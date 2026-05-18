@@ -9,11 +9,20 @@
 from enum import IntEnum
 from functools import cached_property
 import logging
+import struct
 from typing import override
 
 from .FrameHeader import FrameHeader
 from .FrameBase import FrameBase
 from ..Interface import DeviceRegistry, MxrDeviceUid, V2IPStreamSource, AudioFeatures, AudioEndpoint, AudioEndpoints, AudioChangeSource, AudioLink, AudioLinks
+
+
+V2IP_AUDIO_EP_ID_NONE = 0xFF
+_AUDIO_CMD_SIZE = 20
+_AUDIO_DEV_HEADER_SIZE = 16
+_AUDIO_ENTRY_SIZE = 16
+_AUDIO_LINKS_HEADER_SIZE = 4
+_AUDIO_LINK_SIZE = 20
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -497,6 +506,166 @@ class AudioVolume:
     def __str__(self) -> str:
         return f"volume endpoint {self.endpoint}: {self.volume}"
 
+
+class AudioStreamAddress:
+    '''Writable IPv4 + UDP-port pair used in audio endpoint addresses.'''
+    __slots__ = ("ip", "port")
+
+    def __init__(self, ip: str = "0.0.0.0", port: int = 0) -> None:
+        octets = [int(o) for o in ip.split(".")]
+        if len(octets) != 4 or any((o < 0 or o > 255) for o in octets):
+            raise ValueError(f"invalid ipv4: {ip!r}")
+        if not (0 <= port <= 0xFFFF):
+            raise ValueError(f"port out of range: {port}")
+        self.ip = ip
+        self.port = port
+
+    def pack(self) -> bytes:
+        octets = bytes(int(o) for o in self.ip.split("."))
+        return octets + struct.pack("<HH", self.port, 0)
+
+
+class AudioLinkData:
+    '''Writable audio link entry.'''
+    __slots__ = ("endpoint", "link_endpoint", "link_dev")
+
+    def __init__(self, endpoint: int, link_endpoint: int, link_dev: MxrDeviceUid) -> None:
+        self.endpoint = endpoint & 0xFF
+        self.link_endpoint = link_endpoint & 0xFF
+        self.link_dev = link_dev
+
+    def pack(self) -> bytes:
+        return (
+            bytes([self.endpoint, self.link_endpoint, 0, 0])
+            + self.link_dev.byte_value
+        )
+
+
+class AudioEndpointData:
+    '''Writable audio endpoint that serialises to one or more wire entries.'''
+    __slots__ = (
+        "id", "features", "status", "address",
+        "parent_id", "in_routes_supported", "in_routes",
+    )
+
+    def __init__(
+        self,
+        *,
+        id: int,
+        features: int,
+        status: int = 0,
+        address: AudioStreamAddress | None = None,
+        parent_id: int | None = None,
+        in_routes_supported: int | None = None,
+        in_routes: int | None = None,
+    ) -> None:
+        if not (0 <= id <= 0xFF):
+            raise ValueError(f"endpoint id out of range: {id}")
+        self.id = id
+        self.features = features & 0xFFFFFFFF
+        self.status = status & 0xFFFFFFFF
+        self.address = address
+        self.parent_id = parent_id
+        self.in_routes_supported = in_routes_supported
+        self.in_routes = in_routes
+
+    def entries_needed(self) -> int:
+        n = 1
+        if self.address is not None and self.address.port != 0:
+            n += 1
+        if self.parent_id is not None:
+            n += 1
+        if self.in_routes_supported is not None and self.in_routes is not None:
+            n += 1
+        return n
+
+
+class AudioDeviceData:
+    '''Writable audio device descriptor that packs to the FEATURES body.'''
+    __slots__ = ("features", "status", "control_address", "endpoints", "links")
+
+    def __init__(
+        self,
+        *,
+        features: int = 0,
+        status: int = 0,
+        control_address: AudioStreamAddress | None = None,
+        endpoints: list[AudioEndpointData] | None = None,
+        links: list[AudioLinkData] | None = None,
+    ) -> None:
+        self.features = features & 0xFFFFFFFF
+        self.status = status & 0xFFFFFFFF
+        self.control_address = control_address
+        self.endpoints = endpoints or []
+        self.links = links or []
+
+
+def _pack_audio_entry_endpoint(ep: AudioEndpointData) -> bytes:
+    return (
+        bytes([ep.id, int(AudioEntryType.ENDPOINT), 0, 0, 0, 0, 0, 0])
+        + struct.pack("<II", ep.features, ep.status)
+    )
+
+
+def _pack_audio_entry_address(ep_id: int, address: AudioStreamAddress) -> bytes:
+    return (
+        bytes([ep_id & 0xFF, int(AudioEntryType.ADDRESS), 0, 0, 0, 0, 0, 0])
+        + address.pack()
+    )
+
+
+def _pack_audio_entry_parent(ep_id: int, parent_id: int) -> bytes:
+    body = struct.pack("<II", parent_id & 0xFF, 0)
+    return bytes([ep_id & 0xFF, int(AudioEntryType.PARENT), 0, 0, 0, 0, 0, 0]) + body
+
+
+def _pack_audio_entry_route_in(ep_id: int, supported: int, active: int) -> bytes:
+    return (
+        bytes([ep_id & 0xFF, int(AudioEntryType.ROUTE_IN), 0, 0, 0, 0, 0, 0])
+        + struct.pack("<II", supported & 0xFFFFFFFF, active & 0xFFFFFFFF)
+    )
+
+
+def pack_audio_features(dev: AudioDeviceData) -> bytes:
+    '''Pack the mxr_v2ip_audio_dev FEATURES body.
+
+    Entry order matches aud_dev_serialise in mod-v2ip-audio/src/device.c:
+    optional device control address first, then for each endpoint the
+    ENDPOINT entry, optional ADDRESS, optional PARENT, optional ROUTE_IN.
+    '''
+    entries: list[bytes] = []
+    if dev.control_address is not None and dev.control_address.port != 0:
+        entries.append(_pack_audio_entry_address(V2IP_AUDIO_EP_ID_NONE, dev.control_address))
+    for ep in dev.endpoints:
+        entries.append(_pack_audio_entry_endpoint(ep))
+        if ep.address is not None and ep.address.port != 0:
+            entries.append(_pack_audio_entry_address(ep.id, ep.address))
+        if ep.parent_id is not None:
+            entries.append(_pack_audio_entry_parent(ep.id, ep.parent_id))
+        if ep.in_routes_supported is not None and ep.in_routes is not None:
+            entries.append(_pack_audio_entry_route_in(ep.id, ep.in_routes_supported, ep.in_routes))
+
+    nb_entries = len(entries)
+    header = struct.pack("<IIH", dev.features, dev.status, nb_entries) + b"\x00" * 6
+    return header + b"".join(entries)
+
+
+def pack_audio_links(links: list[AudioLinkData]) -> bytes:
+    '''Pack the mxr_v2ip_audio_links body. Empty links list returns an empty bytestring.'''
+    if not links:
+        return b""
+    header = struct.pack("<H", len(links)) + b"\x00\x00"
+    return header + b"".join(link.pack() for link in links)
+
+
+def _audio_cmd_header(opcode: AudioCommandOpcode, target: MxrDeviceUid) -> bytes:
+    return struct.pack("<H", int(opcode)) + b"\x00\x00" + target.byte_value
+
+
+def _pack_audio_param(endpoint_id: int, param: int) -> bytes:
+    return struct.pack("<HHI", endpoint_id & 0xFFFF, 0, param & 0xFFFFFFFF)
+
+
 class FrameV2IPAudio(FrameBase):
     '''V2IP audio frame dispatcher that delegates to sub-type frames based on opcode.'''
     @cached_property
@@ -529,6 +698,34 @@ class FrameV2IPAudio(FrameBase):
     def construct_select_input(mxr:DeviceRegistry, sink:MxrDeviceUid, sink_ep:AudioEndpoint, source:MxrDeviceUid, source_ep:AudioEndpoint) -> FrameBase|None:
         '''Build an audio input selection frame for transmission.'''
         return FrameV2IPAudioChangeSource.construct(mxr=mxr, sink=sink, sink_ep=sink_ep, source=source, source_ep=source_ep)
+
+    @staticmethod
+    def construct_features(
+        mxr:DeviceRegistry,
+        *,
+        own_uid:MxrDeviceUid,
+        dev:AudioDeviceData,
+    ) -> FrameBase|None:
+        '''Build a FEATURES broadcast frame describing this device's audio endpoints.'''
+        body = _audio_cmd_header(AudioCommandOpcode.FEATURES, own_uid) + pack_audio_features(dev)
+        if dev.links:
+            body += pack_audio_links(dev.links)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x43, payload=body)
+
+    @staticmethod
+    def construct_mute(mxr:DeviceRegistry, target:MxrDeviceUid, endpoint_id:int, mute:bool) -> FrameBase|None:
+        body = _audio_cmd_header(AudioCommandOpcode.MUTE, target) + _pack_audio_param(endpoint_id, 1 if mute else 0)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x43, payload=body)
+
+    @staticmethod
+    def construct_trigger(mxr:DeviceRegistry, target:MxrDeviceUid, endpoint_id:int, trigger:bool) -> FrameBase|None:
+        body = _audio_cmd_header(AudioCommandOpcode.TRIGGER, target) + _pack_audio_param(endpoint_id, 1 if trigger else 0)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x43, payload=body)
+
+    @staticmethod
+    def construct_volume(mxr:DeviceRegistry, target:MxrDeviceUid, endpoint_id:int, volume:int) -> FrameBase|None:
+        body = _audio_cmd_header(AudioCommandOpcode.VOLUME, target) + _pack_audio_param(endpoint_id, volume & 0xFFFFFFFF)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x43, payload=body)
 
     @cached_property
     def opcode(self) -> AudioCommandOpcode:
