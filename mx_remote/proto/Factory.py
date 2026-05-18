@@ -66,6 +66,9 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 	if hdr.opcode == 0x08:
 		from .FrameRoutingChange import FrameRoutingChange
 		return FrameRoutingChange(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x09:
+		from .FrameSetRoute import FrameSetRoute
+		return FrameSetRoute(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x0A:
 		from .FrameRCIr import FrameRCIr
 		return FrameRCIr(header=hdr, timestamp=timestamp)
@@ -123,6 +126,12 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 	if hdr.opcode == 0x2A:
 		from .FrameFirmwareVersion import FrameFirmwareVersion
 		return FrameFirmwareVersion(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x2B:
+		from .FrameMonitoringPulse import FrameMonitoringPulse
+		return FrameMonitoringPulse(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x2C:
+		from .FrameUpgradeFPGA import FrameUpgradeFPGA
+		return FrameUpgradeFPGA(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x30:
 		from .FrameTopology import FrameTopology
 		return FrameTopology(header=hdr, timestamp=timestamp)
@@ -135,15 +144,24 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 	if hdr.opcode == 0x34:
 		from .FrameEDIDProfile import FrameEDIDProfile
 		return FrameEDIDProfile(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x35:
+		from .FrameSetupStatus import FrameSetupStatus
+		return FrameSetupStatus(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x36:
 		from .FrameV2IPSetMaster import FrameV2IPSetMaster
 		return FrameV2IPSetMaster(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x37:
+		from .FrameSetInstaller import FrameSetInstaller
+		return FrameSetInstaller(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x38:
 		from .FrameFilterStatus import FrameFilterStatus
 		return FrameFilterStatus(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x39:
 		from .FrameBayStatus import FrameBayStatus
 		return FrameBayStatus(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x3A:
+		from .FrameFactoryReset import FrameFactoryReset
+		return FrameFactoryReset(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x3B:
 		from .FrameMeshOperation import FrameMeshOperation
 		return FrameMeshOperation(header=hdr, timestamp=timestamp)
@@ -183,6 +201,9 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 	if hdr.opcode == 0x47:
 		from .FrameDebug import FrameDebug
 		return FrameDebug(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x48:
+		from .FrameTxIR import FrameTxIR
+		return FrameTxIR(header=hdr, timestamp=timestamp)
 
 	logging.debug(f"opcode {hdr.opcode:02X} is not processed")
 	return None
