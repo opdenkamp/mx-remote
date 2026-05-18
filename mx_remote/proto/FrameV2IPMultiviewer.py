@@ -363,5 +363,34 @@ class FrameV2IPMultiviewer(FrameBase):
         payload += bytes([0 for _ in range(7)])
         return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
 
+    @staticmethod
+    def construct_status(
+        mxr:DeviceRegistry,
+        *,
+        own_uid:MxrDeviceUid,
+        mappings:list[MxrDeviceUid|None]|tuple[MxrDeviceUid|None, ...] = (None, None, None, None),
+        fw_mcu:str = "",
+        fw_scaler:str = "",
+        config:MultiviewerConfigData|None = None,
+    ) -> FrameBase|None:
+        '''Build a STATUS broadcast frame advertising this MV's configuration.'''
+        if len(mappings) != 4:
+            raise ValueError("mappings must have exactly 4 entries")
+        mapping_bytes:list[bytes] = [
+            (b"\x00" * 16) if m is None else m.byte_value for m in mappings
+        ]
+        payload = bytearray()
+        payload += own_uid.byte_value
+        payload.append(MultiviewerOpcode.STATUS.value)
+        payload += bytes([0 for _ in range(7)])
+        payload += pack_multiviewer_settings(
+            uid=own_uid.byte_value,
+            mappings=mapping_bytes,
+            fw_mcu=fw_mcu,
+            fw_scaler=fw_scaler,
+            config=config,
+        )
+        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=bytes(payload))
+
     def __str__(self) -> str:
         return f"{str(self.remote_device)} multiviewer configuration"
