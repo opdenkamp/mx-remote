@@ -346,11 +346,12 @@ class FrameV2IPMultiviewer(FrameBase):
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.CONFIG_SOURCE.value)
         payload += bytes([0 for _ in range(7)])
-        payload.append(input)
         if (source is None):
             payload += bytes([0 for _ in range(16)])
         else:
             payload += source.byte_value
+        payload.append(input)
+        payload += bytes([0 for _ in range(7)])
         return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
 
     @staticmethod
