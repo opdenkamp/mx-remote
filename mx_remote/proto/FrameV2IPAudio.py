@@ -332,7 +332,7 @@ class AudioLinksImpl(AudioLinks):
     def entries(self) -> list[AudioLink]:
         rv = []
         for x in range(self.nb_links):
-            link = AudioLinkImpl(frame=self.data, idx=(4 + self._idx + (x * 24)))
+            link = AudioLinkImpl(frame=self.data, idx=(4 + self._idx + (x * 20)))
             if link.valid:
                 rv.append(link)
         return rv
