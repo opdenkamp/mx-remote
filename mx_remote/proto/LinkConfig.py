@@ -124,7 +124,10 @@ class LinkConfig:
 
     def process(self) -> None:
         '''Register or update this link in the local cache.'''
-        self.frame.mxr.links.update(bay=self.remote_bay, linked_serial=self.linked_serial, linked_bay=self.linked_bay_name, features=self.features)
+        bay = self.remote_bay
+        if bay is None:
+            return
+        self.frame.mxr.links.update(bay=bay, linked_serial=self.linked_serial, linked_bay=self.linked_bay_name, features=self.features)
 
     def __str__(self) -> str:
         if not self.is_linked:
