@@ -20,9 +20,14 @@ class FrameMirrorStatus(FrameBase):
 
     @cached_property
     def target_bay(self) -> BayMirrorStatus:
-        '''Mirror status for the target bay.'''
-        if (self.target is not None):
-            return BayMirrorStatus(MxrBayUid(self.target, 0))
+        '''Mirror status for the sender's first output bay.
+
+        Wraps the master UID (offset 16, the device the sender follows).
+        Empty when the sender is its own master, i.e. not mirroring.
+        '''
+        if (self.master is not None) and not self.master.empty \
+                and (self.master != self.target):
+            return BayMirrorStatus(MxrBayUid(self.master, 0))
         return BayMirrorStatus()
 
     @cached_property
