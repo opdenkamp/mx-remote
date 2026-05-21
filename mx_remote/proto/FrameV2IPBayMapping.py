@@ -24,10 +24,12 @@ class FrameV2IPBayMapping(FrameBase):
     @cached_property
     def is_input(self) -> bool:
         '''Whether these are input bay mappings.'''
+        # Wire format: firmware sets bit 0 to ((mode == MBAY_MODE_INPUT) ? 1 : 0),
+        # so an input frame carries bit 0 = 1 (not 0).
         val = self.payload_u16(0)
         if (val is None):
             return False
-        return (val & 1 == 0)
+        return (val & 1 == 1)
 
     @cached_property
     def is_output(self) -> bool:
@@ -35,7 +37,7 @@ class FrameV2IPBayMapping(FrameBase):
         val = self.payload_u16(0)
         if (val is None):
             return False
-        return (val & 1 == 1)
+        return (val & 1 == 0)
 
     @cached_property
     def first_bay_id(self) -> int|None:

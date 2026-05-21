@@ -203,9 +203,15 @@ class Device(DeviceBase):
 			return None
 		if self._v2ip_sources is None:
 			return None
-		if bay.bay >= len(self._v2ip_sources):
+		# Firmware fills MXR_OP_SYS_BAY_V2IP_SOURCES by iterating bays in order
+		# (MBAY_ITERATE). Devices with no local input (pure RX) skip bay 0, so
+		# the list starts at bay 1 — shift the lookup so bay.bay still maps to
+		# the right entry.
+		offset = 0 if self.has_local_source else 1
+		idx = bay.bay - offset
+		if (idx < 0) or (idx >= len(self._v2ip_sources)):
 			return None
-		return self._v2ip_sources[bay.bay]
+		return self._v2ip_sources[idx]
 
 	@property
 	def v2ip_stats(self) -> V2IPDeviceStats|None:
@@ -619,13 +625,13 @@ class Device(DeviceBase):
 		elif isinstance(data, FrameV2IPBayMapping):
 			if data.first_bay_id is None:
 				return
+			# Firmware iterates bays in MBAY_ITERATE order; the wire payload's
+			# first_bay_id tells us the bay number of payload[0], so payload[i]
+			# maps to bay number (first_bay_id + i). Devices without a local
+			# bay 0 (pure RX) emit first_bay_id=1 and skip the bay-0 slot.
+			mode = 'Input' if data.is_input else 'Output'
 			for idx in range(data.nb_bays):
-				if (idx == 0):
-					if data.is_input and self.is_oneip_rx:
-						continue
-					if data.is_output and (self.is_oneip_tx or self.is_oneip_multiviewer):
-						continue
-				bay = self.get_by_mode_bay(mode=('Input' if data.is_input else 'Output'), bay=idx)
+				bay = self.get_by_mode_bay(mode=mode, bay=data.first_bay_id + idx)
 				if (bay is not None):
 					bay.v2ip_uid = data.bay(idx=idx) # pyright: ignore[reportAttributeAccessIssue]
 		elif isinstance(data, FrameSystemStatus):

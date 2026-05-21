@@ -144,14 +144,20 @@ class Bay(BayBase):
     @override
     def bay_uid(self) -> MxrBayUid:
         # In a OneIP mesh the same source can be advertised by multiple devices
-        # (mesh forwarding etc.). MXR_OP_SYS_BAY_V2IP_SOURCES carries the uid of
-        # the originating source device alongside each stream, so collapse a
-        # v2ip source bay to its originating TX's first-input bay_uid — that
-        # gives the same physical source a single stable bay_uid.
-        if self.is_v2ip_source and ((stream := self.v2ip_source) is not None) and (stream.uid is not None):
-            src_dev = self.device.registry.get_by_uid(remote_id=stream.uid)
-            if (src_dev is not None) and ((src_input := src_dev.first_input) is not None):
-                return MxrBayUid(src_dev.remote_id, src_input.port)
+        # (mesh forwarding etc.). Resolve a v2ip source bay to (source_uid, 0)
+        # — every OneIP unit has at most one input, always at port 0 — using the
+        # source uid from MXR_OP_SYS_BAY_V2IP_SOURCES, falling back to the bay
+        # mapping uid if the sources frame hasn't supplied one. Yields a single
+        # stable bay_uid regardless of who advertises the source.
+        if self.is_v2ip_source:
+            src_uid:MxrDeviceUid|None = None
+            stream = self.v2ip_source
+            if (stream is not None) and (stream.uid is not None) and not stream.uid.empty:
+                src_uid = stream.uid
+            elif (self._v2ip_uid is not None) and not self._v2ip_uid.empty:
+                src_uid = self._v2ip_uid
+            if src_uid is not None:
+                return MxrBayUid(src_uid, 0)
         return MxrBayUid(self.device.remote_id, self.port)
 
     @property
