@@ -143,6 +143,13 @@ class Bay(BayBase):
     @property
     @override
     def bay_uid(self) -> MxrBayUid:
+        # remote v2ip source bays are per-RX views of the same physical source
+        # on a OneIP TX/TZ; collapse them to the originating TX's first input so
+        # the same source has the same bay_uid regardless of which RX sees it.
+        if BayFeaturesMask.V2IP_SOURCE_REMOTE in self.features:
+            src_dev = self.v2ip_device
+            if (src_dev is not None) and ((src_input := src_dev.first_input) is not None):
+                return MxrBayUid(src_dev.remote_id, src_input.port)
         return MxrBayUid(self.device.remote_id, self.port)
 
     @property
