@@ -29,7 +29,7 @@ class FrameV2IPSources(FrameBase):
             if (pl is None):
                 break
             cfg = V2IPConfig(self, srcnum, pl)
-            rv.append(V2IPStreamSourcesImpl(video=cfg.video, audio=cfg.audio, anc=cfg.anc))
+            rv.append(V2IPStreamSourcesImpl(video=cfg.video, audio=cfg.audio, anc=cfg.anc, uid=cfg.uid))
             srcnum += 1
         return rv
 

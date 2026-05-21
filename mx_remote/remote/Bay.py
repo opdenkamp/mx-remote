@@ -143,17 +143,15 @@ class Bay(BayBase):
     @property
     @override
     def bay_uid(self) -> MxrBayUid:
-        # In a OneIP mesh, the same physical source can be re-advertised by
-        # multiple devices (e.g. forwarded through the mesh) under different
-        # v2ip_uids. Dedup by multicast video IP — that uniquely identifies a
-        # stream — and return the originating TX's first-input bay_uid so the
-        # same source has the same bay_uid regardless of who is advertising it.
-        if self.is_v2ip_source and ((stream := self.v2ip_source) is not None):
-            video_ip = stream.video.ip if stream.video is not None else None
-            if (video_ip is not None) and (video_ip != '0.0.0.0'):
-                canonical = self.device.registry.get_by_stream_ip(ip=video_ip)
-                if canonical is not None:
-                    return MxrBayUid(canonical.device.remote_id, canonical.port)
+        # In a OneIP mesh the same source can be advertised by multiple devices
+        # (mesh forwarding etc.). MXR_OP_SYS_BAY_V2IP_SOURCES carries the uid of
+        # the originating source device alongside each stream, so collapse a
+        # v2ip source bay to its originating TX's first-input bay_uid — that
+        # gives the same physical source a single stable bay_uid.
+        if self.is_v2ip_source and ((stream := self.v2ip_source) is not None) and (stream.uid is not None):
+            src_dev = self.device.registry.get_by_uid(remote_id=stream.uid)
+            if (src_dev is not None) and ((src_input := src_dev.first_input) is not None):
+                return MxrBayUid(src_dev.remote_id, src_input.port)
         return MxrBayUid(self.device.remote_id, self.port)
 
     @property

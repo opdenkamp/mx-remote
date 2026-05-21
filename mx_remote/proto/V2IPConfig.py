@@ -71,11 +71,17 @@ class V2IPConfig:
 class V2IPStreamSourcesImpl(V2IPStreamSources):
     '''Concrete collection of V2IP stream sources (video, audio, ancillary, ARC).'''
 
-    def __init__(self, video:V2IPStreamSource, audio:V2IPStreamSource, anc:V2IPStreamSource, arc:V2IPStreamSource|None=None) -> None:
+    def __init__(self, video:V2IPStreamSource, audio:V2IPStreamSource, anc:V2IPStreamSource, arc:V2IPStreamSource|None=None, uid:MxrDeviceUid|None=None) -> None:
         self._video = video
         self._audio = audio
         self._anc = anc
         self._arc = arc
+        self._uid = uid
+
+    @property
+    @override
+    def uid(self) -> MxrDeviceUid|None:
+        return self._uid
 
     @property
     @override

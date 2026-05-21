@@ -334,6 +334,11 @@ class V2IPStreamSources:
 
     @property
     @abstractmethod
+    def uid(self) -> MxrDeviceUid|None:
+        ''' uid of the originating source device, when known '''
+
+    @property
+    @abstractmethod
     def video(self) -> V2IPStreamSource:
         ''' video stream source '''
 
