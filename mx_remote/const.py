@@ -14,7 +14,7 @@ Default communication modes:
 """
 import os
 
-VERSION = '4.7.3'
+VERSION = '4.7.4'
 __version__ = VERSION
 
 MX_BCAST_UDP_PORT = 8811
