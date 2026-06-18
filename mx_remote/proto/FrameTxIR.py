@@ -1,9 +1,9 @@
-##################################################
-##         MX Remote Python Interface           ##
-##                                              ##
-## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
-## copyright (c) 2026 Op den Kamp IT Solutions  ##
-##################################################
+######################################################
+##            MX Remote Python Interface            ##
+##                                                  ##
+## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
+## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
+######################################################
 '''Protocol frame for targeted IR blast (RC_IR_TX, opcode 0x48).
 
 A peer asks a specific target device to retransmit captured IR on one of

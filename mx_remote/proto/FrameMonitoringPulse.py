@@ -1,9 +1,9 @@
-##################################################
-##         MX Remote Python Interface           ##
-##                                              ##
-## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
-## copyright (c) 2026 Op den Kamp IT Solutions  ##
-##################################################
+######################################################
+##            MX Remote Python Interface            ##
+##                                                  ##
+## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
+## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
+######################################################
 '''Protocol frame for SYS_MONITORING_PULSE (opcode 0x2B).
 
 A controller broadcasts this to ask peers to send their monitoring data to

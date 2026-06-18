@@ -14,10 +14,10 @@ dependencies = [
 ]
 requires-python = ">=3.11"
 authors = [
-  {name = "Lars Op den Kamp", email = "lars@opdenkamp.eu"},
+  {name = "Lars Op den Kamp", email = "lars@opdenkamp-it.nl"},
 ]
 maintainers = [
-  {name = "Lars Op den Kamp", email = "lars@opdenkamp.eu"},
+  {name = "Lars Op den Kamp", email = "lars@opdenkamp-it.nl"},
 ]
 description = "Python 3 library for interfacing with MX Remote compatible devices"
 readme = "README.md"

@@ -1,9 +1,9 @@
-##################################################
-##         MX Remote Python Interface           ##
-##                                              ##
-## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
-## copyright (c) 2026 Op den Kamp IT Solutions  ##
-##################################################
+######################################################
+##            MX Remote Python Interface            ##
+##                                                  ##
+## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
+## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
+######################################################
 '''Bay implementation for a single input/output port on an MX Remote device.'''
 
 from __future__ import annotations

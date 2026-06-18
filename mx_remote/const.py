@@ -1,9 +1,9 @@
-##################################################
-##         MX Remote Python Interface           ##
-##                                              ##
-## author: Lars Op den Kamp (lars@opdenkamp.eu) ##
-## copyright (c) 2026 Op den Kamp IT Solutions  ##
-##################################################
+######################################################
+##            MX Remote Python Interface            ##
+##                                                  ##
+## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
+## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
+######################################################
 
 """
 Network and version constants for mx_remote.
