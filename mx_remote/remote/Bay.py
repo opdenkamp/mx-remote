@@ -43,6 +43,7 @@ from ..Interface import (
     AudioChangeSource,
 )
 from ..Uid import MxrBayUid
+from ..const import V2IP_UDP_PORT_AUDIO
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -830,9 +831,13 @@ class Bay(BayBase):
     async def select_audio_source(self, source:int|BayBase|str|None, endpoint:str|None=None, audio_fmt:V2IPAudioFormat|None=None) -> bool:
         '''Select the audio source for this output bay.
 
-        When ``audio_fmt`` is provided, the manual V2IP source switch frame (0x24)
-        is used so the receiver's audio sample rate and channel count can be
-        overridden; video/anc are sent as 0.0.0.0:0 (no change).
+        ``source`` may be an input port number, a source ``BayBase``, or a raw
+        ``"ip[:port]"`` multicast address string. The manual V2IP source switch
+        frame (0x24) is used when ``audio_fmt`` is provided (so the receiver's
+        sample rate and channel count can be overridden) or when ``source`` is a
+        raw address (so its destination port is carried -- the legacy 0x1F frame
+        has no port field). A raw address without a port defaults to the standard
+        V2IP audio port. video/anc are sent as 0.0.0.0:0 (no change).
         '''
         if not self.is_v2ip_sink:
             return False
@@ -846,7 +851,14 @@ class Bay(BayBase):
         if (source is None) or (not isinstance(source, (BayBase, str))):
             return False
 
-        if audio_fmt is not None:
+        # A raw "ip[:port]" source string carries a destination port that only the
+        # manual switch frame (0x24) can express; the legacy source-switch frame
+        # (0x1F) has no port field, so the receiver resolves the address against
+        # its known sources and, failing that, falls back to the *default* audio
+        # port -- a custom stream on any other port never routes. Use the manual
+        # frame whenever the source is a raw address or an audio format override
+        # is requested; a known input bay with neither still uses 0x1F.
+        if (audio_fmt is not None) or isinstance(source, str):
             if isinstance(source, BayBase):
                 if (source.v2ip_source is None) or (source.v2ip_source.audio is None):
                     return False
@@ -855,7 +867,7 @@ class Bay(BayBase):
             else:
                 host, _, port_s = source.partition(':')
                 audio_ip = host
-                audio_port = int(port_s) if port_s else 0
+                audio_port = int(port_s) if port_s else V2IP_UDP_PORT_AUDIO
             frame = FrameV2IPManualSourceSwitch.construct(
                 mxr=self.device.registry, target=self.device,
                 video_ip="0.0.0.0", video_port=0,
