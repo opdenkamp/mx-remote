@@ -1,11 +1,36 @@
-# MX Remote Interface
+# MX Remote — Pulse-Eight device interface
 
-Python 3 library for interfacing with [MX Remote](https://github.com/opdenkamp/mx-remote/) compatible devices over a local network. Supports device discovery, video/audio routing, volume control, remote control key passthrough, V2IP (OneIP) streaming, and more.
+Python 3 library for discovering and controlling [Pulse-Eight](https://www.pulse-eight.com/)
+AV distribution hardware over a local network: video/audio matrices, HDMI-over-IP
+encoders/decoders, multiviewers, and audio amplifiers. Supports device discovery,
+video/audio routing, volume control, remote-control key passthrough, HDMI-over-IP
+streaming, multiviewer control, and more.
+
+If you are looking to integrate Pulse-Eight **neo**, **OneIP**, or **ProAmp8** devices into
+your own software or home-automation system, this is the library for it.
+
+## What is MX Remote?
+
+MX Remote is the network protocol these Pulse-Eight devices use to discover and control one
+another over UDP (multicast or broadcast). All of them run the shared **MatrixOS** firmware,
+which speaks this protocol natively. This library is a client implementation of that
+protocol — its purpose is to expose the devices to third-party software.
+
+## Supported devices
+
+All devices below run MatrixOS and are controlled through the same protocol:
+
+- **[Pulse-Eight neo](https://www.pulse-eight.com/)** — HDBaseT video/audio matrices
+  (neo:4, neo:8, neo:X, and splitters)
+- **[Pulse-Eight OneIP](https://www.pulse-eight.com/p/248/oneip-tx)** — HDMI-over-IP
+  units: Transmitter (TX), Receiver (RX), Transceiver (TZ), and Multiviewer
+- **[Pulse-Eight ProAmp8](https://www.pulse-eight.com/p/219/proamp-8)** — 8-zone audio amplifier with
+  Dolby support
 
 ## Requirements
 
 - Python 3.11 or later
-- Network access to MX Remote compatible devices (multicast or broadcast)
+- Network access to one or more of the Pulse-Eight devices above (multicast or broadcast)
 
 ## Installation
 
@@ -63,7 +88,7 @@ mx = mx_remote.Remote(open_connection=False)
 
 ### Device
 
-A `DeviceBase` represents a physical device on the network (matrix, OneIP unit, amplifier). Devices are automatically registered when they respond to discovery requests.
+A `DeviceBase` represents a physical device on the network (a Pulse-Eight neo matrix, OneIP unit, or ProAmp8 amplifier). Devices are automatically registered when they respond to discovery requests.
 
 ```python
 # look up a device by serial number or unique ID
@@ -82,10 +107,10 @@ device.features        # DeviceFeatures bitmask
 device.temperatures    # dict of temperature sensor readings
 
 # device type checks
-device.is_v2ip             # OneIP device
-device.is_video_matrix     # video matrix
+device.is_v2ip             # Pulse-Eight OneIP HDMI-over-IP device
+device.is_video_matrix     # neo video matrix
 device.is_audio_matrix     # audio-only matrix
-device.is_amp              # audio amplifier
+device.is_amp              # ProAmp8 audio amplifier
 device.is_oneip_tx         # OneIP transmitter
 device.is_oneip_rx         # OneIP receiver
 device.is_oneip_tz         # OneIP transceiver
@@ -304,24 +329,24 @@ log = await device.get_log()
 result = await device.get_api("system/status")
 ```
 
-## OneIP (V2IP) Devices
+## Pulse-Eight OneIP Devices
 
-OneIP devices expose additional streaming properties:
+[Pulse-Eight OneIP](https://www.pulse-eight.com/p/248/oneip-tx) HDMI-over-IP devices expose additional streaming properties:
 
 ```python
-# V2IP stream source addresses
+# stream source addresses
 if device.is_v2ip and device.v2ip_sources:
     for source in device.v2ip_sources:
         print(f"Video: {source.video.ip}:{source.video.port}")
         print(f"Audio: {source.audio.ip}:{source.audio.port}")
 
-# V2IP device details (encoder/decoder config)
+# stream details (encoder/decoder config)
 if device.v2ip_details:
     details = device.v2ip_details
     print(f"Video: {details.video}")
     print(f"TX rate: {details.tx_rate}")
 
-# V2IP statistics
+# streaming statistics
 await device.read_stats(enable=True)   # start collecting
 # ... later ...
 stats = device.v2ip_stats
@@ -336,9 +361,9 @@ if device.v2ip_firmware_versions:
         print(f"{fw_type}: {fw.version}")
 ```
 
-## OneIP Multiviewer
+## Pulse-Eight OneIP Multiviewer
 
-Control multiviewer-specific settings:
+Control [OneIP Multiviewer](https://www.pulse-eight.com/p/248/oneip-tx)-specific settings:
 
 ```python
 from mx_remote import (
