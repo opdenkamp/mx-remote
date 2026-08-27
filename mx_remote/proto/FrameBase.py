@@ -9,7 +9,7 @@
 
 from functools import cached_property
 import time
-from .Constants import MXR_PROTOCOL_VERSION
+from .Constants import MXR_OPCODE_VERSIONS, MXR_PROTOCOL_VERSION
 from .FrameHeader import FrameHeader
 from ..Interface import DeviceBase, DeviceRegistry, BayBase
 from ..Uid import MxrDeviceUid
@@ -32,8 +32,27 @@ class FrameBase:
         self.timestamp = timestamp if (timestamp is not None) else time.time()
 
     @staticmethod
-    def construct_base(mxr:DeviceRegistry, opcode:int, protocol:int=MXR_PROTOCOL_VERSION, payload:bytes=bytes([]), size:int|None=None) -> 'FrameBase|None':
-        '''Construct a new frame for transmission with the given opcode and payload.'''
+    def opcode_protocol(opcode:int) -> int:
+        '''Header protocol version to stamp on a frame carrying this opcode.
+
+        The receiver drops any frame whose header protocol exceeds its own
+        MXR_PROTOCOL_VERSION, so this field means "the version this opcode
+        needs", not "the version this build is". Stamping the latter silently
+        un-deploys us from every peer with a lower cap the moment
+        MXR_PROTOCOL_VERSION is bumped - a ProAmp8 caps at 0x22 and would drop
+        our hello. Fall back to the current version only for an opcode absent
+        from the table, which means it is newer than the table.'''
+        return MXR_OPCODE_VERSIONS.get(opcode, MXR_PROTOCOL_VERSION)
+
+    @staticmethod
+    def construct_base(mxr:DeviceRegistry, opcode:int, protocol:int|None=None, payload:bytes=bytes([]), size:int|None=None) -> 'FrameBase|None':
+        '''Construct a new frame for transmission with the given opcode and payload.
+
+        Leave protocol unset unless the payload really does need a newer
+        receiver than the opcode itself does; it then defaults to the opcode's
+        own minimum from MXR_OPCODE_VERSIONS.'''
+        if (protocol is None):
+            protocol = FrameBase.opcode_protocol(opcode)
         header = FrameHeader.construct(mxr=mxr, opcode=opcode, protocol=protocol)
         if (header is None):
             return None
