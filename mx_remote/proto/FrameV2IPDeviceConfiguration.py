@@ -28,11 +28,19 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 # inside 5..100, a dscp byte only with MXR_V2IP_DSCP_SET, scaling only under its
 # MXR_SCALING_FLAG_*_VALID flags.
 #
-# The tiling block has no such marker and every controller write sends it zeroed,
-# so an all-zero window here means 'this frame carries none', never 'clear it'. A
-# window is only ever set or cleared through 0x40 V2IP_TILING. Nothing caches
-# tiling on this side today - if that changes, honour that or a controller write
-# will wipe the cached wall window of every sink it touches.
+# The tiling block has no flag of its own, but its uid serves as one: both paths
+# that produce a real window stamp it (v2ip_fpga.c:1445 for a remote sink, 1470
+# for a local one), while a controller write passes tiling = NULL and leaves the
+# whole block zeroed, uid included. So it is the all-zero *block* that means 'not
+# carried', not an all-zero window:
+#   uid zero                    -> not carried; keep whatever is cached
+#   uid set, geometry zero      -> a real clear (the alignment check at 1457 is
+#                                  skipped for 0x0, which is how a window clears)
+#   uid set, geometry non-zero  -> a real window
+# Nothing caches tiling on this side today - 0x40 V2IP_TILING's process() is a
+# no-op and this frame does not parse the block - but if that changes, test the
+# uid, or a controller write will wipe the cached wall window of every sink it
+# touches until the next periodic broadcast heals it.
 # v2ip_device_config_update_options trailer (optional, MXR protocol >= 0x26):
 #   88..112  v2ip_av_source sink (zero when no active route)
 #   112..120 v2ip_audio_format sink_audio_fmt
