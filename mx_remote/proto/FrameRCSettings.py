@@ -23,10 +23,14 @@ import struct
 # SINGLE-SOURCED. That measurement has one origin and was relayed here, not
 # reproduced. It is a good source - a compiler is a better authority on its own
 # packing than any reasoning about the ABI - but nothing independent stands
-# behind it, and the failure mode is quiet: a status_name two bytes out reads as
-# a plausible truncated string rather than as garbage. One captured 0x45 frame
-# from a unit with a non-empty driver status settles 10-vs-12 outright and would
-# retire the question; worth doing before trusting this against a bug report.
+# behind it, and the failure mode is quiet: a status_name two bytes out lands
+# inside the string and yields a plausible truncated name, not garbage. So the
+# symptom to act on is a status name that is merely odd - short, or missing its
+# first characters - rather than one that is obviously broken. Waiting for
+# garbage is waiting for something this bug cannot produce.
+#
+# One captured 0x45 frame from a unit with a non-empty driver status settles
+# 10-vs-12 outright and would retire the question.
 #
 #   0..16    mxr_uid target
 #   16..20   rc_target_t rc          (enum, 4 bytes)
