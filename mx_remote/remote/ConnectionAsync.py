@@ -111,6 +111,10 @@ class ConnectionAsync(asyncio.DatagramProtocol):
     def _create_rx_socket(self) -> socket.socket|None:
         _LOGGER.debug(f"open rx socket {self.target_ip}:{self.port}")
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        # Both options, so a second client on this host can bind the same port.
+        # SO_REUSEPORT does not cost fan-out here: a reuseport group selects one
+        # member for unicast only, and multicast and broadcast are delivered to
+        # every bound socket either way.
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         if is_posix_os():
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
