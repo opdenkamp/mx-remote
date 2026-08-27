@@ -8,6 +8,7 @@
 '''Protocol constants, feature flags, and enumeration types for the MX Remote binary protocol.'''
 
 from enum import IntEnum, IntFlag
+from typing import TypeVar
 
 MXR_PROTOCOL_VERSION = 0x28
 """Highest mx_remote protocol version this library understands.
@@ -156,6 +157,29 @@ def v2ip_dscp_value(raw:int|None) -> int|None:
     if (raw is None) or ((raw & MXR_V2IP_DSCP_SET) == 0):
         return None
     return (raw & V2IP_DSCP_MAX)
+
+_EnumT = TypeVar('_EnumT', bound=IntEnum)
+
+def decode_enum(cls:type[_EnumT], value:int|None) -> _EnumT|None:
+	'''Convert a value off the wire into an enum member, tolerating unknowns.
+
+	mx_remote is maintained for backwards compatibility in both directions: a
+	driver must not break because a firmware update taught a device a value this
+	build has not seen. So an unrecognised value is neither an error nor folded
+	into the nearest known member - it becomes the enum's own UNKNOWN where one
+	is defined, and None otherwise.
+
+	Never clamp instead of this. Folding an unknown value to zero is the worst
+	of the three options, because zero is a meaningful member of most of these
+	enums: a firmware adding a mode would not produce an unknown value, it would
+	produce a confidently wrong known one.
+	'''
+	if (value is None):
+		return getattr(cls, 'UNKNOWN', None)
+	try:
+		return cls(value)
+	except ValueError:
+		return getattr(cls, 'UNKNOWN', None)
 
 class DeviceFeature(IntFlag):
 	'''Device feature flags reported in hello frames.'''
@@ -696,11 +720,10 @@ class FirmwareType(IntEnum):
 	LINUX = 2
 	LOADING_OVERLAY = 3
 
-	def __init__(self, val:int|None) -> None:
-		if (val is None) or (val > 3):
-			self._value = 0
-		else:
-			self._value = val
+	# No clamping __init__ here: IntEnum rejects an unknown value before __init__
+	# would run, so a guard there never fires - it only looks like one. Decode
+	# wire values through decode_enum(), which yields UNKNOWN for anything this
+	# build does not recognise.
 
 	def __str__(self) -> str:
 		if (self.value == FirmwareType.FPGA.value):

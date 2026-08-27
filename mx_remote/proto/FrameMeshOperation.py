@@ -8,6 +8,7 @@
 
 from functools import cached_property
 from .FrameBase import FrameBase
+from .Constants import decode_enum
 from ..Interface import DeviceRegistry, DeviceBase, MxrDeviceUid
 from enum import IntEnum
 import logging
@@ -62,7 +63,7 @@ class FrameMeshOperation(FrameBase):
         pl = self.payload_u8(0)
         if (pl is None):
             return None
-        return MeshOperation(pl)
+        return decode_enum(MeshOperation, pl)
 
     @cached_property
     def target_uid(self) -> MxrDeviceUid|None:

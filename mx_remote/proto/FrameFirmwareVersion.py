@@ -8,7 +8,7 @@
 
 from functools import cached_property
 from .FrameBase import FrameBase
-from .Constants import FirmwareType, MXR_FW_VERSION_LEN
+from .Constants import FirmwareType, MXR_FW_VERSION_LEN, decode_enum
 from ..Interface import FirmwareVersion
 
 class FrameFirmwareVersion(FrameBase):
@@ -16,7 +16,7 @@ class FrameFirmwareVersion(FrameBase):
     @cached_property
     def fw_type(self) -> FirmwareType:
         '''Firmware component type.'''
-        return FirmwareType(self.payload_u8(0))
+        return decode_enum(FirmwareType, self.payload_u8(0)) or FirmwareType.UNKNOWN
 
     @cached_property
     def fw_version(self) -> str|None:

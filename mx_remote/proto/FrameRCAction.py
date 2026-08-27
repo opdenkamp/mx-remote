@@ -8,7 +8,7 @@
 
 from functools import cached_property
 from .FrameBase import FrameBase
-from .Constants import RCAction
+from .Constants import RCAction, decode_enum
 from ..Interface import BayBase, DeviceRegistry
 import logging
 
@@ -31,10 +31,7 @@ class FrameRCAction(FrameBase):
     @cached_property
     def action(self) -> RCAction|None:
         '''Remote control action type.'''
-        pl = self.payload_u8(2)
-        if (pl is None):
-            return None
-        return RCAction(pl)
+        return decode_enum(RCAction, self.payload_u8(2))
 
     def process(self) -> None:
         '''Update the local device cache with the RC action.'''

@@ -10,6 +10,7 @@ from enum import Enum
 from functools import cached_property
 from typing import override
 from .FrameBase import FrameBase
+from .Constants import decode_enum
 from ..Interface import MxrDeviceUid, DeviceBase, DeviceRegistry
 from .Multiviewer import *
 
@@ -195,7 +196,7 @@ class FrameV2IPMultiviewer(FrameBase):
         pl = self.payload_u8(idx=16)
         if (pl is None) or (pl > 15):
             return MultiviewerOpcode.UNKNOWN
-        return MultiviewerOpcode(pl)
+        return decode_enum(MultiviewerOpcode, pl) or MultiviewerOpcode.UNKNOWN
 
     @cached_property
     def target_uid(self) -> MxrDeviceUid|None:

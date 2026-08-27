@@ -13,7 +13,7 @@ from ..Interface import BayBase, SignalStatus
 from ..Uid import MxrDeviceUid
 import struct
 from .Svd import SvdMap, Svd
-from .Constants import BayStatusMask, MxrSignalType
+from .Constants import BayStatusMask, MxrSignalType, decode_enum
 
 class VideoColourSpace(IntEnum):
     '''Video colour space encoding format.'''
@@ -120,8 +120,9 @@ class SignalStatusAvDetailsVideo:
         return self._svd.svd[self._data[0]] if self._data[0] != 0 else None
 
     @property
-    def colour_space(self) -> VideoColourSpace:
-        return VideoColourSpace(self._data[1])
+    def colour_space(self) -> VideoColourSpace|None:
+        # a colour space this build has not seen is unknown, not an error
+        return decode_enum(VideoColourSpace, self._data[1])
 
     @property
     def colour_depth(self) -> int:

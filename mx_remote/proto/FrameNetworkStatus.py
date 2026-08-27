@@ -8,6 +8,7 @@
 
 from functools import cached_property
 from .FrameBase import FrameBase
+from .Constants import decode_enum
 from ..Interface import NetworkPortStatus, UtpLinkErrorStatus, UtpLinkSpeed, UtpCableStatus
 import socket
 import struct
@@ -124,7 +125,7 @@ class NetworkPortStatusImplPre22(NetworkPortStatus):
 
     @cached_property
     def link_speed(self) -> UtpLinkSpeed:
-        return UtpLinkSpeed(self.data[3] & 0x7)
+        return decode_enum(UtpLinkSpeed, self.data[3] & 0x7) or UtpLinkSpeed.UNKNOWN
 
     @cached_property
     def link_full_duplex(self) -> bool:
@@ -248,7 +249,7 @@ class NetworkPortStatusImpl(NetworkPortStatus):
 
     @cached_property
     def link_speed(self) -> UtpLinkSpeed:
-        return UtpLinkSpeed(self.data[38] & 0x7)
+        return decode_enum(UtpLinkSpeed, self.data[38] & 0x7) or UtpLinkSpeed.UNKNOWN
 
     @cached_property
     def link_full_duplex(self) -> bool:

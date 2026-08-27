@@ -8,7 +8,7 @@
 
 from functools import cached_property
 from .FrameBase import FrameBase
-from .Constants import RCKey
+from .Constants import RCKey, decode_enum
 from ..Interface import BayBase
 class FrameRCKey(FrameBase):
     ''' remote control key press or action '''
@@ -21,9 +21,7 @@ class FrameRCKey(FrameBase):
     def key(self) -> RCKey|None:
         '''Remote control key that was pressed.'''
         key = self.payload_u16(idx=2) if (self.device_protocol >= 6) else self.payload_u16(1)
-        if (key is None):
-            return None
-        return RCKey(key)
+        return decode_enum(RCKey, key)
 
     def process(self) -> None:
         '''Update the local device cache with the key press event.'''
