@@ -35,13 +35,14 @@ class FrameBase:
     def opcode_protocol(opcode:int) -> int:
         '''Header protocol version to stamp on a frame carrying this opcode.
 
-        The receiver drops any frame whose header protocol exceeds its own
-        MXR_PROTOCOL_VERSION, so this field means "the version this opcode
-        needs", not "the version this build is". Stamping the latter silently
-        un-deploys us from every peer with a lower cap the moment
-        MXR_PROTOCOL_VERSION is bumped - a ProAmp8 caps at 0x22 and would drop
-        our hello. Fall back to the current version only for an opcode absent
-        from the table, which means it is newer than the table.'''
+        A receiver drops any frame whose header protocol exceeds its own
+        MXR_PROTOCOL_VERSION, so this field means the version the opcode needs,
+        not the version this build is. Stamping MXR_PROTOCOL_VERSION instead
+        cuts us off from every peer with a lower cap: a ProAmp8 caps at 0x22 and
+        would drop our hello.
+
+        Falls back to MXR_PROTOCOL_VERSION only for an opcode absent from the
+        table, which means it is newer than the table.'''
         return MXR_OPCODE_VERSIONS.get(opcode, MXR_PROTOCOL_VERSION)
 
     @staticmethod

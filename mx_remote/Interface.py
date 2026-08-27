@@ -360,15 +360,12 @@ class V2IPStreamSources:
     @property
     def valid(self) -> bool:
         """
-        True when this entry carries addresses a sender actually meant to send.
+        True when this entry carries addresses a sender meant to send.
 
-        Applies the firmware's own test - video and anc must both be multicast
-        with a non-zero port; audio is optional and rides along with them. Check
-        it before routing off an entry rather than trusting the entry: a sender
-        running firmware before the 0x26 initialisation fix dropped the return of
-        the getter meant to fill its record and copied the struct in regardless,
-        so a bay-0 entry can carry addresses read from the stack under that
-        unit's own uid. Stack contents rarely satisfy both halves of this test.
+        Video and anc must both be multicast with a non-zero port; audio is
+        optional and rides along. A sender without MXR_FEATURE_CONFIG_INITIALISED
+        can put stack contents in bay 0's addresses under its own uid, which
+        rarely satisfy both halves of this test.
         """
         return v2ip_av_source_valid(self.video, self.anc)
 

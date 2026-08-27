@@ -17,7 +17,7 @@ from .FrameBase import FrameBase
 class FrameSetupStatus(FrameBase):
     '''Setup-completed status announcement.
 
-    Wire layout (per mxr_dev_tx_setup_status, mxr_device.c:818):
+    Wire layout (mxr_dev_tx_setup_status):
         0     uint8_t status   1 = setup complete, 0 = not complete
     '''
 

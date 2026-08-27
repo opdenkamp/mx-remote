@@ -161,16 +161,13 @@ _EnumT = TypeVar('_EnumT', bound=IntEnum)
 def decode_enum(cls:type[_EnumT], value:int|None) -> _EnumT|None:
 	'''Convert a value off the wire into an enum member, tolerating unknowns.
 
-	mx_remote is maintained for backwards compatibility in both directions: a
-	driver must not break because a firmware update taught a device a value this
-	build has not seen. So an unrecognised value is neither an error nor folded
-	into the nearest known member - it becomes the enum's own UNKNOWN where one
-	is defined, and None otherwise.
+	Yields the enum's own UNKNOWN where one is defined, None otherwise. A driver
+	must not break because a firmware update taught a device a value this build
+	has not seen.
 
-	Never clamp instead of this. Folding an unknown value to zero is the worst
-	of the three options, because zero is a meaningful member of most of these
-	enums: a firmware adding a mode would not produce an unknown value, it would
-	produce a confidently wrong known one.
+	Never clamp instead. Zero is a meaningful member of most of these enums, so
+	folding an unknown value into it gives a confidently wrong answer rather than
+	an unknown one.
 	'''
 	if (value is None):
 		return getattr(cls, 'UNKNOWN', None)
@@ -394,12 +391,9 @@ class MxrSignalType:
 	def svd(self) -> int|None:
 		'''CTA-861 short video descriptor, or None when no format is set.
 
-		0 is a real value here - it says the signal is not HDMI - so it must not
-		double as "nothing was reported". MXR_SIGNAL_TYPE_INIT zeroes the whole
-		word and writes bpp index 5, which is why the sentinel lives in bpp and
-		why is_set is the only correct gate: the bytes beside it are zeroed and
-		meaningless, and returning them would answer three questions from a
-		frame that answered none.'''
+		Gate on is_set, never on svd == 0: 0 is a real value meaning the signal
+		is not HDMI. An unset signal type zeroes the whole word and stores the
+		sentinel in bpp, so svd, colour and non_int beside it are meaningless.'''
 		return self._svd if self.is_set else None
 
 	@property

@@ -36,21 +36,17 @@ _FRAME_SIZE = 32
 class FrameV2IPVideoWall(FrameBase):
     '''A request to a sink to adopt a video wall window.
 
-    This is a command, not state: it is only ever sent controller to sink, one
-    frame per wall member, and there is no periodic broadcast and no ack on this
-    opcode. A wall has no wire representation of its own - it is just a set of
-    sinks each holding their own rectangle - so a controller configuring an
-    N-member wall sends N independent frames.
+    A command with no reply: controller to sink, one frame per wall member. A
+    wall has no wire representation of its own, so configuring an N-member wall
+    means N independent frames.
 
-    To read what a sink is currently showing, use V2IP_TILING (0x40). Note that
-    only a STORE here writes the persisted setting: a 0x40 write to a sink with
-    the v2ipwall module loaded is transient, because the module's reconciler
-    pushes its own target window back within about a second.
+    Replaces rather than merges. No field carries a validity marker, and a zero
+    width or height spells "clear the wall and show the full frame" rather than
+    "unset".
 
-    Every field is meaningful and none carries a validity marker, so this frame
-    replaces rather than merges - the opposite of V2IP_DEVICE_CFG. A zero width
-    or height is not "unset": it is the wire spelling of "clear the wall and
-    show the full frame".
+    V2IP_TILING (0x40) reports what a sink currently shows. Only a STORE here
+    persists a window; a 0x40 write to a sink running the v2ipwall module is
+    transient, as its reconciler restores the stored window within a second.
     '''
     @cached_property
     def target_uid(self) -> MxrDeviceUid|None:

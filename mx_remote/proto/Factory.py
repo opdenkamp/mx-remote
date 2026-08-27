@@ -231,9 +231,9 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 	#   0x2E, 0x2F  V2IP_BLIST_*            behind V2IP_SUPPORT_BLACKLIST, which
 	#                                       no project defines
 	#
-	# Add decoders here rather than removing them. A unit on older firmware still
-	# emits superseded opcodes, which is why 0x06, 0x36 and 0x47 keep theirs. An
-	# unhandled opcode is also no proof nothing implements it: 0x42, 0x43 and
+	# Add decoders here rather than removing them: a unit on older firmware still
+	# emits superseded opcodes, which is what 0x06, 0x36 and 0x47 are for. An
+	# unhandled opcode is no proof nothing implements it either - 0x42, 0x43 and
 	# 0x49 belong to loadable modules.
 	logging.debug(f"opcode {hdr.opcode:02X} is not processed")
 	return None

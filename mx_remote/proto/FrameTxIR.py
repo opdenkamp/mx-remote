@@ -6,8 +6,8 @@
 ######################################################
 '''Protocol frame for targeted IR blast (RC_IR_TX, opcode 0x48).
 
-A peer asks a specific target device to retransmit captured IR on one of
-its local bays. The struct is mxr_tx_ir_data (mx_remote_proto.h:651):
+A peer asks a target device to retransmit captured IR on one of its local
+bays. The struct is mxr_tx_ir_data:
 
     0..16   mxr_uid   uid          target device uid
     16      uint8_t   local_mode   target's local bay mode (mbay_mode)
@@ -25,8 +25,8 @@ the 4-aligned TMTicks, and the tail padding rounding sizeof up to 36. Timings
 are appended at sizeof, so they start at 36 rather than at the end of the last
 field.
 
-The frame's payload size varies with the number of timings; we expose the
-fixed-prefix fields plus the trailing raw blob for callers that need it.
+Payload size varies with the number of timings. The fixed prefix is decoded
+into fields; the timings are exposed as a raw blob.
 '''
 
 from functools import cached_property

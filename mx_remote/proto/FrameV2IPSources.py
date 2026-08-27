@@ -23,18 +23,10 @@ class FrameV2IPSources(FrameBase):
     def sources(self) -> V2IPStreamSourcesList:
         '''All V2IP stream sources defined in this frame.
 
-        Entries are positional - Device.v2ip_source() indexes into this list -
-        so an entry that carries no usable address is kept rather than dropped.
-        Dropping one would silently re-map every source after it, turning a bad
-        address into a wrong-source routing bug, which is worse than the problem
-        it solves. Ask an entry whether it is usable via V2IPStreamSources.valid.
-
-        Worth checking that flag rather than trusting the entry: a sender running
-        firmware before the 0x26 initialisation fix built its record from a stack
-        local and copied it in even when the getter that should have filled it
-        failed, so a bay-0 entry can carry addresses read from the stack under
-        that unit's own uid. valid applies the same test the firmware uses -
-        multicast address, non-zero port - which stack contents rarely satisfy.
+        Entries are positional, since Device.v2ip_source() indexes into this
+        list, so an unusable entry is kept rather than dropped: dropping one
+        would re-map every source after it. Test V2IPStreamSources.valid before
+        routing off an entry.
         '''
         rv = V2IPStreamSourcesList()
         srcnum = 0

@@ -64,13 +64,11 @@ class V2IPTxStats:
 class V2IPDecoderState(IntEnum):
     '''Health state of the V2IP decoder.
 
-    Mirrors enum v2ip_decoder_state (Devices/BSP/V2IP/v2ip_sink_stats.h). Only
-    HEALTHY and BAD are verdicts: UNKNOWN and STARTING both mean the decoder has
-    not said yet. Testing `state != HEALTHY` therefore reads a receiver that is
-    merely coming up as one that failed to decode, which is the opposite of what
-    it means - use `settled` to tell a verdict from a non-answer.
+    Only HEALTHY and BAD are verdicts; UNKNOWN and STARTING mean the decoder has
+    not said yet. Use `settled` rather than `state != HEALTHY`, which reads a
+    receiver that is merely starting as one that failed to decode.
 
-    HEALTHY is the firmware's V2IP_STATE_GOOD; the name differs, the value does
+    HEALTHY is the firmware's V2IP_STATE_GOOD - the name differs, the value does
     not.
     '''
     UNKNOWN = 0
