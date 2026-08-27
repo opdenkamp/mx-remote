@@ -560,6 +560,36 @@ class RCType(IntEnum):
 			rv[val] = str(RCType(val))
 		return rv
 
+class RCStatus(IntEnum):
+	'''RC driver connection state on the source, forwarded in mxr_rc_config.
+
+	Mirrors mxr_rc_status_t. UNKNOWN is not a state: it means the field was not
+	populated, which is what an older source firmware sends. Values above the
+	last defined one are treated as unknown-future rather than clamped, so a
+	firmware update cannot break a driver over an enum it has not seen.'''
+	UNKNOWN = 0
+	NOT_CONFIGURED = 1
+	DETECTING = 2
+	CONNECTED = 3
+
+	def __str__(self) -> str:
+		if self.value == RCStatus.NOT_CONFIGURED.value:
+			return "not configured"
+		if self.value == RCStatus.DETECTING.value:
+			return "detecting"
+		if self.value == RCStatus.CONNECTED.value:
+			return "connected"
+		return "unknown"
+
+	def __repr__(self) -> str:
+		return str(self)
+
+MXR_RC_STATUS_NAME_LEN = 15
+'''Longest RC driver status string, excluding its terminator.
+
+Unlike the MXR_DEVICE_NAME_LEN fields, the array is one byte longer than the
+longest value it can hold, so a full-length name still carries its NUL.'''
+
 class EdidProfile(IntEnum):
 	'''EDID profile presets for HDMI sources.'''
 	def __str__(self) -> str:

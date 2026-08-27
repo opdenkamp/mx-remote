@@ -7,6 +7,7 @@
 '''Protocol frames for V2IP multiviewer configuration and control.'''
 
 from enum import Enum
+from functools import cached_property
 from typing import override
 from .FrameBase import FrameBase
 from ..Interface import MxrDeviceUid, DeviceBase, DeviceRegistry
@@ -169,6 +170,13 @@ class V2IPMultiviewerConfig(FrameBase, MultiviewerConfig):
     def __str__(self) -> str:
         return f"multiviewer config: {self.uid}/{self.device} - mappings: {self.mappings}, mcu={self.mcu_version}, scaler={self.scaler_version}, view mode={self.view_mode}, pip={self.pip_position}/{self.pip_size}, output={self.output_mode}/{self.hdcp_mode}/{self.output_itc_mode}/{self.aspect_ratio}, edid={self.edid_template}, auto switch={self.auto_switch}, audio={self.audio_source} volume={self.audio_volume}% muted={self.audio_muted}, remote={self.remote_control}"
 
+# Every 0x42 sub-command shares one envelope, as the constructors below build it:
+#   0..16    mxr_uid target
+#   16..17   u8 sub-opcode (MultiviewerOpcode)
+#   17..24   padding
+#   24..     sub-command parameters
+_PARAMS_OFFSET = 24
+
 class FrameV2IPMultiviewer(FrameBase):
     '''V2IP multiviewer command and status frame.'''
     @property
@@ -189,22 +197,39 @@ class FrameV2IPMultiviewer(FrameBase):
             return MultiviewerOpcode.UNKNOWN
         return MultiviewerOpcode(pl)
 
+    @cached_property
+    def target_uid(self) -> MxrDeviceUid|None:
+        '''Multiviewer this frame addresses.'''
+        return self.payload_uuid(0)
+
+    @cached_property
+    def params(self) -> bytes:
+        '''Sub-command parameters.
+
+        Every sub-command shares the same envelope - target uid at 0, the
+        sub-opcode at 16, seven pad bytes, parameters from 24 - so the params
+        can be exposed without knowing each sub-command's fields. Only STATUS
+        carries device state; the other fifteen are commands to a multiviewer,
+        and what they change comes back on the next STATUS.
+        '''
+        if ((pl := self.payload_idx(_PARAMS_OFFSET)) is None):
+            return bytes()
+        return pl
+
     @override
     def process(self) -> None:
-        '''Update the local device cache with multiviewer configuration.'''
-        opcode = self.opcode
-        if (opcode is None) or (self.payload is None):
-            print("unknown multiviewer opcode")
+        '''Update the local device cache with multiviewer configuration.
+
+        Only STATUS is folded into the cache. The rest are requests, and the
+        multiviewer reports what it actually did on the STATUS that follows -
+        acting on the request as well would report the change twice, and would
+        report it even when the multiviewer refused.
+        '''
+        if (self.opcode != MultiviewerOpcode.STATUS) or (self.payload is None):
             return
-        if (opcode == MultiviewerOpcode.STATUS):
-            settings = V2IPMultiviewerConfig(header=self.header)
-            if ((dev := self.remote_device) is not None):
-                dev.on_mxr_update(settings)
-        elif (opcode == MultiviewerOpcode.VIEW_MODE):
-            pl = self.payload_u8(idx=24)
-            if (pl is not None) and (pl <= 8):
-                mode = MultiviewerViewMode(pl)
-                print(f"set view mode to {mode}")
+        settings = V2IPMultiviewerConfig(header=self.header)
+        if ((dev := self.remote_device) is not None):
+            dev.on_mxr_update(settings)
 
 
     @staticmethod
@@ -393,4 +418,9 @@ class FrameV2IPMultiviewer(FrameBase):
         return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=bytes(payload))
 
     def __str__(self) -> str:
-        return f"{str(self.remote_device)} multiviewer configuration"
+        if (self.opcode == MultiviewerOpcode.STATUS):
+            return f"{str(self.remote_device)} multiviewer status"
+        target = self.mxr.get_by_uid(uid) if ((uid := self.target_uid) is not None) else None
+        who = target if (target is not None) else self.target_uid
+        params = self.params.hex(' ') if (len(self.params) > 0) else "none"
+        return f"{who} multiviewer request: {self.opcode.name.lower()} params [{params}]"

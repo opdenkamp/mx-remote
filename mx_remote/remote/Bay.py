@@ -1129,13 +1129,15 @@ class Bay(BayBase):
         return False
 
     def on_mxr_audio_source_change(self, endpoint:AudioEndpoint, data:AudioChangeSource) -> None:
-        if (data.target_uid is not None) and (data.target_id is not None):
-            target = self.device.registry.get_audio_endpoint(device=data.target_uid, id=data.target_id)
-            if (target is not None):
-                if (target.bay is not None) and (target.bay == self):
-                    _LOGGER.debug(f"{str(self)} change local audio source of {endpoint} to source {target}")
+        # endpoint is this bay's endpoint, the one changing source; resolve what
+        # it is being pointed at
+        if (data.source_uid is not None) and (data.source_id is not None):
+            source = self.device.registry.get_audio_endpoint(device=data.source_uid, id=data.source_id)
+            if (source is not None):
+                if (source.bay is not None) and (source.bay == self):
+                    _LOGGER.debug(f"{str(self)} change local audio source of {endpoint} to source {source}")
                 else:
-                    _LOGGER.debug(f"{str(target.bay)} change audio source of {endpoint} to source {target}")
+                    _LOGGER.debug(f"{str(source.bay)} change audio source of {endpoint} to source {source}")
 
     @override
     def on_mxr_update(self, data:Any) -> None:

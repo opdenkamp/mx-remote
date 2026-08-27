@@ -678,10 +678,11 @@ class Device(DeviceBase):
 					if (bay is not None):
 						bay.audio_endpoint = ep # pyright: ignore[reportAttributeAccessIssue]
 		elif isinstance(data, AudioChangeSource):
-			if (data.source_uid is not None) and (data.source_id is not None):
-				source_ep = self.registry.get_audio_endpoint(device=data.source_uid, id=data.source_id)
-				if (source_ep is not None) and (source_ep.bay is not None):
-					source_ep.bay.on_mxr_audio_source_change(endpoint=source_ep, data=data) # pyright: ignore[reportAttributeAccessIssue]
+			# the endpoint that is changing source is the frame's target, not its source
+			if (data.target_uid is not None) and (data.target_id is not None):
+				target_ep = self.registry.get_audio_endpoint(device=data.target_uid, id=data.target_id)
+				if (target_ep is not None) and (target_ep.bay is not None):
+					target_ep.bay.on_mxr_audio_source_change(endpoint=target_ep, data=data) # pyright: ignore[reportAttributeAccessIssue]
 		elif isinstance(data, AudioLinks):
 			for link in data.entries:
 				ep = self.audio_endpoint_by_id(link.endpoint)

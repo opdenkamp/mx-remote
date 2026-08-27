@@ -431,6 +431,19 @@ class AudioConfig:
     def __str__(self) -> str:
         return f"endpoint config: ({len(self.entries)} for {len(self.endpoints.endpoints)} endpoints) {self.endpoints}"
 
+# SELECT_INPUT payload, as construct() below writes it:
+#   0..2     u16 sub-opcode
+#   2..4     padding
+#   4..20    target uid    (the sink; _audio_cmd_header always puts the target here)
+#   20..36   target uid    again
+#   36..52   source uid
+#   52..54   u16 target endpoint id
+#   54..56   u16 source endpoint id
+#
+# The uid at 4 and the uid at 20 are the same device: the sink is the frame's
+# target. That is what settles the orientation - reading 20 as the source would
+# make one uid both the target and the source of a single frame.
+
 class AudioChangeSourceImpl(AudioChangeSource):
     '''Parsed audio source change request with source and target identifiers.'''
     def __init__(self, data:FrameBase) -> None:
@@ -438,19 +451,23 @@ class AudioChangeSourceImpl(AudioChangeSource):
 
     @property
     def source_uid(self) -> MxrDeviceUid|None:
-        return self.data.payload_uuid(idx=20)
-
-    @property
-    def target_uid(self) -> MxrDeviceUid|None:
+        '''Device supplying the audio.'''
         return self.data.payload_uuid(idx=36)
 
     @property
+    def target_uid(self) -> MxrDeviceUid|None:
+        '''Device whose endpoint is changing source - the frame's target.'''
+        return self.data.payload_uuid(idx=20)
+
+    @property
     def source_id(self) -> int|None:
-        return self.data.payload_u16(idx=52)
+        '''Endpoint id on the source device.'''
+        return self.data.payload_u16(idx=54)
 
     @property
     def target_id(self) -> int|None:
-        return self.data.payload_u16(idx=54)
+        '''Endpoint id on the target device.'''
+        return self.data.payload_u16(idx=52)
 
     def __str__(self) -> str:
         return f"source change {self.source_uid}:{self.source_id} -> {self.target_uid}:{self.target_id}"
