@@ -45,6 +45,16 @@ _LOGGER = logging.getLogger(__name__)
 # Signal status (0x31) is the one opcode with a targeted request form of its own,
 # an empty payload or a 16-byte uid, which this library does not send.
 
+# SO_REUSEADDR is what permits a second client on this host to bind these ports,
+# on both sockets: measured on Linux 6.1 for the wildcard receive bind, the
+# specific-address transmit bind, and both together. SO_REUSEPORT is set as well
+# and is load-bearing on neither.
+#
+# It is also widely believed to cost multicast fan-out - that Linux hashes each
+# datagram to one member of a reuseport group, multicast included. It does not.
+# A reuseport group selects one member on the unicast path only; multicast and
+# broadcast reach every bound socket whether the option is set or not.
+
 def is_posix_os() -> bool:
     '''Return True if the current OS is POSIX-compatible.'''
     return (os.name == 'posix')
@@ -111,10 +121,6 @@ class ConnectionAsync(asyncio.DatagramProtocol):
     def _create_rx_socket(self) -> socket.socket|None:
         _LOGGER.debug(f"open rx socket {self.target_ip}:{self.port}")
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        # Both options, so a second client on this host can bind the same port.
-        # SO_REUSEPORT does not cost fan-out here: a reuseport group selects one
-        # member for unicast only, and multicast and broadcast are delivered to
-        # every bound socket either way.
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         if is_posix_os():
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
