@@ -96,5 +96,17 @@ d = rx(cfg(dscp=(0, MXR_V2IP_DSCP_SET | 20, MXR_V2IP_DSCP_SET | 20)))
 print('dscp no-video:', d.dscp)
 assert (d.dscp.video, d.dscp.audio, d.dscp.anc) == (8, 12, None), 'cache not kept'
 
+# a first frame has nothing to merge against, so undefined scaling bits must be
+# masked at decode or they are cached whole
+mx2 = mx_remote.Remote(open_connection=False); mx2._uid = bytes(range(100, 116))
+mx2.process_frame(time.time(), create_mxr_frame(UID, 0x00, hello), ADDR)
+noisy = cfg(scaling=(0x1050, 60, 0xDF))
+f = process_mxr_frame(mx2, time.time(), create_mxr_frame(UID, 0x3C, noisy), ADDR)
+f.process()
+flags = mx2.get_by_uid(mx_remote.MxrDeviceUid(UID)).v2ip_details.scaling.flags
+print('first frame : wire flags 0xDF -> cached 0x%02X' % flags)
+assert (flags & 0x7C) == 0, 'undefined bits 2..6 must not reach the cache: 0x%02X' % flags
+assert flags == 0x83, hex(flags)
+
 print()
 print('ALL OK')

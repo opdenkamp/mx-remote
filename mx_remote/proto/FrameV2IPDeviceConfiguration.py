@@ -11,7 +11,8 @@ from .FrameBase import FrameBase
 from .FrameHeader import FrameHeader
 from ..Uid import MxrDeviceUid
 from ..Interface import DeviceV2IPDetails, DeviceV2IPScalingSettings, DeviceV2IPSink, V2IPAudioFormat, V2IPDscpConfig, V2IPStreamSource
-from .Constants import v2ip_dscp_value, v2ip_rate_valid
+from .Constants import (MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
+                        MXR_SCALING_FLAG_OPTIONS_VALID, v2ip_dscp_value, v2ip_rate_valid)
 from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 
 # v2ip_device_config_update wire layout (little-endian, ALIGN(8) per inner struct):
@@ -94,10 +95,18 @@ class V2IPDeviceOptions:
 
 class V2IPScalingSettingsImpl(DeviceV2IPScalingSettings):
     '''Concrete implementation of V2IP output scaling settings.'''
+    # Only these three bits are defined. A sender without
+    # MXR_FEATURE_CONFIG_INITIALISED builds this byte on uninitialised stack, so
+    # mask at decode rather than where the value is used: a first frame has
+    # nothing to merge against and would otherwise cache the noise whole.
+    _DEFINED_FLAGS = (MXR_SCALING_FLAG_MODE_VALID
+                      | MXR_SCALING_FLAG_OPTIONS_VALID
+                      | MXR_SCALING_FLAG_AUTO_SCALING)
+
     def __init__(self, data:bytes) -> None:
         self._mode = int.from_bytes(data[0:2], 'little')
         self._refresh = (int(data[3]) << 8) | int(data[2])
-        self._flags = data[4]
+        self._flags = (data[4] & V2IPScalingSettingsImpl._DEFINED_FLAGS)
 
     @property
     def mode(self) -> int:

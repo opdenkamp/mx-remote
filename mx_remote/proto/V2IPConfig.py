@@ -125,7 +125,9 @@ class V2IPStreamSourcesImpl(V2IPStreamSources):
     def __repr__(self) -> str:
         return str(self)
 
-# Wire size of a v2ip_av_source (3 × v2ip_stream_source, ALIGN(8) each = 24 bytes).
+# A v2ip_stream_source is 8 bytes: a 4-byte ip and a 4-byte port, since port is
+# uint_fast16_t. Only its low two bytes are ever used. So a v2ip_av_source of
+# three of them is 24 bytes.
 V2IP_AV_SOURCE_WIRE_SIZE = 24
 
 def parse_v2ip_av_source(data:bytes, offset:int=0) -> V2IPStreamSourcesImpl:
