@@ -406,6 +406,54 @@ class MxrSignalType:
 	def __repr__(self) -> str:
 		return str(self)
 
+class VideoWallOperation(IntEnum):
+	'''What a V2IP_VIDEOWALL frame asks the addressed sink to do with its window.
+
+	Mirrors enum vw_mesh_op in the v2ipwall module
+	(github.com/opdenkamp/mod-v2ip-videowall, src/v2ip_videowall.h).'''
+	PREVIEW = 0
+	'''Show the window without storing it, so it dies on reboot or revert.'''
+
+	STORE = 1
+	'''Show the window and keep it as this sink's window.'''
+
+	REVERT = 2
+	'''Drop the preview and go back to the stored window.
+
+	A revert carries no geometry: the sender zeroes the window and raster, and
+	the receiver ignores those bytes entirely.'''
+
+	def __str__(self) -> str:
+		if self.value == VideoWallOperation.PREVIEW.value:
+			return "preview"
+		if self.value == VideoWallOperation.STORE.value:
+			return "store"
+		if self.value == VideoWallOperation.REVERT.value:
+			return "revert"
+		return "unknown"
+
+	def __repr__(self) -> str:
+		return str(self)
+
+# Geometry a sink will accept for a wall window. The video processor's vdma is
+# built without dre, so the buffer start must be 256-bit aligned - a multiple of
+# 64 pixels at 4 pixels per clock - and 64x64 is the scaler minimum. A unit
+# reports its running bitstream's own values over HTTP (step_x, step_width,
+# min_width, min_height); prefer those over these defaults where available.
+VIDEO_WALL_POS_X_STEP = 64
+VIDEO_WALL_WIDTH_STEP = 4
+VIDEO_WALL_MIN_WIDTH = 64
+VIDEO_WALL_MIN_HEIGHT = 64
+
+def video_wall_geometry_valid(pos_x:int, width:int, height:int) -> bool:
+	'''True when a wall window satisfies the constraints a sink enforces.
+
+	A zero width or height is the wire spelling of "clear the wall, show the
+	full frame" and is always accepted.'''
+	if (width == 0) or (height == 0):
+		return True
+	return ((pos_x % VIDEO_WALL_POS_X_STEP) == 0) 		and ((width % VIDEO_WALL_WIDTH_STEP) == 0) 		and (width >= VIDEO_WALL_MIN_WIDTH) 		and (height >= VIDEO_WALL_MIN_HEIGHT)
+
 class LinkFeature(IntFlag):
 	'''Virtual link feature flags.'''
 	NONE          = 0

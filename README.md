@@ -116,6 +116,8 @@ device.is_oneip_rx         # OneIP receiver
 device.is_oneip_tz         # OneIP transceiver
 device.is_oneip_multiviewer # OneIP multiviewer
 device.supports_video_wall  # sink can crop its source to a video wall window
+                            # (advertised ~1s after boot by the v2ipwall module,
+                            #  and never withdrawn once advertised)
 
 # iterate bays
 for port, bay in device.bays.items():

@@ -75,9 +75,21 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 	if hdr.opcode == 0x0B:
 		from .FrameRCKey import FrameRCKey
 		return FrameRCKey(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x0C:
+		from .FrameTXRCKey import FrameTXRCKey
+		return FrameTXRCKey(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x0D:
 		from .FrameRCAction import FrameRCAction
 		return FrameRCAction(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x0E:
+		from .FrameTXRCAction import FrameTXRCAction
+		return FrameTXRCAction(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x11:
+		from .FrameAudioClip import FrameAudioClip
+		return FrameAudioClip(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x13:
+		from .FrameAudioSetRoute import FrameAudioSetRoute
+		return FrameAudioSetRoute(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x0F:
 		from .FrameVolumeUp import FrameVolumeUp
 		return FrameVolumeUp(header=hdr, timestamp=timestamp)
@@ -102,6 +114,9 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 	if hdr.opcode == 0x20:
 		from .FrameV2IPLink import FrameV2IPLinkStatus
 		return FrameV2IPLinkStatus(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x21:
+		from .FrameV2IPDetectBays import FrameV2IPDetectBays
+		return FrameV2IPDetectBays(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x22:
 		from .FrameSetName import FrameSetName
 		return FrameSetName(header=hdr, timestamp=timestamp)
@@ -204,11 +219,35 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 	if hdr.opcode == 0x48:
 		from .FrameTxIR import FrameTxIR
 		return FrameTxIR(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x49:
+		from .FrameV2IPVideoWall import FrameV2IPVideoWall
+		return FrameV2IPVideoWall(header=hdr, timestamp=timestamp)
 
-	# 0x49 V2IP_VIDEOWALL is owned by the loadable v2ipwall module; MatrixOS
-	# itself carries no handler for it and the payload is not part of the
-	# mx_remote wire definition, so it falls through here like any other
-	# opcode this library does not decode.
+	# Every opcode the current firmware puts on the wire is decoded above. What
+	# reaches here is an opcode no build in the tree emits today:
+	#
+	#   0x17..0x1E  the CEC range           no registration and no transmit anywhere
+	#                                       in the firmware, and the two status
+	#                                       structs in mx_remote_proto.h have no
+	#                                       producer either
+	#   0x25, 0x33  RESERVED_0 / RESERVED_1 retired opcodes. Live in an earlier
+	#                                       generation, so never reuse the numbers
+	#   0x2D        VIDEO_CLOCK_RATE_OLD    superseded by clock_rate in the 0x31 bay
+	#                                       block
+	#   0x2E, 0x2F  V2IP_BLIST_*            behind V2IP_SUPPORT_BLACKLIST, which
+	#                                       defaults to 0 and is overridden by no
+	#                                       project, so it never compiles in
+	#
+	# "Nothing emits it today" is not "nothing will ever emit it": that is static
+	# analysis of one tree, and an older unit still running a firmware that
+	# predates the supersession can put 0x06, 0x2D or the blacklist pair on the
+	# wire. Decoders already here for superseded opcodes - 0x06 DEV_SIGNAL_OLD,
+	# 0x36 SET_MASTER, 0x47 DEBUG - stay for exactly that reason. Add rather than
+	# remove.
+	#
+	# Loadable modules register opcodes of their own, so an unhandled opcode here
+	# is not proof that nothing implements it either: 0x42, 0x43 and 0x49 are all
+	# module-owned and all live.
 	logging.debug(f"opcode {hdr.opcode:02X} is not processed")
 	return None
 
