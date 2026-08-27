@@ -20,7 +20,19 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #   40..48   options (u8 tx_rate + u8 dscp_video + u8 dscp_audio + u8 dscp_anc + 4 pad)
 #   48..56   v2ip_stream_source audio_return (arc)
 #   56..64   mxr_scaling_config (u16 mode + u16 refresh + u8 flags + 3 pad)
-#   64..88   mxr_v2ip_tiling_config (mxr_uid + 4 × u16)
+#   64..88   mxr_v2ip_tiling_config (mxr_uid + 4 × u16) - not parsed here, see below
+#
+# Only the source addresses and the sink trailer are unconditional; every other
+# field carries its own validity marker, because a controller writing one of them
+# leaves the rest zeroed (mxr_pbuf_alloc zeroes the payload). tx_rate is valid only
+# inside 5..100, a dscp byte only with MXR_V2IP_DSCP_SET, scaling only under its
+# MXR_SCALING_FLAG_*_VALID flags.
+#
+# The tiling block has no such marker and every controller write sends it zeroed,
+# so an all-zero window here means 'this frame carries none', never 'clear it'. A
+# window is only ever set or cleared through 0x40 V2IP_TILING. Nothing caches
+# tiling on this side today - if that changes, honour that or a controller write
+# will wipe the cached wall window of every sink it touches.
 # v2ip_device_config_update_options trailer (optional, MXR protocol >= 0x26):
 #   88..112  v2ip_av_source sink (zero when no active route)
 #   112..120 v2ip_audio_format sink_audio_fmt
