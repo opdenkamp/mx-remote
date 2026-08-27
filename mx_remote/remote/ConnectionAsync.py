@@ -45,28 +45,34 @@ _LOGGER = logging.getLogger(__name__)
 # reaching this socket is not necessarily addressed to us, and one addressed to
 # us is not necessarily the only copy on the wire. Demultiplex on the uid.
 #
-# Known gaps against the second rule. Of the eight opcodes whose payloads become
-# cached state, only two have an active path behind them:
+# The active path is SYS_DISCOVER (0x01), and it is not per-opcode. A device
+# receiving one answers with a hello immediately and then, after a deliberate
+# jitter, runs _mxr_broadcast_all() - hello, mesh, bay config (0x26 rides inside
+# it), signal status, link config, the bsp set including device config and EDID
+# and net link, rc settings, topology, temperatures and firmware versions. One
+# discover re-announces essentially everything this library caches.
 #
-#   0x00 SYS_HELLO             refreshed by transmitting SYS_DISCOVER (0x01)
-#   0x3F V2IP_STATS            refreshed by subscribing with 0x3F itself
-#   0x02 SYS_BAY_CONFIG        overheard only
-#   0x03 SYS_LINKS             overheard only
-#   0x08 MX_ROUTE              overheard only
-#   0x26 SYS_BAY_V2IP_SOURCES  overheard only
-#   0x31 BAY_SIGNAL_STATUS     overheard only - though a request form exists:
-#                              an empty payload to ask everyone, or a 16-byte
-#                              uid to ask one unit. Simply unused here.
-#   0x3C V2IP_DEVICE_CFG       overheard only
+# So do not go looking for a request form per opcode: 0x02, 0x26 and 0x3C have
+# none and drop anything shorter than a full report. 0x26 is the trap - a
+# zero-length frame passes its length guard, iterates nothing and answers
+# nothing, so probing it looks like a device ignoring you rather than an opcode
+# that was never a request.
 #
-# 0x31 is the one that is purely an omission, since the request form is defined
-# and we do not send it. For the rest it is not established whether a request
-# form exists at all. Between them the overheard six carry every bay name and
-# port number, the link and routing tables, and all stream addresses - so a
-# roster here is empty until devices happen to announce, and a route changed by
-# someone else arrives whenever it is next re-announced. That is invisible today
-# because everything is broadcast anyway; it is the part that would degrade if
-# directed sends arrive.
+# Three properties worth building against:
+#   - The answer goes to the group, not to us. We overhear a broadcast our own
+#     frame provoked, which is the case that makes the INADDR_ANY bind matter:
+#     a client bound to the group address sees all of this and looks healthy.
+#   - It is jittered on purpose, so a mesh does not answer in one millisecond.
+#     No immediate reply is normal, not a timeout.
+#   - It is expensive and mesh-wide. Remote._background_probe() rate-limits to
+#     one every 5s and stops once every known device reports complete, which is
+#     the right instinct - after that the device's own periodic broadcast timer
+#     maintains the state unasked.
+#
+# One genuine omission remains: signal status (0x31) has a targeted request form
+# of its own - an empty payload to ask everyone, or a 16-byte uid to ask one
+# unit - and this library never sends it. Everything else is provoked at startup
+# rather than merely overheard.
 
 def is_posix_os() -> bool:
     '''Return True if the current OS is POSIX-compatible.'''
