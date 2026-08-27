@@ -10,13 +10,14 @@ from functools import cached_property
 from .FrameBase import FrameBase
 from .FrameHeader import FrameHeader
 from ..Uid import MxrDeviceUid
-from ..Interface import DeviceV2IPDetails, DeviceV2IPScalingSettings, DeviceV2IPSink, V2IPAudioFormat, V2IPStreamSource
+from ..Interface import DeviceV2IPDetails, DeviceV2IPScalingSettings, DeviceV2IPSink, V2IPAudioFormat, V2IPDscpConfig, V2IPStreamSource
+from .Constants import v2ip_dscp_value, v2ip_rate_valid
 from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 
 # v2ip_device_config_update wire layout (little-endian, ALIGN(8) per inner struct):
 #   0..16    uid (mxr_uid)
 #   16..40   v2ip_av_source source (3 × v2ip_stream_source)
-#   40..48   options (u8 tx_rate + 3 reserved + 4 pad)
+#   40..48   options (u8 tx_rate + u8 dscp_video + u8 dscp_audio + u8 dscp_anc + 4 pad)
 #   48..56   v2ip_stream_source audio_return (arc)
 #   56..64   mxr_scaling_config (u16 mode + u16 refresh + u8 flags + 3 pad)
 #   64..88   mxr_v2ip_tiling_config (mxr_uid + 4 × u16)
@@ -30,16 +31,37 @@ _SINK_OFFSET        = _BASE_SIZE
 _SINK_AUDIO_OFFSET  = _BASE_SIZE + 24
 
 class V2IPDeviceOptions:
-    '''Parsed V2IP device options (TX rate, etc.).'''
+    '''Parsed V2IP device options (TX rate and per-stream DSCP marking).'''
     def __init__(self, data:bytes) -> None:
-        self._tx_rate = int.from_bytes(data[0:1], "little")
+        self._raw_tx_rate = int.from_bytes(data[0:1], "little")
+        self._dscp = V2IPDscpConfig(
+            video=v2ip_dscp_value(data[1] if (len(data) > 1) else None),
+            audio=v2ip_dscp_value(data[2] if (len(data) > 2) else None),
+            anc=v2ip_dscp_value(data[3] if (len(data) > 3) else None),
+        )
 
     @property
-    def tx_rate(self) -> int:
-        return self._tx_rate
+    def raw_tx_rate(self) -> int:
+        '''TX rate byte exactly as it arrived, valid range or not.'''
+        return self._raw_tx_rate
+
+    @property
+    def tx_rate(self) -> int|None:
+        '''TX rate in units of 10Mb/s, or None when the sender offered no rate.
+
+        A rate-only write carries the rate on its own; every other controller
+        write puts a value outside 5..100 here, which firmware drops as invalid
+        so that address-only and scaling writes leave the peer's rate alone.'''
+        return self._raw_tx_rate if v2ip_rate_valid(self._raw_tx_rate) else None
+
+    @property
+    def dscp(self) -> V2IPDscpConfig:
+        '''Per-stream DSCP marking; each stream reads None when its byte is unset.'''
+        return self._dscp
 
     def __str__(self) -> str:
-        return f"tx rate: {self.tx_rate * 10}Mb/s"
+        rate = f"{self._raw_tx_rate * 10}Mb/s" if (self.tx_rate is not None) else "not set"
+        return f"tx rate: {rate}, dscp: {self._dscp}"
 
 class V2IPScalingSettingsImpl(DeviceV2IPScalingSettings):
     '''Concrete implementation of V2IP output scaling settings.'''
@@ -83,7 +105,7 @@ class FrameV2IPDeviceConfiguration(FrameBase):
 
     @cached_property
     def details(self) -> DeviceV2IPDetails:
-        return DeviceV2IPDetails(video=self.video, audio=self.audio, anc=self.anc, arc=self.arc, tx_rate=self.options.tx_rate, scaling=self.scaling)
+        return DeviceV2IPDetails(video=self.video, audio=self.audio, anc=self.anc, arc=self.arc, tx_rate=self.options.tx_rate, scaling=self.scaling, dscp=self.options.dscp)
 
     @cached_property
     def sink(self) -> DeviceV2IPSink|None:

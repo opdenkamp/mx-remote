@@ -205,6 +205,10 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 		from .FrameTxIR import FrameTxIR
 		return FrameTxIR(header=hdr, timestamp=timestamp)
 
+	# 0x49 V2IP_VIDEOWALL is owned by the loadable v2ipwall module; MatrixOS
+	# itself carries no handler for it and the payload is not part of the
+	# mx_remote wire definition, so it falls through here like any other
+	# opcode this library does not decode.
 	logging.debug(f"opcode {hdr.opcode:02X} is not processed")
 	return None
 

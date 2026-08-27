@@ -228,7 +228,10 @@ class Device(DeviceBase):
 
 	@v2ip_details.setter
 	def v2ip_details(self, details:DeviceV2IPDetails) -> None:
-		self._v2ip_details = details
+		# a controller writing only addresses or scaling sends an out-of-range
+		# tx_rate and leaves the dscp bytes unset; keep the cached values for
+		# those, like the firmware does, instead of reporting them as gone
+		self._v2ip_details = details.merge(self._v2ip_details)
 		self.call_callbacks()
 
 	@property
@@ -472,6 +475,11 @@ class Device(DeviceBase):
 	@override
 	def is_oneip_multiviewer(self) -> bool:
 		return self.is_v2ip and (self.features is not None) and DeviceFeature.MULTIVIEWER in self.features
+
+	@property
+	@override
+	def supports_video_wall(self) -> bool:
+		return (self.features is not None) and DeviceFeature.VIDEO_WALL in self.features
 
 	@property
 	@override

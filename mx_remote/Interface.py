@@ -1195,15 +1195,61 @@ class DeviceV2IPScalingSettings(ABC):
     def flags(self) -> int:
         pass
 
+class V2IPDscpConfig:
+    """
+    Per-stream DSCP marking carried in a V2IP device configuration.
+
+    DSCP 0 (CS0) is a legal marking, so each wire byte carries a set bit
+    alongside its value and a stream whose byte is unset reads back as None
+    here. Firmware treats the marking as all-or-nothing: it only applies one
+    when all three streams carry a value, and otherwise falls back to CS2
+    (``V2IP_DSCP_DEFAULT``) - ``complete`` reports which case a frame is in.
+    """
+    def __init__(self, video:int|None, audio:int|None, anc:int|None) -> None:
+        self._video = video
+        self._audio = audio
+        self._anc = anc
+
+    @property
+    def video(self) -> int|None:
+        return self._video
+
+    @property
+    def audio(self) -> int|None:
+        return self._audio
+
+    @property
+    def anc(self) -> int|None:
+        return self._anc
+
+    @property
+    def complete(self) -> bool:
+        """True when all three streams carry a marking, which is what firmware requires to apply one."""
+        return (self._video is not None) and (self._audio is not None) and (self._anc is not None)
+
+    def __eq__(self, other:Any) -> bool:
+        if not isinstance(other, V2IPDscpConfig):
+            return False
+        return (self._video == other._video) and (self._audio == other._audio) and (self._anc == other._anc)
+
+    def __str__(self) -> str:
+        if not self.complete:
+            return "no marking"
+        return f"video:{self._video} audio:{self._audio} anc:{self._anc}"
+
+    def __repr__(self) -> str:
+        return str(self)
+
 class DeviceV2IPDetails:
     """ V2IP stream source details for a device """
-    def __init__(self, video:V2IPStreamSource|None, audio:V2IPStreamSource|None, anc:V2IPStreamSource|None, arc:V2IPStreamSource|None, tx_rate:int|None, scaling:DeviceV2IPScalingSettings|None) -> None:
+    def __init__(self, video:V2IPStreamSource|None, audio:V2IPStreamSource|None, anc:V2IPStreamSource|None, arc:V2IPStreamSource|None, tx_rate:int|None, scaling:DeviceV2IPScalingSettings|None, dscp:V2IPDscpConfig|None=None) -> None:
         self._video = video
         self._audio = audio
         self._anc = anc
         self._arc = arc
         self._tx_rate = tx_rate
         self._scaling = scaling
+        self._dscp = dscp
 
     @property
     def has_config(self) -> bool:
@@ -1232,6 +1278,29 @@ class DeviceV2IPDetails:
     @property
     def scaling(self) -> DeviceV2IPScalingSettings|None:
         return self._scaling
+
+    @property
+    def dscp(self) -> V2IPDscpConfig|None:
+        """Per-stream DSCP marking, or None from peers that predate it."""
+        return self._dscp
+
+    def merge(self, previous:'DeviceV2IPDetails|None') -> 'DeviceV2IPDetails':
+        """
+        Carry forward the fields a frame may legitimately omit.
+
+        A controller writing only addresses or scaling sends a tx_rate outside
+        the valid range and leaves the dscp bytes unset; firmware keeps its
+        cached values in that case, so do the same rather than reporting the
+        peer's rate and marking as gone.
+        """
+        if (previous is None):
+            return self
+        tx_rate = self._tx_rate if v2ip_rate_valid(self._tx_rate) else previous._tx_rate
+        dscp = self._dscp if ((self._dscp is not None) and self._dscp.complete) else previous._dscp
+        if (tx_rate == self._tx_rate) and (dscp is self._dscp):
+            return self
+        return DeviceV2IPDetails(video=self._video, audio=self._audio, anc=self._anc, arc=self._arc,
+                                 tx_rate=tx_rate, scaling=self._scaling, dscp=dscp)
 
 class DeviceV2IPSink:
     """
@@ -1590,6 +1659,11 @@ class DeviceBase(ABC):
     @abstractmethod
     def is_oneip_multiviewer(self) -> bool:
         '''True if this device is a OneIP Multiviewer'''
+
+    @property
+    @abstractmethod
+    def supports_video_wall(self) -> bool:
+        '''True if this sink can crop its source to a video wall window (MXR_FEATURE_VIDEO_WALL)'''
 
     @property
     @abstractmethod

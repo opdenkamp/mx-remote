@@ -115,6 +115,7 @@ device.is_oneip_tx         # OneIP transmitter
 device.is_oneip_rx         # OneIP receiver
 device.is_oneip_tz         # OneIP transceiver
 device.is_oneip_multiviewer # OneIP multiviewer
+device.supports_video_wall  # sink can crop its source to a video wall window
 
 # iterate bays
 for port, bay in device.bays.items():
@@ -344,7 +345,11 @@ if device.is_v2ip and device.v2ip_sources:
 if device.v2ip_details:
     details = device.v2ip_details
     print(f"Video: {details.video}")
-    print(f"TX rate: {details.tx_rate}")
+    print(f"TX rate: {details.tx_rate}")   # None when the sender offered no rate
+
+    # per-stream DSCP marking (None from peers that predate it)
+    if details.dscp and details.dscp.complete:
+        print(f"DSCP: {details.dscp}")     # video / audio / anc, 0..63
 
 # streaming statistics
 await device.read_stats(enable=True)   # start collecting

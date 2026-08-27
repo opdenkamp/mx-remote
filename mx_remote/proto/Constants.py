@@ -9,7 +9,7 @@
 
 from enum import IntEnum, IntFlag
 
-MXR_PROTOCOL_VERSION = 0x27
+MXR_PROTOCOL_VERSION = 0x28
 """Highest mx_remote protocol version this library understands.
 
 Mirrors MXR_PROTOCOL_VERSION in libP8/mx_remote/inc/mx_remote_proto.h. Bump
@@ -54,7 +54,8 @@ MXR_OPCODE_VERSIONS: dict[int, int] = {
     0x21: 0x06,  # V2IP_DETECT_BAYS
     0x22: 0x06,  # CHANGE_BAY_NAME
     0x23: 0x07,  # SYS_BAY_CONFIG_SECONDARY
-    0x24: 0x25,  # V2IP_MANUAL_SOURCE_SWITCH
+    0x24: 0x07,  # V2IP_MANUAL_SOURCE_SWITCH
+    0x25: 0x00,  # RESERVED_0 (retired opcode; never reused)
     0x26: 0x09,  # SYS_BAY_V2IP_SOURCES
     0x27: 0x06,  # BAY_HIDE
     0x28: 0x01,  # SYS_REBOOT
@@ -68,6 +69,7 @@ MXR_OPCODE_VERSIONS: dict[int, int] = {
     0x30: 0x06,  # TOPOLOGY
     0x31: 0x06,  # BAY_SIGNAL_STATUS
     0x32: 0x06,  # BAY_MIRROR_STATUS
+    0x33: 0x00,  # RESERVED_1 (retired opcode; never reused)
     0x34: 0x08,  # BAY_EDID_PROFILE
     0x35: 0x0A,  # SETUP_STATUS
     0x36: 0x0B,  # SET_MASTER
@@ -76,7 +78,7 @@ MXR_OPCODE_VERSIONS: dict[int, int] = {
     0x39: 0x0F,  # BAY_STATUS
     0x3A: 0x0F,  # SYS_FACTORY_RESET
     0x3B: 0x1D,  # MESH_OPERATION
-    0x3C: 0x26,  # V2IP_DEVICE_CFG
+    0x3C: 0x11,  # V2IP_DEVICE_CFG
     0x3D: 0x1C,  # AMP_ZONE_SETTINGS
     0x3E: 0x1C,  # AMP_DOLBY_STATE
     0x3F: 0x13,  # V2IP_STATS
@@ -85,20 +87,69 @@ MXR_OPCODE_VERSIONS: dict[int, int] = {
     0x42: 0x16,  # V2IP_MULTIVIEWER
     0x43: 0x1A,  # V2IP_AUDIO
     0x44: 0x1C,  # V2IP_BAY_MAPPINGS
-    0x45: 0x24,  # RC_SETTINGS
+    0x45: 0x1D,  # RC_SETTINGS
     0x46: 0x1E,  # SYSSTATUS
     0x47: 0x1F,  # DEBUG
     0x48: 0x23,  # RC_IR_TX
+    0x49: 0x28,  # V2IP_VIDEOWALL (owned by the v2ipwall module; no MatrixOS handler)
 }
 """Per-opcode minimum compatible protocol version, mirroring the third arg of
 MXR_OPCODE() in libP8/mx_remote/inc/mx_opcodes.h. Transmitters stamp the
 header.protocol with the value for the opcode being sent so that older
-receivers correctly reject frames they cannot decode."""
+receivers correctly reject frames they cannot decode.
+
+Note that these are deliberately *low*: the receiver gate drops any frame
+whose per-opcode byte exceeds the receiver's own MXR_PROTOCOL_VERSION, so an
+opcode whose payload only ever grew trailing fields keeps its original
+version and new-format detection stays on payload length. Firmware commit
+a43d677 lowered V2IP_MANUAL_SOURCE_SWITCH, V2IP_DEVICE_CFG and RC_SETTINGS
+back under the ProAmp8 / AmpOS cap of 0x22 for exactly that reason."""
+
+MXR_DEVICE_NAME_LEN = 16
+"""Width of the fixed-size name/serial fields on the wire.
+
+The field carries no terminator of its own when the value fills it, so read
+exactly this many bytes and only then cut at a NUL - scanning on runs into the
+neighbouring struct member (firmware V2IP#349)."""
+
+MXR_FW_VERSION_LEN = 128
+"""Width of the fixed-size firmware version name field (mxr_fw_version.name)."""
 
 V2IP_AUDIO_DEFAULT_SAMPLE_RATE = 48000
 V2IP_AUDIO_DEFAULT_CHANNELS    = 2
 V2IP_AUDIO_MIN_CHANNELS        = 1
 V2IP_AUDIO_MAX_CHANNELS        = 8
+
+V2IP_SOURCE_RATE_MIN = 5
+V2IP_SOURCE_RATE_MAX = 100
+"""Valid encoder tx rate range (firmware V2IP_SOURCE_RATE_MIN/MAX, in units of
+10Mb/s). A V2IP_DEVICE_CFG sender with no rate to offer deliberately puts a
+value outside this range in ``tx_rate``; both the firmware's cache update and
+its apply drop that as invalid, which is what keeps address-only and scaling
+writes from resetting a peer's rate."""
+
+def v2ip_rate_valid(rate:int|None) -> bool:
+    '''True when a tx_rate carries an actual rate (firmware v2ip_source_rate_valid()).'''
+    return (rate is not None) and (V2IP_SOURCE_RATE_MIN <= rate <= V2IP_SOURCE_RATE_MAX)
+
+MXR_V2IP_DSCP_SET = 0x80
+"""DSCP 0 (CS0) is a legal marking, so a zero byte cannot mean "absent": each
+dscp byte in a V2IP_DEVICE_CFG options word carries this bit alongside its
+0..63 value, and a sender that leaves the byte zero is read as carrying no
+marking at all."""
+
+V2IP_DSCP_MAX = 63
+"""Highest DSCP value; the marking occupies the upper 6 bits of the IPv4 TOS byte."""
+
+V2IP_DSCP_DEFAULT = 16
+"""CS2, the marking the video processor applies at boot and the value firmware
+falls back to when a peer sends no marking."""
+
+def v2ip_dscp_value(raw:int|None) -> int|None:
+    '''Decode one dscp byte from a V2IP_DEVICE_CFG options word, or None when unset.'''
+    if (raw is None) or ((raw & MXR_V2IP_DSCP_SET) == 0):
+        return None
+    return (raw & V2IP_DSCP_MAX)
 
 class DeviceFeature(IntFlag):
 	'''Device feature flags reported in hello frames.'''
@@ -126,6 +177,7 @@ class DeviceFeature(IntFlag):
 	MESH               = (1 << 21)
 	MULTIVIEWER        = (1 << 22)
 	STATUS_CRASHED     = (1 << 23)
+	VIDEO_WALL         = (1 << 24)
 	BOOT_BIT           = (1 << 31)
 
 BAY_FEATURE_DOLBY_IN_POS = 24
@@ -273,6 +325,80 @@ def bay_status_rc_type(status: int) -> int:
 def bay_status_hdcp(status: int) -> int:
 	'''Return the HDCP status (2 bits at MXR_BAY_STATUS_HDCP_STATUS) from a bay-status word.'''
 	return (status & BAY_STATUS_HDCP_STATUS_MASK) >> BAY_STATUS_HDCP_STATUS_SHIFT
+
+MXR_SIG_BPP_UNKNOWN = 0
+MXR_SIG_BPP_UNSET = 5
+
+_MXR_SIG_BPP_VALUES: dict[int, int] = {
+	1: 8,
+	2: 10,
+	3: 12,
+	4: 16,
+}
+
+def mxr_sig_bpp_get(bpp: int) -> int:
+	'''Map an mxr_signal_type bpp *index* to the bit depth it stands for.
+
+	Mirrors mxr_sig_bpp_get() in mxr_bay.c. The field is an index, not a value:
+	1=8, 2=10, 3=12, 4=16, 0=unknown and 5 the unset sentinel - reading it as a
+	bit depth is a common trap. Returns 0 for both unknown and unset.'''
+	return _MXR_SIG_BPP_VALUES.get(bpp, MXR_SIG_BPP_UNKNOWN)
+
+class MxrSignalType:
+	'''The 2-byte mxr_signal_type carried in scaling configs and bay signal reports.
+
+	byte 0 is the CTA-861 svd (0 when the signal is not HDMI); byte 1 packs
+	color:4 in the low nibble, then non_int:1 and bpp:3 in the top bits.'''
+
+	def __init__(self, data: bytes) -> None:
+		if len(data) < 2:
+			raise ValueError(f"invalid mxr_signal_type size: {len(data)}")
+		self._svd = int(data[0])
+		self._flags = int(data[1])
+
+	@property
+	def value(self) -> int:
+		'''Raw 16-bit value.'''
+		return (self._flags << 8) | self._svd
+
+	@property
+	def svd(self) -> int:
+		'''CTA-861 short video descriptor, 0 when the signal is not HDMI.'''
+		return self._svd
+
+	@property
+	def color(self) -> int:
+		'''Colour space (see VideoColourSpace).'''
+		return (self._flags & 0xF)
+
+	@property
+	def non_int(self) -> bool:
+		'''Non-integer (1000/1001) frame rate.'''
+		return ((self._flags & (1 << 4)) != 0)
+
+	@property
+	def bpp_index(self) -> int:
+		'''Raw bpp index as carried on the wire.'''
+		return ((self._flags >> 5) & 0x7)
+
+	@property
+	def bpp(self) -> int:
+		'''Bit depth the bpp index stands for, 0 when unknown or unset.'''
+		return mxr_sig_bpp_get(self.bpp_index)
+
+	@property
+	def is_set(self) -> bool:
+		'''False while the signal type still carries the unset sentinel.'''
+		return (self.bpp_index != MXR_SIG_BPP_UNSET)
+
+	def __str__(self) -> str:
+		if not self.is_set:
+			return "unset"
+		bpp = self.bpp
+		return f"svd {self.svd}, color {self.color}, {bpp}bpp" if (bpp != 0) else f"svd {self.svd}, color {self.color}"
+
+	def __repr__(self) -> str:
+		return str(self)
 
 class LinkFeature(IntFlag):
 	'''Virtual link feature flags.'''

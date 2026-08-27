@@ -21,6 +21,8 @@ class DeviceV2IPDetailsImpl(DeviceV2IPDetails):
 		self._anc = None
 		self._arc = None
 		self._tx_rate = None
+		self._scaling = None
+		self._dscp = None
 
 	@property
 	def has_config(self) -> bool:
