@@ -7,6 +7,7 @@
 '''Video-over-IP transmitter and receiver statistics parsing.'''
 
 from enum import IntEnum
+from .Constants import decode_enum
 
 class V2IPTxStats:
     '''Transmitter stream statistics (packet counts and errors).'''
@@ -52,17 +53,47 @@ class V2IPTxStats:
     def __repr__(self) -> str:
         return str(self)
 
+# The two stats structs are 20 and 44 bytes, which is what makes the 0x3F payload
+# 128: tx 0..20, tx_per_minute 20..40, rx 40..84, rx_per_minute 84..128, with the
+# decoder state at +40 inside each rx block (absolute 80 and 124).
+#
+# Those sizes hold by accident. Both are declared with the ALIGN(8) attribute
+# placed before the `struct` keyword, where GCC ignores it - written the other
+# way round they would be 24 and 48 and every block after the first would shift.
+# So this layout is stable because of a misplaced attribute rather than by
+# intent, and a tidy-up of that declaration would change the wire format without
+# anything in the firmware looking different. Check the sizes, not just the field
+# offsets, if these ever stop lining up.
+
 class V2IPDecoderState(IntEnum):
-    '''Health state of the V2IP decoder.'''
+    '''Health state of the V2IP decoder.
+
+    Mirrors enum v2ip_decoder_state (Devices/BSP/V2IP/v2ip_sink_stats.h). Only
+    HEALTHY and BAD are verdicts: UNKNOWN and STARTING both mean the decoder has
+    not said yet. Testing `state != HEALTHY` therefore reads a receiver that is
+    merely coming up as one that failed to decode, which is the opposite of what
+    it means - use `settled` to tell a verdict from a non-answer.
+
+    HEALTHY is the firmware's V2IP_STATE_GOOD; the name differs, the value does
+    not.
+    '''
     UNKNOWN = 0
     HEALTHY = 1
     BAD = 2
+    STARTING = 3
+
+    @property
+    def settled(self) -> bool:
+        '''True when this state is a verdict rather than "has not said yet".'''
+        return (self.value in (V2IPDecoderState.HEALTHY.value, V2IPDecoderState.BAD.value))
 
     def __str__(self) -> str:
-        if self.value == 1:
+        if self.value == V2IPDecoderState.HEALTHY.value:
             return 'Healthy'
-        if self.value == 2:
+        if self.value == V2IPDecoderState.BAD.value:
             return 'Bad'
+        if self.value == V2IPDecoderState.STARTING.value:
+            return 'Starting'
         return 'Unknown'
 
 class V2IPRxStats:
@@ -126,7 +157,9 @@ class V2IPRxStats:
     @property
     def decoder_state(self) -> V2IPDecoderState:
         '''Current decoder health state.'''
-        return V2IPDecoderState(int(self._data[40]))
+        # a state this build does not know is UNKNOWN, not a ValueError out of
+        # whatever happened to touch the property first
+        return decode_enum(V2IPDecoderState, int(self._data[40])) or V2IPDecoderState.UNKNOWN
 
     def __str__(self) -> str:
         viseq = f" (seq: {self.video_sequence_errors})" if self.video_sequence_errors > 0 else ''

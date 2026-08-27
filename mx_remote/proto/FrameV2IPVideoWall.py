@@ -30,10 +30,16 @@ from ..Uid import MxrDeviceUid
 #
 # SINGLE-SOURCED. This layout has one origin: the module source and its shipped
 # disassembly (vw_set_remote at 0x1380), relayed here rather than derived. No
-# second reference stands behind it, so a mistake in it would look exactly like
-# a correct decode until a real wall misbehaved. Re-derive from the module repo,
-# or from a captured frame, before trusting it against a bug report. Everything
-# else in this package is checked against libP8/mx_remote directly.
+# second reference stands behind it. Everything else in this package is checked
+# against libP8/mx_remote directly.
+#
+# The quiet field is `op` at 28, not the geometry. A shifted window announces
+# itself - the picture is visibly in the wrong place - but a misread op is still
+# a valid op: a store behaves as a preview, which looks entirely correct until
+# the sink restarts and the wall reverts, and a revert reads as a preview whose
+# zeroed window clears a wall that should have been restored. So suspect this
+# layout on a wall that forgets its setting across a reboot, and do not wait for
+# one that is visibly wrong; this bug cannot produce that.
 _FRAME_SIZE = 32
 
 class FrameV2IPVideoWall(FrameBase):
