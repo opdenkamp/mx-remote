@@ -20,30 +20,34 @@ import struct
 # makes the block 4 bytes, not 2. Confirmed by offsetof assertions compiled
 # against the MCUXpresso ARM GCC: == 12 builds, == 10 does not.
 #
-# SINGLE-SOURCED. That measurement has one origin and was relayed here, not
-# reproduced. It is a good source - a compiler is a better authority on its own
-# packing than any reasoning about the ABI - but nothing independent stands
-# behind it, and the failure mode is quiet: a status_name two bytes out lands
-# inside the string and yields a plausible truncated name, not garbage. So the
-# symptom to act on is a status name that is merely odd - short, or missing its
-# first characters - rather than one that is obviously broken. Waiting for
-# garbage is waiting for something this bug cannot produce.
+# Corroborated by capture, independently of that compiler probe. Three live
+# frames from CEC-configured units must all carry an empty status_name, since
+# _v2ip_rc_fill_proto_status() writes status_name[0] = 0 and returns for any
+# non-network target. At 28 all three read empty; at 26 two of them read "(",
+# which a CEC unit cannot legitimately report. Two independent lines of evidence
+# now agree, so this offset is no longer single-sourced.
 #
-# One captured 0x45 frame from a unit with a non-empty driver status settles
-# 10-vs-12 outright and would retire the question.
-#
-#   0..16    mxr_uid target
-#   16..20   rc_target_t rc          (enum, 4 bytes)
+#   16..17   rc_target_t rc          ONE byte - Cortex-M builds -fshort-enums
+#   17..20   padding                  NOT zero on the wire; varies per frame
 #   20..24   ip_addr_t ip            (ip4_addr_t, a u32 in network order)
 #   24..25   flags + rc_status       bits 0..3 flags, bits 4..7 rc_status
-#   25..26   unused tail of container #1
-#   26..28   container #2, reserved:10
+#   25..28   padding                  NOT zero on the wire; varies per frame
 #   28..44   char status_name[16]
 #   44..48   tail padding to 48
 #
-# Everything meaningful in the bitfield block is in byte 24 alone. Do not read
-# the block as one little-endian u16 and shift - that is right by accident today
-# and wrong the moment `reserved` is spent.
+# Two rules follow, and captured frames show why both matter. The sender memcpys
+# a stack-local mxr_rc_config over the payload, so its padding carries whatever
+# was on the stack: three live frames from CEC-configured units read 01 73 20 28,
+# 01 6e 1e 28 and 01 b5 1b 28 at 16..20. The first byte is 1, RC_TARGET_CEC,
+# correct in all three; the rest is stack content, and reading the field as a u32
+# yields 673215233.
+#
+#   Never widen a field to swallow its padding. rc is one byte, not four.
+#   Never assume a reserved or padding byte is zero. Mask, do not assert.
+#
+# Everything meaningful in the bitfield block is likewise in byte 24 alone - the
+# same three frames carry 6f 05 28 in 25..28. Do not read the block as one
+# little-endian u16 and shift.
 _RC_OFFSET = 16
 _IP_OFFSET = 20
 _FLAGS_OFFSET = 24
@@ -67,7 +71,9 @@ class FrameRCSettings(FrameBase):
     @cached_property
     def rc_target(self) -> RCType | None:
         '''How the target is controlled (IR, CEC, Sky, TiVo, ...).'''
-        if ((pl := self.payload_u32(_RC_OFFSET)) is None):
+        # one byte: a plain enum, and Cortex-M builds with -fshort-enums. The
+        # three bytes after it are padding the sender does not clear.
+        if ((pl := self.payload_u8(_RC_OFFSET)) is None):
             return None
         try:
             return RCType(pl)

@@ -157,8 +157,14 @@ class V2IPRxStats:
     @property
     def decoder_state(self) -> V2IPDecoderState:
         '''Current decoder health state.'''
-        # a state this build does not know is UNKNOWN, not a ValueError out of
-        # whatever happened to touch the property first
+        # ONE byte at 40, with three of padding after it. It is a plain enum and
+        # Cortex-M builds with -fshort-enums, so widening this to a u32 reads
+        # three bytes of padding that the sender does not clear - captured 0x45
+        # frames show that padding carrying live stack content. Right today only
+        # while those bytes happen to be zero.
+        #
+        # A state this build does not know is UNKNOWN rather than a ValueError
+        # out of whatever happened to touch the property first.
         return decode_enum(V2IPDecoderState, int(self._data[40])) or V2IPDecoderState.UNKNOWN
 
     def __str__(self) -> str:
