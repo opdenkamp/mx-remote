@@ -29,14 +29,21 @@ class FrameFirmwareVersion(FrameBase):
         return self.payload_u32(4)
 
     @cached_property
-    def timestamp(self) -> int|None:
-        '''Firmware build timestamp.'''
+    def build_timestamp(self) -> int|None:
+        '''Firmware build/installation timestamp.
+
+        Not `timestamp`: FrameBase sets that as an instance attribute in
+        __init__ for our own receive time, and an instance attribute shadows a
+        cached_property of the same name - so a property called `timestamp`
+        here was never reached, and the build time read back as the moment we
+        happened to receive the frame.
+        '''
         return self.payload_u32(8)
 
     @cached_property
     def version(self) -> FirmwareVersion|None:
         '''Assembled FirmwareVersion object, or None if data is incomplete.'''
-        if ((version := self.fw_version) is not None) and ((timestamp := self.timestamp) is not None):
+        if ((version := self.fw_version) is not None) and ((timestamp := self.build_timestamp) is not None):
             if ((hash := self.hash) is None):
                 hash = 0
             return FirmwareVersion(type=self.fw_type, timestamp=timestamp, version=version, hash=hash)
@@ -49,7 +56,7 @@ class FrameFirmwareVersion(FrameBase):
 
     def __str__(self) -> str:
         hash = self.hash if (self.hash is not None) else 0
-        return f"firmware version: type {self.fw_type}: '{self.fw_version}' hash: {hex(hash)} timestamp: {self.timestamp}"
+        return f"firmware version: type {self.fw_type}: '{self.fw_version}' hash: {hex(hash)} built: {self.build_timestamp}"
 
     def __repr__(self) -> str:
         return str(self)

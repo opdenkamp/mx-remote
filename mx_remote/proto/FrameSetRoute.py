@@ -12,11 +12,14 @@ from .FrameBase import FrameBase
 class FrameSetRoute(FrameBase):
     '''Routing change request payload: mxr_routing_change_request.
 
-    Wire layout (mx_remote_proto.h:387):
-        0..16  mxr_serial   serial      ASCII serial, NUL-padded
-        16     mbay_port_id sink_bay    output bay to switch
-        17     mbay_port_id source_bay  source bay to use
-        18     uint8_t      no_power_on 1 = skip power-on commands
+    Wire layout (PACKED; mbay_port_id is uint16_t):
+        0..16   mxr_serial   serial      ASCII serial, NUL-padded
+        16..18  mbay_port_id sink_bay    output bay to switch
+        18..20  mbay_port_id source_bay  source bay to use
+        20..21  uint8_t      no_power_on 1 = skip power-on commands
+
+    Same struct as the audio routing request (0x13) with the trailing byte
+    added, so the two must agree on their bay widths.
     '''
 
     @cached_property
@@ -25,15 +28,15 @@ class FrameSetRoute(FrameBase):
 
     @cached_property
     def sink_bay(self) -> int | None:
-        return self.payload_u8(16)
+        return self.payload_u16(16)
 
     @cached_property
     def source_bay(self) -> int | None:
-        return self.payload_u8(17)
+        return self.payload_u16(18)
 
     @cached_property
     def no_power_on(self) -> bool | None:
-        return self.payload_bool(18)
+        return self.payload_bool(20)
 
     def __str__(self) -> str:
         return f"set route on {self.serial}: sink={self.sink_bay} source={self.source_bay} no_power_on={self.no_power_on}"
