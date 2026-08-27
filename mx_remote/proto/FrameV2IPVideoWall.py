@@ -27,6 +27,13 @@ from ..Uid import MxrDeviceUid
 # src/v2ip_videowall.h + src/vw_mesh.c), not by MatrixOS - MatrixOS only
 # reserves the opcode number. The receiver accepts anything >= 32 bytes and
 # ignores the remainder.
+#
+# SINGLE-SOURCED. This layout has one origin: the module source and its shipped
+# disassembly (vw_set_remote at 0x1380), relayed here rather than derived. No
+# second reference stands behind it, so a mistake in it would look exactly like
+# a correct decode until a real wall misbehaved. Re-derive from the module repo,
+# or from a captured frame, before trusting it against a bug report. Everything
+# else in this package is checked against libP8/mx_remote directly.
 _FRAME_SIZE = 32
 
 class FrameV2IPVideoWall(FrameBase):

@@ -20,6 +20,14 @@ import struct
 # makes the block 4 bytes, not 2. Confirmed by offsetof assertions compiled
 # against the MCUXpresso ARM GCC: == 12 builds, == 10 does not.
 #
+# SINGLE-SOURCED. That measurement has one origin and was relayed here, not
+# reproduced. It is a good source - a compiler is a better authority on its own
+# packing than any reasoning about the ABI - but nothing independent stands
+# behind it, and the failure mode is quiet: a status_name two bytes out reads as
+# a plausible truncated string rather than as garbage. One captured 0x45 frame
+# from a unit with a non-empty driver status settles 10-vs-12 outright and would
+# retire the question; worth doing before trusting this against a bug report.
+#
 #   0..16    mxr_uid target
 #   16..20   rc_target_t rc          (enum, 4 bytes)
 #   20..24   ip_addr_t ip            (ip4_addr_t, a u32 in network order)
