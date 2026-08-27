@@ -1804,6 +1804,18 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
+    def config_initialised(self) -> bool:
+        '''True if every configuration block this device broadcasts is fully written.
+
+        A device without MXR_FEATURE_CONFIG_INITIALISED builds some config
+        payloads from stack locals it never zeroes, so these are unreliable from
+        it: the scaling block in V2IP_DEVICE_CFG, bay 0's addresses in
+        SYS_BAY_V2IP_SOURCES, and the padding beside the rc target in
+        RC_SETTINGS. None of that is detectable within a frame.
+        '''
+
+    @property
+    @abstractmethod
     def is_oneip_tz(self) -> bool:
         '''True if this device is a OneIP Transceiver'''
 

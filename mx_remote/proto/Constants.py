@@ -208,6 +208,7 @@ class DeviceFeature(IntFlag):
 	MULTIVIEWER        = (1 << 22)
 	STATUS_CRASHED     = (1 << 23)
 	VIDEO_WALL         = (1 << 24)
+	CONFIG_INITIALISED = (1 << 25)
 	BOOT_BIT           = (1 << 31)
 
 BAY_FEATURE_DOLBY_IN_POS = 24

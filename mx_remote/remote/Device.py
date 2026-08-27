@@ -483,6 +483,11 @@ class Device(DeviceBase):
 
 	@property
 	@override
+	def config_initialised(self) -> bool:
+		return (self.features is not None) and DeviceFeature.CONFIG_INITIALISED in self.features
+
+	@property
+	@override
 	def is_oneip_tz(self) -> bool:
 		return self.is_v2ip and self.has_local_sink and self.has_local_source
 
