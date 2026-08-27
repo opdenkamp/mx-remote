@@ -13,6 +13,7 @@ from ..Interface import BayBase, SignalStatus
 from ..Uid import MxrDeviceUid
 import struct
 from .Svd import SvdMap, Svd
+from .Constants import BayStatusMask, MxrSignalType
 
 class VideoColourSpace(IntEnum):
     '''Video colour space encoding format.'''
@@ -148,17 +149,38 @@ class SignalStatusAvDetailsVideo:
 
     @property
     def frame_rate(self) -> int:
-        return int.from_bytes(self._data[8:9], "little")
+        '''Frame rate in Hz (uint16 at offset 8 of av_details_video).'''
+        return int.from_bytes(self._data[8:10], "little")
 
     @property
     def tmds_clock(self) -> int:
-        return int.from_bytes(self._data[10:13], "little")
+        '''TMDS clock rate in Hz (uint32 at offset 10 of av_details_video).'''
+        return int.from_bytes(self._data[10:14], "little")
 
     def __str__(self) -> str:
         return f"{self.svd}, rate {self.frame_rate}, tmds = {self.tmds_clock}"
 
+# av_details wire layout (packed):
+#   0..8     av_details_header
+#   8..24    avi_infoframe
+#   24..40   av_details_audio
+#   40..56   av_details_video
+#   56..88   av_details_vsync
+#   88..100  av_details_hdmi_link_errors (3 x u32)
+#   100..112 av_details_bay (u16 portnum, u32 status, mxr_signal_type scaling, u32 clock_rate)
+_AV_DETAILS_SIZE = 112
+
 class FrameSignalStatusNew(FrameBase):
-    ''' signal status changed '''
+    ''' signal status changed
+
+    A report is answered one packet per bay, not one per device: the port
+    number in the bay block at the tail is what names the reporting bay, so
+    demultiplex on it. Because that block sits behind the vsync and link-error
+    tail, a report shorter than the full 112 bytes cannot be attributed to a
+    bay at all and is dropped - firmware does the same since commit 88ea427.
+
+    An empty payload is a broadcast request for every device to report; a
+    16-byte payload requests a report from the one unit it addresses. '''
     @cached_property
     def signal_header_version(self) -> int:
         if ((pl := self.payload_u16(0)) is not None):
@@ -209,7 +231,8 @@ class FrameSignalStatusNew(FrameBase):
 
     @cached_property
     def bay_details(self) -> bytes:
-        if ((pl := self.payload_idx(100, 112)) is not None):
+        '''av_details_bay block at the tail of the struct; empty on a short report.'''
+        if ((pl := self.payload_idx(100, _AV_DETAILS_SIZE)) is not None) and (len(pl) == 12):
             return pl
         return bytes()
 
@@ -219,6 +242,30 @@ class FrameSignalStatusNew(FrameBase):
         if len(details) < 2:
             return 0xFF
         return (details[1] << 8) | (details[0])
+
+    @cached_property
+    def bay_status(self) -> BayStatusMask|None:
+        '''Bay status word from the bay block, or None on a short report.'''
+        details = self.bay_details
+        if len(details) < 6:
+            return None
+        return BayStatusMask(int.from_bytes(details[2:6], "little"))
+
+    @cached_property
+    def scaling(self) -> MxrSignalType|None:
+        '''Signal type the bay is scaling to, or None on a short report.'''
+        details = self.bay_details
+        if len(details) < 8:
+            return None
+        return MxrSignalType(details[6:8])
+
+    @cached_property
+    def clock_rate(self) -> int|None:
+        '''Video clock rate in Hz, or None on a short report.'''
+        details = self.bay_details
+        if len(details) < 12:
+            return None
+        return int.from_bytes(details[8:12], "little")
 
     @cached_property
     def bay(self)  -> BayBase|None:
@@ -253,8 +300,11 @@ class FrameSignalStatusNew(FrameBase):
         if (self.payload is None):
             return
         if len(self.payload) < 8:
+            # request rather than a report
             return
-        if len(self.payload) < 112:
+        if len(self.payload) < _AV_DETAILS_SIZE:
+            # the bay block naming the reporting bay sits at the tail, so a
+            # shorter report cannot be attributed to a bay
             return
         bay = self.bay
         if bay is None:
@@ -279,7 +329,7 @@ class FrameSignalStatusNew(FrameBase):
             return "signal status request"
         if len(self.payload) == 16:
             return f"signal status request for {self.uid_to_user_string(self.payload)}"
-        if len(self.payload) < 112:
+        if len(self.payload) < _AV_DETAILS_SIZE:
             return f"signal status request len {len(self.payload)}"
         if self.stream_valid:
             return f"{self.bay_name} signal status - {self.video}, errors = {self.errors}"
