@@ -392,19 +392,26 @@ class MxrSignalType:
 		return (self._flags << 8) | self._svd
 
 	@property
-	def svd(self) -> int:
-		'''CTA-861 short video descriptor, 0 when the signal is not HDMI.'''
-		return self._svd
+	def svd(self) -> int|None:
+		'''CTA-861 short video descriptor, or None when no format is set.
+
+		0 is a real value here - it says the signal is not HDMI - so it must not
+		double as "nothing was reported". MXR_SIGNAL_TYPE_INIT zeroes the whole
+		word and writes bpp index 5, which is why the sentinel lives in bpp and
+		why is_set is the only correct gate: the bytes beside it are zeroed and
+		meaningless, and returning them would answer three questions from a
+		frame that answered none.'''
+		return self._svd if self.is_set else None
 
 	@property
-	def color(self) -> int:
-		'''Colour space (see VideoColourSpace).'''
-		return (self._flags & 0xF)
+	def color(self) -> int|None:
+		'''Colour space (see VideoColourSpace), or None when no format is set.'''
+		return (self._flags & 0xF) if self.is_set else None
 
 	@property
-	def non_int(self) -> bool:
-		'''Non-integer (1000/1001) frame rate.'''
-		return ((self._flags & (1 << 4)) != 0)
+	def non_int(self) -> bool|None:
+		'''Non-integer (1000/1001) frame rate, or None when no format is set.'''
+		return ((self._flags & (1 << 4)) != 0) if self.is_set else None
 
 	@property
 	def bpp_index(self) -> int:
@@ -412,9 +419,13 @@ class MxrSignalType:
 		return ((self._flags >> 5) & 0x7)
 
 	@property
-	def bpp(self) -> int:
-		'''Bit depth the bpp index stands for, 0 when unknown or unset.'''
-		return mxr_sig_bpp_get(self.bpp_index)
+	def bpp(self) -> int|None:
+		'''Bit depth the bpp index stands for.
+
+		None when no format is set, 0 when a format is set but its depth is not
+		known. Those are different answers and collapsing them loses the only
+		distinction this field carries.'''
+		return mxr_sig_bpp_get(self.bpp_index) if self.is_set else None
 
 	@property
 	def is_set(self) -> bool:

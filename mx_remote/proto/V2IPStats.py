@@ -157,11 +157,17 @@ class V2IPRxStats:
     @property
     def decoder_state(self) -> V2IPDecoderState:
         '''Current decoder health state.'''
-        # ONE byte at 40, with three of padding after it. It is a plain enum and
-        # Cortex-M builds with -fshort-enums, so widening this to a u32 reads
-        # three bytes of padding that the sender does not clear - captured 0x45
-        # frames show that padding carrying live stack content. Right today only
-        # while those bytes happen to be zero.
+        # ONE byte at 40, with three of padding after it: it is a plain enum and
+        # Cortex-M builds with -fshort-enums.
+        #
+        # This sender does zero that padding - mxr_bsp_v2ip_tx_v2ip_stats()
+        # writes through pointers into an already-zeroed pbuf rather than
+        # copying a stack struct, so unlike 0x45 there is no stack content here.
+        # Keep the read one byte anyway: that is a property of one sender's
+        # implementation, not of the protocol, and the 0x45 sender demonstrates
+        # what the other approach puts on the wire. A width that is only correct
+        # because of how a particular transmitter happens to build its payload
+        # is not correct, it is unfalsified.
         #
         # A state this build does not know is UNKNOWN rather than a ValueError
         # out of whatever happened to touch the property first.

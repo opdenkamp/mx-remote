@@ -357,6 +357,21 @@ class V2IPStreamSources:
     def arc(self) -> V2IPStreamSource|None:
         ''' audio return stream source '''
 
+    @property
+    def valid(self) -> bool:
+        """
+        True when this entry carries addresses a sender actually meant to send.
+
+        Applies the firmware's own test - video and anc must both be multicast
+        with a non-zero port; audio is optional and rides along with them. Check
+        it before routing off an entry rather than trusting the entry: a sender
+        running firmware before the 0x26 initialisation fix dropped the return of
+        the getter meant to fill its record and copied the struct in regardless,
+        so a bay-0 entry can carry addresses read from the stack under that
+        unit's own uid. Stack contents rarely satisfy both halves of this test.
+        """
+        return v2ip_av_source_valid(self.video, self.anc)
+
 class V2IPStreamSourcesList(list[V2IPStreamSources]):
     ''' list of V2IP sources '''
 
@@ -1414,8 +1429,14 @@ class DeviceV2IPDetails:
         if mode_valid:
             flags |= MXR_SCALING_FLAG_MODE_VALID
         else:
-            # options only: replace the options nibble, keep the mode validity
-            flags = (flags & 0x0F) | MXR_SCALING_FLAG_OPTIONS_VALID | (incoming.flags & 0xF0)
+            # Options only. Carry AUTO_SCALING alone rather than the whole upper
+            # nibble: bits 4..6 have no defined meaning, and on a receiver-capable
+            # unit running firmware before the scaling-config initialisation fix
+            # they are stack noise - the sender declares mxr_scaling_config
+            # uninitialised and only ever |= flags onto it. Masking to the bit we
+            # mean cannot lose information even on fixed firmware, and stops the
+            # noise at this boundary instead of caching it as a peer's config.
+            flags = (flags & 0x0F) | MXR_SCALING_FLAG_OPTIONS_VALID                     | (incoming.flags & MXR_SCALING_FLAG_AUTO_SCALING)
         return V2IPScalingSettings(mode=mode, refresh=refresh, flags=flags)
 
 class DeviceV2IPSink:

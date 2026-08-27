@@ -34,6 +34,30 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #
 # The sink trailer is the one part that is simply present or absent, by length.
 #
+# One caveat the markers cannot cover. A receiver-capable unit running firmware
+# that predates the scaling-config initialisation fix builds mxr_scaling_config
+# on the stack without zeroing it and only ever |= flags onto it, so:
+#   - MODE_VALID can be set by leftover stack, and mode/refresh behind it are
+#     then uninitialised memory - assigned only when a format really is
+#     configured. Nothing in the frame distinguishes that from a real config, so
+#     this is an exposure to note rather than one a client can close.
+#   - AUTO_SCALING is only ever OR'd, never cleared, so it too can be spuriously
+#     set. Reading bit 7 specifically is the best available reading, not a
+#     correct one; it confines the noise to one bit instead of five.
+#
+# Nothing on the wire distinguishes a fixed sender from an unfixed one. The
+# payload shape did not change, so MXR_PROTOCOL_VERSION stayed at 0x28 and no
+# feature bit was added - confirmed, not assumed.
+#
+# Do not reach for the firmware version in the hello as a gate. Release builds
+# use low majors (4.4.x) and development builds use major >= 10, one minor per
+# developer - a parallel numbering, not a later one. A numeric compare puts
+# 10.12.31 above every release that will ever carry the fix and 4.4.87 below a
+# dev build predating it by months, so "is this at least the threshold" is not a
+# well-formed question across the two families. Getting it right would mean
+# judging dev builds by build date and release builds by version, which is a
+# worse bug waiting to happen than the exposure it guards.
+#
 # The tiling block has no flag of its own, but its uid serves as one: both paths
 # that produce a real window stamp it (v2ip_fpga.c:1445 for a remote sink, 1470
 # for a local one), while a controller write passes tiling = NULL and leaves the
