@@ -1272,8 +1272,30 @@ class V2IPDscpConfig:
         return self._anc
 
     @property
+    def carried(self) -> bool:
+        """
+        True when this frame carried a marking at all.
+
+        The firmware cache gates on the video byte alone and then stores all
+        three verbatim (mxr_bsp_v2ip.c _mxr_dev_on_rx_v2ip_details), so that is
+        the test for "did this frame offer a marking". It is deliberately not
+        ``complete``: a partial set overwrites a peer's cached marking, and a
+        receiver treating it as absent would report a marking the peer no
+        longer holds.
+        """
+        return (self._video is not None)
+
+    @property
     def complete(self) -> bool:
-        """True when all three streams carry a marking, which is what firmware requires to apply one."""
+        """
+        True when all three streams carry a marking.
+
+        This is the separate question of whether the firmware will *apply* the
+        marking: v2ip_source_mxr_dscp() falls back to CS2 on all three streams
+        unless every byte carries MXR_V2IP_DSCP_SET. A partial set is therefore
+        cached and reported but never applied - no in-tree sender produces one,
+        so it only arises from a controller writing the struct directly.
+        """
         return (self._video is not None) and (self._audio is not None) and (self._anc is not None)
 
     def __eq__(self, other:Any) -> bool:
@@ -1282,9 +1304,13 @@ class V2IPDscpConfig:
         return (self._video == other._video) and (self._audio == other._audio) and (self._anc == other._anc)
 
     def __str__(self) -> str:
-        if not self.complete:
+        if not self.carried:
             return "no marking"
-        return f"video:{self._video} audio:{self._audio} anc:{self._anc}"
+        def one(v:int|None) -> str:
+            return str(v) if (v is not None) else "unset"
+        rv = f"video:{one(self._video)} audio:{one(self._audio)} anc:{one(self._anc)}"
+        # a partial set is cached and reported, but firmware will not apply it
+        return rv if self.complete else (rv + " (partial, not applied)")
 
     def __repr__(self) -> str:
         return str(self)
@@ -1342,8 +1368,9 @@ class DeviceV2IPDetails:
         therefore has its own validity marker and firmware applies it only
         behind that marker (mxr_bsp_v2ip.c _mxr_dev_on_rx_v2ip_details): the
         addresses must be multicast with a non-zero port, tx_rate must be
-        inside 5..100, a dscp byte must carry MXR_V2IP_DSCP_SET, and scaling
-        must carry its MXR_SCALING_FLAG_*_VALID flags. Mirror that here, or a
+        inside 5..100, the dscp block must carry MXR_V2IP_DSCP_SET on its video
+        byte, and scaling must carry its MXR_SCALING_FLAG_*_VALID flags. Mirror
+        that here, or a
         controller writing a rate reports the peer's addresses as 0.0.0.0 and
         its marking and scaling as gone until the peer's next broadcast.
         """
@@ -1356,7 +1383,7 @@ class DeviceV2IPDetails:
             video, audio, anc = previous._video, previous._audio, previous._anc
         arc = self._arc if v2ip_stream_valid(self._arc) else previous._arc
         tx_rate = self._tx_rate if v2ip_rate_valid(self._tx_rate) else previous._tx_rate
-        dscp = self._dscp if ((self._dscp is not None) and self._dscp.complete) else previous._dscp
+        dscp = self._dscp if ((self._dscp is not None) and self._dscp.carried) else previous._dscp
         scaling = self._merge_scaling(previous._scaling)
 
         if (video is self._video) and (audio is self._audio) and (anc is self._anc)                 and (arc is self._arc) and (tx_rate == self._tx_rate)                 and (dscp is self._dscp) and (scaling is self._scaling):
