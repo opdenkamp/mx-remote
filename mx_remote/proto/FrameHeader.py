@@ -69,8 +69,11 @@ class FrameHeader:
             return None
         if (length > 0) and ((idx + length) > len(self.data)):
             return None
+        # fixed-width wire fields carry no terminator of their own when the value
+        # fills them, so slice the field first and only then cut at a NUL - never
+        # scan on into the neighbouring struct member
         pl = self.data[idx:idx+length] if (length > 0) else self.data[idx:]
-        return pl.split(b'\0',1)[0].decode('ascii')
+        return pl.split(b'\0',1)[0].decode('ascii', errors='replace')
 
     def data_uuid(self, idx:int=0) -> MxrDeviceUid|None:
         if (self.data is None) or ((idx + 16) > len(self.data)):

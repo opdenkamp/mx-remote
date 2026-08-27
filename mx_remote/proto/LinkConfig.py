@@ -44,12 +44,12 @@ class LinkConfig:
     @property
     def linked_serial(self) -> str:
         '''Serial number of the device linked to this bay, or empty if not linked.'''
-        return self.payload[2:18].split(b'\0',1)[0].decode('ascii')
+        return self.payload[2:18].split(b'\0',1)[0].decode('ascii', errors='replace')
 
     @property
     def linked_bay_name(self) -> str:
         '''Name of the bay linked to this bay, or empty if not linked.'''
-        return self.payload[18:34].split(b'\0',1)[0].decode('ascii')
+        return self.payload[18:34].split(b'\0',1)[0].decode('ascii', errors='replace')
 
     @property
     def features(self) -> int:

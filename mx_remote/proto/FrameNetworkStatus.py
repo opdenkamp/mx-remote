@@ -132,7 +132,7 @@ class NetworkPortStatusImplPre22(NetworkPortStatus):
 
     @cached_property
     def name(self) -> str:
-        return self.data[112:128].split(b'\0',1)[0].decode('ascii')
+        return self.data[112:128].split(b'\0',1)[0].decode('ascii', errors='replace')
 
     @cached_property
     def ip(self) -> str:
@@ -206,7 +206,7 @@ class NetworkPortStatusImpl(NetworkPortStatus):
 
     @cached_property
     def name(self) -> str:
-        return self.data[4:20].split(b'\0',1)[0].decode('ascii')
+        return self.data[4:20].split(b'\0',1)[0].decode('ascii', errors='replace')
 
     @cached_property
     def mac_address(self) -> str|None:

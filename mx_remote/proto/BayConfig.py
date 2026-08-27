@@ -73,17 +73,17 @@ class BayConfig:
 	@cached_property
 	def bay_name(self) -> str:
 		'''Bay name.'''
-		return self.payload[5:21].split(b'\0',1)[0].decode('ascii')
+		return self.payload[5:21].split(b'\0',1)[0].decode('ascii', errors='replace')
 
 	@cached_property
 	def user_name(self) -> str:
 		'''User-assigned name.'''
-		return self.payload[21:37].split(b'\0',1)[0].decode('ascii')
+		return self.payload[21:37].split(b'\0',1)[0].decode('ascii', errors='replace')
 
 	@cached_property
 	def signal_type(self) -> str:
 		'''Video signal type.'''
-		return self.payload[37:53].split(b'\0',1)[0].decode('ascii')
+		return self.payload[37:53].split(b'\0',1)[0].decode('ascii', errors='replace')
 
 	@cached_property
 	def status(self) -> BayStatusMask:

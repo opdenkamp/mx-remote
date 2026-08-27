@@ -8,7 +8,7 @@
 
 from functools import cached_property
 from .FrameBase import FrameBase
-from .Constants import FirmwareType
+from .Constants import FirmwareType, MXR_FW_VERSION_LEN
 from ..Interface import FirmwareVersion
 
 class FrameFirmwareVersion(FrameBase):
@@ -20,8 +20,8 @@ class FrameFirmwareVersion(FrameBase):
 
     @cached_property
     def fw_version(self) -> str|None:
-        '''Firmware version string.'''
-        return self.payload_str(12)
+        '''Firmware version string (fixed-width MXR_FW_VERSION_LEN field).'''
+        return self.payload_str(12, MXR_FW_VERSION_LEN)
 
     @cached_property
     def hash(self) -> int|None:

@@ -15,9 +15,14 @@ from ..Interface import DeviceBase, DeviceRegistry, BayBase
 from ..Uid import MxrDeviceUid
 
 def append_payload_str(payload:list[int], value:str, sz:int) -> list[int]:
-    '''Append a fixed-size ASCII string to a payload byte list, zero-padded to sz.'''
-    value = value[0:16]
-    return payload + list(value.encode('ascii')) + [ 0 for _ in range(sz - len(value))]
+    '''Append a fixed-size ASCII string to a payload byte list, zero-padded to sz.
+
+    The wire fields are fixed width and carry no terminator of their own, so a
+    value that fills the field completely is written without one - truncate to
+    the field's own size rather than a constant, or the field overruns into its
+    neighbour.'''
+    encoded = value.encode('ascii', errors='replace')[0:sz]
+    return payload + list(encoded) + [ 0 for _ in range(sz - len(encoded))]
 
 class FrameBase:
     ''' Base class for decoded mx_remote frames '''
