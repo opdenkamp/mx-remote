@@ -16,6 +16,39 @@ from ..Interface import ConnectionCallbacks, mxr_valid_addresses
 
 _LOGGER = logging.getLogger(__name__)
 
+# Delivery is to a group today, but that is an implementation detail of the
+# current firmware rather than a property of the protocol - do not build on it.
+#
+# A device has two endpoints, both group addresses: the multicast group and the
+# interface broadcast address. MX_TX_ACTIVE sends to the multicast endpoint
+# unconditionally and to the broadcast one when some peer needs broadcast, and
+# MX_TX_DIRECT picks between the two. Nothing resolves a per-device address, so
+# every frame currently reaches every listener. But mxr_transmit() already
+# threads an mx_remote_devptr through the endpoint selection specifically so
+# directed sends can be added without reshaping the transmit path, and the
+# motivation is mesh scale: past some member count, having every unit process
+# every frame stops paying.
+#
+# Two things follow, and both are already true here - keep them true:
+#
+#   - The rx socket binds INADDR_ANY rather than the group address, so a frame
+#     addressed to this host's own address arrives alongside the group traffic.
+#     Joining the group and nothing else would be correct today and would
+#     silently stop seeing directed frames later.
+#   - State has an active path behind it, not just overhearing. The device
+#     cache is refreshed by transmitting SYS_DISCOVER (0x01) rather than only
+#     by waiting for a hello - see Remote._background_probe(). Anything
+#     populated purely by listening to traffic between two other devices
+#     degrades quietly if directed sends arrive.
+#
+# Addressing in this protocol is by uid in the payload, never by IP: a frame
+# reaching this socket is not necessarily addressed to us, and one addressed to
+# us is not necessarily the only copy on the wire. Demultiplex on the uid.
+#
+# Known gap against the second rule: signal status (0x31) is only ever received
+# here, never requested, though it has a request form - an empty payload for a
+# broadcast request, or a 16-byte uid to ask one unit.
+
 def is_posix_os() -> bool:
     '''Return True if the current OS is POSIX-compatible.'''
     return (os.name == 'posix')
@@ -86,6 +119,9 @@ class ConnectionAsync(asyncio.DatagramProtocol):
         if is_posix_os():
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 
+        # INADDR_ANY rather than the group address: a directed frame addressed to
+        # this host's own address then arrives alongside the group traffic. See
+        # the note at the top of this module.
         sock.bind(('', self.port))
 
         if self.is_multicast:
