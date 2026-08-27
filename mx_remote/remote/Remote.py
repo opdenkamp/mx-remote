@@ -37,7 +37,7 @@ _LOGGER = logging.getLogger(__name__)
 class Remote(DeviceRegistry, ConnectionCallbacks):
     ''' Main component that handles the network connections and registration of remote devices '''
 
-    def __init__(self, target_ip:str|None=None, port:int|None=None, http_session:aiohttp.ClientSession|None=None, open_connection:bool=True, callbacks:MxrCallbacks|None=None, name:str="MXR Python", local_ip:str|None=None, broadcast:bool|None=None, addr_filter:str|None=None) -> None:
+    def __init__(self, target_ip:str|None=None, port:int|None=None, http_session:aiohttp.ClientSession|None=None, open_connection:bool=True, callbacks:MxrCallbacks|None=None, name:str="MXR Python", local_ip:str|None=None, broadcast:bool|None=None, addr_filter:str|None=None, uid_path:str|None=None) -> None:
         '''Initialise the remote controller.
 
         :param target_ip: multicast/broadcast IP to use, or None for the default
@@ -49,6 +49,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         :param local_ip: local interface IP to bind to, or None for any
         :param broadcast: use broadcast instead of multicast when True
         :param addr_filter: only log frames from this IP address when set
+        :param uid_path: file holding this client's uid, or None for ~/.mxr-uid.
+            Give concurrent clients on one host separate paths - see _load_uid
         '''
         DeviceRegistry.__init__(self)
         ConnectionCallbacks.__init__(self)
@@ -61,6 +63,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._last_hello = 0
         self._tasks:set[asyncio.Task[None]] = set()
         self._uid:bytes|None = None
+        self._uid_path = uid_path
         self._local_ip = local_ip
         self._broadcast = broadcast
         self._target_ip = target_ip
@@ -128,9 +131,17 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         return self._port
 
     async def _load_uid(self) -> None:
+        '''Load this client's uid, generating and persisting one if absent.
+
+        The uid is this client's identity on the mesh: addressing is by uid in
+        the payload, and process_frame() drops any frame whose remote_id is our
+        own. Two clients sharing a uid are therefore one peer to every device,
+        and each silently discards everything the other sends. Pass separate
+        uid_path values to run concurrent clients from one account.
+        '''
         if self._uid is not None:
             return
-        uid_path = Path.home().joinpath(".mxr-uid")
+        uid_path = Path(self._uid_path) if (self._uid_path is not None) else Path.home().joinpath(".mxr-uid")
         try:
             async with aiofiles.open(uid_path, "rb") as f:
                 self._uid = await f.read()
