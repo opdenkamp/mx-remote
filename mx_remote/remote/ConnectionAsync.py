@@ -45,9 +45,28 @@ _LOGGER = logging.getLogger(__name__)
 # reaching this socket is not necessarily addressed to us, and one addressed to
 # us is not necessarily the only copy on the wire. Demultiplex on the uid.
 #
-# Known gap against the second rule: signal status (0x31) is only ever received
-# here, never requested, though it has a request form - an empty payload for a
-# broadcast request, or a 16-byte uid to ask one unit.
+# Known gaps against the second rule. Of the eight opcodes whose payloads become
+# cached state, only two have an active path behind them:
+#
+#   0x00 SYS_HELLO             refreshed by transmitting SYS_DISCOVER (0x01)
+#   0x3F V2IP_STATS            refreshed by subscribing with 0x3F itself
+#   0x02 SYS_BAY_CONFIG        overheard only
+#   0x03 SYS_LINKS             overheard only
+#   0x08 MX_ROUTE              overheard only
+#   0x26 SYS_BAY_V2IP_SOURCES  overheard only
+#   0x31 BAY_SIGNAL_STATUS     overheard only - though a request form exists:
+#                              an empty payload to ask everyone, or a 16-byte
+#                              uid to ask one unit. Simply unused here.
+#   0x3C V2IP_DEVICE_CFG       overheard only
+#
+# 0x31 is the one that is purely an omission, since the request form is defined
+# and we do not send it. For the rest it is not established whether a request
+# form exists at all. Between them the overheard six carry every bay name and
+# port number, the link and routing tables, and all stream addresses - so a
+# roster here is empty until devices happen to announce, and a route changed by
+# someone else arrives whenever it is next re-announced. That is invisible today
+# because everything is broadcast anyway; it is the part that would degrade if
+# directed sends arrive.
 
 def is_posix_os() -> bool:
     '''Return True if the current OS is POSIX-compatible.'''
