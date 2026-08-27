@@ -22,11 +22,17 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #   56..64   mxr_scaling_config (u16 mode + u16 refresh + u8 flags + 3 pad)
 #   64..88   mxr_v2ip_tiling_config (mxr_uid + 4 × u16) - not parsed here, see below
 #
-# Only the source addresses and the sink trailer are unconditional; every other
-# field carries its own validity marker, because a controller writing one of them
-# leaves the rest zeroed (mxr_pbuf_alloc zeroes the payload). tx_rate is valid only
-# inside 5..100, a dscp byte only with MXR_V2IP_DSCP_SET, scaling only under its
-# MXR_SCALING_FLAG_*_VALID flags.
+# Every field here carries its own validity marker, because a controller writing
+# one of them leaves the rest zeroed (mxr_pbuf_alloc zeroes the payload), and the
+# firmware applies each only behind its own marker. An address is valid only when
+# it is multicast with a non-zero port (video and anc both, audio rides along),
+# tx_rate only inside 5..100, a dscp byte only with MXR_V2IP_DSCP_SET, scaling only
+# under its MXR_SCALING_FLAG_*_VALID flags - and the mode/refresh pair and the
+# options nibble are separately valid. DeviceV2IPDetails.merge() mirrors all of it;
+# a receiver that replaces its cache wholesale reports a peer's addresses as
+# 0.0.0.0 the moment a controller writes anything else.
+#
+# The sink trailer is the one part that is simply present or absent, by length.
 #
 # The tiling block has no flag of its own, but its uid serves as one: both paths
 # that produce a real window stamp it (v2ip_fpga.c:1445 for a remote sink, 1470

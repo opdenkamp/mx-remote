@@ -132,6 +132,12 @@ def v2ip_rate_valid(rate:int|None) -> bool:
     '''True when a tx_rate carries an actual rate (firmware v2ip_source_rate_valid()).'''
     return (rate is not None) and (V2IP_SOURCE_RATE_MIN <= rate <= V2IP_SOURCE_RATE_MAX)
 
+MXR_SCALING_FLAG_MODE_VALID    = (1 << 0)
+MXR_SCALING_FLAG_OPTIONS_VALID = (1 << 1)
+MXR_SCALING_FLAG_AUTO_SCALING  = (1 << 7)
+"""mxr_scaling_config.flags. The mode/refresh pair and the options nibble are
+separately valid: a sender carrying neither flag is offering no scaling at all."""
+
 MXR_V2IP_DSCP_SET = 0x80
 """DSCP 0 (CS0) is a legal marking, so a zero byte cannot mean "absent": each
 dscp byte in a V2IP_DEVICE_CFG options word carries this bit alongside its

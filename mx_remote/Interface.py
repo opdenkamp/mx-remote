@@ -1195,6 +1195,55 @@ class DeviceV2IPScalingSettings(ABC):
     def flags(self) -> int:
         pass
 
+def v2ip_stream_valid(stream:'V2IPStreamSource|None') -> bool:
+    """
+    True when a stream source carries an address a frame actually meant to send.
+
+    Mirrors mxr_v2ip_stream_valid(): a multicast ip and a non-zero port. A
+    controller write that offers no addresses leaves the block zeroed, which
+    fails both tests.
+    """
+    if (stream is None):
+        return False
+    try:
+        return ipaddress.IPv4Address(stream.ip).is_multicast and (stream.port != 0)
+    except ValueError:
+        return False
+
+def v2ip_av_source_valid(video:'V2IPStreamSource|None', anc:'V2IPStreamSource|None') -> bool:
+    """
+    True when an av source block carries addresses a frame actually meant to send.
+
+    Mirrors mxr_v2ip_av_source_valid(): video and anc must both be valid, audio
+    is optional and is carried along with them.
+    """
+    return v2ip_stream_valid(video) and v2ip_stream_valid(anc)
+
+class V2IPScalingSettings(DeviceV2IPScalingSettings):
+    """Plain holder for a merged mxr_scaling_config."""
+    def __init__(self, mode:int, refresh:int, flags:int) -> None:
+        self._mode = mode
+        self._refresh = refresh
+        self._flags = flags
+
+    @property
+    def mode(self) -> int:
+        return self._mode
+
+    @property
+    def refresh(self) -> int:
+        return self._refresh
+
+    @property
+    def flags(self) -> int:
+        return self._flags
+
+    def __str__(self) -> str:
+        return f"mode:{self._mode} refresh:{self._refresh} flags:{self._flags:02X}"
+
+    def __repr__(self) -> str:
+        return str(self)
+
 class V2IPDscpConfig:
     """
     Per-stream DSCP marking carried in a V2IP device configuration.
@@ -1286,21 +1335,61 @@ class DeviceV2IPDetails:
 
     def merge(self, previous:'DeviceV2IPDetails|None') -> 'DeviceV2IPDetails':
         """
-        Carry forward the fields a frame may legitimately omit.
+        Carry forward every field this frame did not actually carry.
 
-        A controller writing only addresses or scaling sends a tx_rate outside
-        the valid range and leaves the dscp bytes unset; firmware keeps its
-        cached values in that case, so do the same rather than reporting the
-        peer's rate and marking as gone.
+        mxr_pbuf_alloc() zeroes the payload, so a controller writing one field
+        of a peer's config leaves all the others zeroed on the wire. Each field
+        therefore has its own validity marker and firmware applies it only
+        behind that marker (mxr_bsp_v2ip.c _mxr_dev_on_rx_v2ip_details): the
+        addresses must be multicast with a non-zero port, tx_rate must be
+        inside 5..100, a dscp byte must carry MXR_V2IP_DSCP_SET, and scaling
+        must carry its MXR_SCALING_FLAG_*_VALID flags. Mirror that here, or a
+        controller writing a rate reports the peer's addresses as 0.0.0.0 and
+        its marking and scaling as gone until the peer's next broadcast.
         """
         if (previous is None):
             return self
+
+        if v2ip_av_source_valid(self._video, self._anc):
+            video, audio, anc = self._video, self._audio, self._anc
+        else:
+            video, audio, anc = previous._video, previous._audio, previous._anc
+        arc = self._arc if v2ip_stream_valid(self._arc) else previous._arc
         tx_rate = self._tx_rate if v2ip_rate_valid(self._tx_rate) else previous._tx_rate
         dscp = self._dscp if ((self._dscp is not None) and self._dscp.complete) else previous._dscp
-        if (tx_rate == self._tx_rate) and (dscp is self._dscp):
+        scaling = self._merge_scaling(previous._scaling)
+
+        if (video is self._video) and (audio is self._audio) and (anc is self._anc)                 and (arc is self._arc) and (tx_rate == self._tx_rate)                 and (dscp is self._dscp) and (scaling is self._scaling):
             return self
-        return DeviceV2IPDetails(video=self._video, audio=self._audio, anc=self._anc, arc=self._arc,
-                                 tx_rate=tx_rate, scaling=self._scaling, dscp=dscp)
+        return DeviceV2IPDetails(video=video, audio=audio, anc=anc, arc=arc,
+                                 tx_rate=tx_rate, scaling=scaling, dscp=dscp)
+
+    def _merge_scaling(self, previous:DeviceV2IPScalingSettings|None) -> DeviceV2IPScalingSettings|None:
+        """
+        Merge a scaling config field by field, the way firmware applies it.
+
+        The mode/refresh pair and the options nibble are separately valid, so a
+        write carrying only one of them must leave the other as it was.
+        """
+        incoming = self._scaling
+        if (incoming is None) or (previous is None):
+            return incoming if (incoming is not None) else previous
+        mode_valid = ((incoming.flags & MXR_SCALING_FLAG_MODE_VALID) != 0)
+        options_valid = ((incoming.flags & MXR_SCALING_FLAG_OPTIONS_VALID) != 0)
+        if not mode_valid and not options_valid:
+            # carries no scaling at all
+            return previous
+        if mode_valid and options_valid:
+            return incoming
+        mode = incoming.mode if mode_valid else previous.mode
+        refresh = incoming.refresh if mode_valid else previous.refresh
+        flags = previous.flags
+        if mode_valid:
+            flags |= MXR_SCALING_FLAG_MODE_VALID
+        else:
+            # options only: replace the options nibble, keep the mode validity
+            flags = (flags & 0x0F) | MXR_SCALING_FLAG_OPTIONS_VALID | (incoming.flags & 0xF0)
+        return V2IPScalingSettings(mode=mode, refresh=refresh, flags=flags)
 
 class DeviceV2IPSink:
     """
