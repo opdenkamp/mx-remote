@@ -12,28 +12,32 @@ from .FrameBase import FrameBase
 import logging
 
 class FrameLinks(FrameBase):
-    '''All configured links for the device that sent this frame.'''
+    '''Configured links for the device that sent this frame.
+
+    Paged the same way as the bay config: a device with many bays splits its
+    links across several frames sized against mxr_max_payload_len(), so the
+    record count varies per frame and the receiver merges records into its
+    cache rather than replacing it.'''
     @cached_property
     def nb_links(self) -> int:
-        '''Number of links defined in this frame.'''
+        '''Number of link descriptors in this page. Not the device's link count.'''
         return int(len(self) / 38)
 
     @cached_property
     def links(self) -> list[LinkConfig]:
-        '''List of all links defined in this frame.'''
-        rv = []
-        linknum = 0
+        '''Link configurations carried by this page.'''
+        rv:list[LinkConfig] = []
         if (self.payload is None):
-            return []
-        while linknum < self.nb_links:
-            if (len(self.payload) >= ((linknum+1)*38)):
-                link = LinkConfig(self, self.payload[(linknum*38):((linknum+1)*38)])
-                rv.append(link)
-                linknum += 1
+            return rv
+        # nb_links comes from the header's declared length; a truncated datagram
+        # can claim more records than actually arrived, so bound on both
+        nb_links = min(self.nb_links, int(len(self.payload) / 38))
+        for linknum in range(nb_links):
+            rv.append(LinkConfig(self, self.payload[(linknum*38):((linknum+1)*38)]))
         return rv
 
     def process(self) -> None:
-        '''Update the local device cache with link configuration.'''
+        '''Merge this page's links into the local device cache.'''
         dev = self.remote_device
         if dev is None:
             logging.debug("not processing link config - hello not received")
@@ -43,4 +47,4 @@ class FrameLinks(FrameBase):
         dev.on_link_config_received()
 
     def __str__(self) -> str:
-        return f"{self.remote_device} links config"
+        return f"{self.remote_device} links config page: {len(self.links)} links"
