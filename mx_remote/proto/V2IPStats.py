@@ -53,17 +53,13 @@ class V2IPTxStats:
     def __repr__(self) -> str:
         return str(self)
 
-# The two stats structs are 20 and 44 bytes, which is what makes the 0x3F payload
-# 128: tx 0..20, tx_per_minute 20..40, rx 40..84, rx_per_minute 84..128, with the
-# decoder state at +40 inside each rx block (absolute 80 and 124).
+# The 0x3F payload is 128 bytes: tx 0..20, tx_per_minute 20..40, rx 40..84,
+# rx_per_minute 84..128, with the decoder state at +40 in each rx block.
 #
-# Those sizes hold by accident. Both are declared with the ALIGN(8) attribute
-# placed before the `struct` keyword, where GCC ignores it - written the other
-# way round they would be 24 and 48 and every block after the first would shift.
-# So this layout is stable because of a misplaced attribute rather than by
-# intent, and a tidy-up of that declaration would change the wire format without
-# anything in the firmware looking different. Check the sizes, not just the field
-# offsets, if these ever stop lining up.
+# Those block sizes are 20 and 44 only because the firmware's ALIGN(8) attribute
+# sits before the `struct` keyword, where GCC ignores it. Written the other way
+# round they would be 24 and 48 and every block after the first would shift, so
+# check the sizes and not just the field offsets if these stop lining up.
 
 class V2IPDecoderState(IntEnum):
     '''Health state of the V2IP decoder.

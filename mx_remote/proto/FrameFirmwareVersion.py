@@ -32,11 +32,9 @@ class FrameFirmwareVersion(FrameBase):
     def build_timestamp(self) -> int|None:
         '''Firmware build/installation timestamp.
 
-        Not `timestamp`: FrameBase sets that as an instance attribute in
-        __init__ for our own receive time, and an instance attribute shadows a
-        cached_property of the same name - so a property called `timestamp`
-        here was never reached, and the build time read back as the moment we
-        happened to receive the frame.
+        Not named `timestamp`: FrameBase assigns that instance attribute for our
+        own receive time, and an instance attribute shadows a cached_property of
+        the same name.
         '''
         return self.payload_u32(8)
 

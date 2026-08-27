@@ -38,10 +38,9 @@ class FrameRCIr(FrameBase):
     def ir_timestamp(self) -> int|None:
         '''System clock value on the sender when the IR command was received.
 
-        Not `timestamp`: FrameBase sets that as an instance attribute in
-        __init__ for our own receive time, and an instance attribute shadows a
-        cached_property of the same name - so a property called `timestamp`
-        here would silently never be reached.
+        Not named `timestamp`: FrameBase assigns that instance attribute for our
+        own receive time, and an instance attribute shadows a cached_property of
+        the same name.
         '''
         return self.payload_u32(idx=4)
 

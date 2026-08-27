@@ -20,10 +20,10 @@ its local bays. The struct is mxr_tx_ir_data (mx_remote_proto.h:651):
     34-     tail padding to the struct's 4-byte alignment
     36..    ir_timings raw on/off data
 
-The struct is not PACKED, so both holes are real and on the wire: the one at
-18 before the 4-aligned TMTicks, and the tail padding that rounds sizeof up to
-36. The firmware appends the timings at &payload[sizeof(mxr_tx_ir_data)]
-(ir_tx.c:106,148), so they start at 36 and not at the end of the last field.
+The struct is not PACKED, so both holes are on the wire: the one at 18 before
+the 4-aligned TMTicks, and the tail padding rounding sizeof up to 36. Timings
+are appended at sizeof, so they start at 36 rather than at the end of the last
+field.
 
 The frame's payload size varies with the number of timings; we expose the
 fixed-prefix fields plus the trailing raw blob for callers that need it.

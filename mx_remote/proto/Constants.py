@@ -99,12 +99,10 @@ MXR_OPCODE() in libP8/mx_remote/inc/mx_opcodes.h. Transmitters stamp the
 header.protocol with the value for the opcode being sent so that older
 receivers correctly reject frames they cannot decode.
 
-Note that these are deliberately *low*: the receiver gate drops any frame
-whose per-opcode byte exceeds the receiver's own MXR_PROTOCOL_VERSION, so an
-opcode whose payload only ever grew trailing fields keeps its original
-version and new-format detection stays on payload length. Firmware commit
-a43d677 lowered V2IP_MANUAL_SOURCE_SWITCH, V2IP_DEVICE_CFG and RC_SETTINGS
-back under the ProAmp8 / AmpOS cap of 0x22 for exactly that reason."""
+These are deliberately low. The receiver drops any frame whose per-opcode byte
+exceeds its own MXR_PROTOCOL_VERSION, and a ProAmp8 caps at 0x22 - so an opcode
+whose payload only ever grew trailing fields keeps its original version, and
+new-format detection stays on payload length."""
 
 MXR_DEVICE_NAME_LEN = 16
 """Width of the fixed-size name/serial fields on the wire.

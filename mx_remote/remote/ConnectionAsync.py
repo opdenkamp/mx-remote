@@ -16,63 +16,34 @@ from ..Interface import ConnectionCallbacks, mxr_valid_addresses
 
 _LOGGER = logging.getLogger(__name__)
 
-# Delivery is to a group today, but that is an implementation detail of the
-# current firmware rather than a property of the protocol - do not build on it.
+# Addressing is by uid in the payload, never by IP. A frame reaching this socket
+# is not necessarily addressed to us, and one addressed to us is not necessarily
+# the only copy on the wire. Demultiplex on the uid.
 #
-# A device has two endpoints, both group addresses: the multicast group and the
-# interface broadcast address. MX_TX_ACTIVE sends to the multicast endpoint
-# unconditionally and to the broadcast one when some peer needs broadcast, and
-# MX_TX_DIRECT picks between the two. Nothing resolves a per-device address, so
-# every frame currently reaches every listener. But mxr_transmit() already
-# threads an mx_remote_devptr through the endpoint selection specifically so
-# directed sends can be added without reshaping the transmit path, and the
-# motivation is mesh scale: past some member count, having every unit process
-# every frame stops paying.
+# Delivery is currently to a group: a device has two endpoints, the multicast
+# group and the interface broadcast address, and nothing resolves a per-device
+# address. Do not build on that. mxr_transmit() threads a device through its
+# endpoint selection so directed sends can be added later.
 #
-# Two things follow, and both are already true here - keep them true:
+# Two things keep this correct if they are:
 #
-#   - The rx socket binds INADDR_ANY rather than the group address, so a frame
-#     addressed to this host's own address arrives alongside the group traffic.
-#     Joining the group and nothing else would be correct today and would
-#     silently stop seeing directed frames later.
-#   - State has an active path behind it, not just overhearing. The device
-#     cache is refreshed by transmitting SYS_DISCOVER (0x01) rather than only
-#     by waiting for a hello - see Remote._background_probe(). Anything
-#     populated purely by listening to traffic between two other devices
-#     degrades quietly if directed sends arrive.
+#   - Bind INADDR_ANY, not the group address, so a frame addressed to this host
+#     arrives alongside the group traffic.
+#   - Provoke state rather than waiting for it. SYS_DISCOVER (0x01) makes a
+#     device answer with a hello and then re-broadcast everything cached here -
+#     bay config, sources, signal status, links, device config, EDID, net link,
+#     rc settings, topology, temperatures and firmware versions. There is no
+#     per-opcode request form for those, and 0x26 in particular accepts a
+#     zero-length frame and answers nothing, so probing it looks like a device
+#     ignoring us.
 #
-# Addressing in this protocol is by uid in the payload, never by IP: a frame
-# reaching this socket is not necessarily addressed to us, and one addressed to
-# us is not necessarily the only copy on the wire. Demultiplex on the uid.
+# The answer to a discover goes to the group, is jittered so a mesh does not
+# reply at once, and is expensive - Remote._background_probe() rate-limits it and
+# stops once every device reports complete. After that the device's own periodic
+# broadcast maintains the state, at worst about 75 seconds stale.
 #
-# The active path is SYS_DISCOVER (0x01), and it is not per-opcode. A device
-# receiving one answers with a hello immediately and then, after a deliberate
-# jitter, runs _mxr_broadcast_all() - hello, mesh, bay config (0x26 rides inside
-# it), signal status, link config, the bsp set including device config and EDID
-# and net link, rc settings, topology, temperatures and firmware versions. One
-# discover re-announces essentially everything this library caches.
-#
-# So do not go looking for a request form per opcode: 0x02, 0x26 and 0x3C have
-# none and drop anything shorter than a full report. 0x26 is the trap - a
-# zero-length frame passes its length guard, iterates nothing and answers
-# nothing, so probing it looks like a device ignoring you rather than an opcode
-# that was never a request.
-#
-# Three properties worth building against:
-#   - The answer goes to the group, not to us. We overhear a broadcast our own
-#     frame provoked, which is the case that makes the INADDR_ANY bind matter:
-#     a client bound to the group address sees all of this and looks healthy.
-#   - It is jittered on purpose, so a mesh does not answer in one millisecond.
-#     No immediate reply is normal, not a timeout.
-#   - It is expensive and mesh-wide. Remote._background_probe() rate-limits to
-#     one every 5s and stops once every known device reports complete, which is
-#     the right instinct - after that the device's own periodic broadcast timer
-#     maintains the state unasked.
-#
-# One genuine omission remains: signal status (0x31) has a targeted request form
-# of its own - an empty payload to ask everyone, or a 16-byte uid to ask one
-# unit - and this library never sends it. Everything else is provoked at startup
-# rather than merely overheard.
+# Signal status (0x31) is the one opcode with a targeted request form of its own,
+# an empty payload or a 16-byte uid, which this library does not send.
 
 def is_posix_os() -> bool:
     '''Return True if the current OS is POSIX-compatible.'''

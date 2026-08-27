@@ -14,40 +14,23 @@ from ..Uid import MxrDeviceUid
 import socket
 import struct
 
-# mxr_rc_ctrl wire layout. mxr_rc_config is ALIGN(8) but not PACKED, and its
-# anonymous bitfield block holds 18 bits in uint16_t containers - so reserved:10
-# cannot fit the 8 bits left in the first container and opens a second one. That
-# makes the block 4 bytes, not 2. Confirmed by offsetof assertions compiled
-# against the MCUXpresso ARM GCC: == 12 builds, == 10 does not.
-#
-# Corroborated by capture, independently of that compiler probe. Three live
-# frames from CEC-configured units must all carry an empty status_name, since
-# _v2ip_rc_fill_proto_status() writes status_name[0] = 0 and returns for any
-# non-network target. At 28 all three read empty; at 26 two of them read "(",
-# which a CEC unit cannot legitimately report. Two independent lines of evidence
-# now agree, so this offset is no longer single-sourced.
-#
-#   16..17   rc_target_t rc          ONE byte - Cortex-M builds -fshort-enums
-#   17..20   padding                  NOT zero on the wire; varies per frame
-#   20..24   ip_addr_t ip            (ip4_addr_t, a u32 in network order)
-#   24..25   flags + rc_status       bits 0..3 flags, bits 4..7 rc_status
-#   25..28   padding                  NOT zero on the wire; varies per frame
+# mxr_rc_ctrl wire layout. mxr_rc_config is ALIGN(8), not PACKED.
+#    0..16   mxr_uid target
+#   16..17   rc_target_t rc          one byte; plain enum under -fshort-enums
+#   17..20   padding
+#   20..24   ip_addr_t ip            u32, network order
+#   24..25   flags bits 0..3, rc_status bits 4..7
+#   25..28   padding                 unused half of the first bitfield container,
+#                                    then the reserved:10 container
 #   28..44   char status_name[16]
-#   44..48   tail padding to 48
+#   44..48   padding
 #
-# Two rules follow, and captured frames show why both matter. The sender memcpys
-# a stack-local mxr_rc_config over the payload, so its padding carries whatever
-# was on the stack: three live frames from CEC-configured units read 01 73 20 28,
-# 01 6e 1e 28 and 01 b5 1b 28 at 16..20. The first byte is 1, RC_TARGET_CEC,
-# correct in all three; the rest is stack content, and reading the field as a u32
-# yields 673215233.
+# The bitfield block spans 18 bits, so reserved:10 opens a second uint16_t
+# container and the block is 4 bytes. That is what puts status_name at 28.
 #
-#   Never widen a field to swallow its padding. rc is one byte, not four.
-#   Never assume a reserved or padding byte is zero. Mask, do not assert.
-#
-# Everything meaningful in the bitfield block is likewise in byte 24 alone - the
-# same three frames carry 6f 05 28 in 25..28. Do not read the block as one
-# little-endian u16 and shift.
+# Padding here is not zero: the sender copies a stack-local over the payload, so
+# every padding byte carries stack content that differs between frames. Mask to
+# the bits meant; never widen a field to swallow its padding.
 _RC_OFFSET = 16
 _IP_OFFSET = 20
 _FLAGS_OFFSET = 24

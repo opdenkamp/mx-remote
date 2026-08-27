@@ -23,23 +23,14 @@ from ..Uid import MxrDeviceUid
 #   28..29   u8  op              vw_mesh_op
 #   29..32   padding, zeroed
 #
-# Owned by the v2ipwall module (github.com/opdenkamp/mod-v2ip-videowall,
-# src/v2ip_videowall.h + src/vw_mesh.c), not by MatrixOS - MatrixOS only
-# reserves the opcode number. The receiver accepts anything >= 32 bytes and
-# ignores the remainder.
+# Defined by the v2ipwall module (github.com/opdenkamp/mod-v2ip-videowall,
+# src/v2ip_videowall.h), which MatrixOS does not carry - it reserves only the
+# opcode number. The receiver accepts 32 bytes or more and ignores the rest.
 #
-# SINGLE-SOURCED. This layout has one origin: the module source and its shipped
-# disassembly (vw_set_remote at 0x1380), relayed here rather than derived. No
-# second reference stands behind it. Everything else in this package is checked
-# against libP8/mx_remote directly.
-#
-# The quiet field is `op` at 28, not the geometry. A shifted window announces
-# itself - the picture is visibly in the wrong place - but a misread op is still
-# a valid op: a store behaves as a preview, which looks entirely correct until
-# the sink restarts and the wall reverts, and a revert reads as a preview whose
-# zeroed window clears a wall that should have been restored. So suspect this
-# layout on a wall that forgets its setting across a reboot, and do not wait for
-# one that is visibly wrong; this bug cannot produce that.
+# A wrong offset here is quiet at `op` and loud everywhere else. A shifted
+# window is visibly in the wrong place; a misread op is still a valid op, so a
+# store behaves as a preview and reverts when the sink restarts. Suspect these
+# offsets when a wall forgets its setting across a reboot.
 _FRAME_SIZE = 32
 
 class FrameV2IPVideoWall(FrameBase):

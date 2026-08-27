@@ -1291,12 +1291,10 @@ class V2IPDscpConfig:
         """
         True when this frame carried a marking at all.
 
-        The firmware cache gates on the video byte alone and then stores all
-        three verbatim (mxr_bsp_v2ip.c _mxr_dev_on_rx_v2ip_details), so that is
-        the test for "did this frame offer a marking". It is deliberately not
-        ``complete``: a partial set overwrites a peer's cached marking, and a
-        receiver treating it as absent would report a marking the peer no
-        longer holds.
+        Gated on the video byte alone, matching the firmware cache, which stores
+        all three bytes verbatim. Not ``complete``: a partial set does overwrite
+        a peer's marking, so treating it as absent would report a marking the
+        peer does not hold.
         """
         return (self._video is not None)
 
@@ -1305,11 +1303,9 @@ class V2IPDscpConfig:
         """
         True when all three streams carry a marking.
 
-        This is the separate question of whether the firmware will *apply* the
-        marking: v2ip_source_mxr_dscp() falls back to CS2 on all three streams
-        unless every byte carries MXR_V2IP_DSCP_SET. A partial set is therefore
-        cached and reported but never applied - no in-tree sender produces one,
-        so it only arises from a controller writing the struct directly.
+        Whether a marking is applied, as opposed to carried: firmware falls back
+        to CS2 on all three streams unless every byte is set, so a partial set is
+        cached and reported but never applied.
         """
         return (self._video is not None) and (self._audio is not None) and (self._anc is not None)
 
@@ -1376,18 +1372,11 @@ class DeviceV2IPDetails:
 
     def merge(self, previous:'DeviceV2IPDetails|None') -> 'DeviceV2IPDetails':
         """
-        Carry forward every field this frame did not actually carry.
+        Carry forward every field this frame did not carry.
 
-        mxr_pbuf_alloc() zeroes the payload, so a controller writing one field
-        of a peer's config leaves all the others zeroed on the wire. Each field
-        therefore has its own validity marker and firmware applies it only
-        behind that marker (mxr_bsp_v2ip.c _mxr_dev_on_rx_v2ip_details): the
-        addresses must be multicast with a non-zero port, tx_rate must be
-        inside 5..100, the dscp block must carry MXR_V2IP_DSCP_SET on its video
-        byte, and scaling must carry its MXR_SCALING_FLAG_*_VALID flags. Mirror
-        that here, or a
-        controller writing a rate reports the peer's addresses as 0.0.0.0 and
-        its marking and scaling as gone until the peer's next broadcast.
+        A controller writing one field of a peer's config leaves the others
+        zeroed on the wire, so each is applied only behind its own validity
+        marker. See FrameV2IPDeviceConfiguration for the markers.
         """
         if (previous is None):
             return self

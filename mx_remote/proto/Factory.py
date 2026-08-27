@@ -223,31 +223,18 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 		from .FrameV2IPVideoWall import FrameV2IPVideoWall
 		return FrameV2IPVideoWall(header=hdr, timestamp=timestamp)
 
-	# Every opcode the current firmware puts on the wire is decoded above. What
-	# reaches here is an opcode no build in the tree emits today:
+	# Opcodes reaching here are ones current firmware does not emit:
 	#
-	#   0x17..0x1E  the CEC range           no registration and no transmit anywhere
-	#                                       in the firmware, and the two status
-	#                                       structs in mx_remote_proto.h have no
-	#                                       producer either
-	#   0x25, 0x33  RESERVED_0 / RESERVED_1 retired opcodes. Live in an earlier
-	#                                       generation, so never reuse the numbers
-	#   0x2D        VIDEO_CLOCK_RATE_OLD    superseded by clock_rate in the 0x31 bay
-	#                                       block
+	#   0x17..0x1E  the CEC range           never implemented
+	#   0x25, 0x33  RESERVED_0 / RESERVED_1 retired; never reuse the numbers
+	#   0x2D        VIDEO_CLOCK_RATE_OLD    superseded by clock_rate in 0x31
 	#   0x2E, 0x2F  V2IP_BLIST_*            behind V2IP_SUPPORT_BLACKLIST, which
-	#                                       defaults to 0 and is overridden by no
-	#                                       project, so it never compiles in
+	#                                       no project defines
 	#
-	# "Nothing emits it today" is not "nothing will ever emit it": that is static
-	# analysis of one tree, and an older unit still running a firmware that
-	# predates the supersession can put 0x06, 0x2D or the blacklist pair on the
-	# wire. Decoders already here for superseded opcodes - 0x06 DEV_SIGNAL_OLD,
-	# 0x36 SET_MASTER, 0x47 DEBUG - stay for exactly that reason. Add rather than
-	# remove.
-	#
-	# Loadable modules register opcodes of their own, so an unhandled opcode here
-	# is not proof that nothing implements it either: 0x42, 0x43 and 0x49 are all
-	# module-owned and all live.
+	# Add decoders here rather than removing them. A unit on older firmware still
+	# emits superseded opcodes, which is why 0x06, 0x36 and 0x47 keep theirs. An
+	# unhandled opcode is also no proof nothing implements it: 0x42, 0x43 and
+	# 0x49 belong to loadable modules.
 	logging.debug(f"opcode {hdr.opcode:02X} is not processed")
 	return None
 

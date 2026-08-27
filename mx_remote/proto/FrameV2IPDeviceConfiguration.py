@@ -15,65 +15,44 @@ from .Constants import v2ip_dscp_value, v2ip_rate_valid
 from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 
 # v2ip_device_config_update wire layout (little-endian, ALIGN(8) per inner struct):
-#   0..16    uid (mxr_uid)
-#   16..40   v2ip_av_source source (3 × v2ip_stream_source)
-#   40..48   options (u8 tx_rate + u8 dscp_video + u8 dscp_audio + u8 dscp_anc + 4 pad)
-#   48..56   v2ip_stream_source audio_return (arc)
-#   56..64   mxr_scaling_config (u16 mode + u16 refresh + u8 flags + 3 pad)
-#   64..88   mxr_v2ip_tiling_config (mxr_uid + 4 × u16) - not parsed here, see below
+#     0..16   uid (mxr_uid)
+#    16..40   v2ip_av_source source (3 x v2ip_stream_source)
+#    40..48   options: u8 tx_rate, u8 dscp_video, u8 dscp_audio, u8 dscp_anc, 4 pad
+#    48..56   v2ip_stream_source audio_return (arc)
+#    56..64   mxr_scaling_config: u16 mode, u16 refresh, u8 flags, 3 pad
+#    64..88   mxr_v2ip_tiling_config: mxr_uid, 4 x u16
+# v2ip_device_config_update_options trailer, present from MXR protocol 0x26:
+#    88..112  v2ip_av_source sink, zero when no route is active
+#   112..120  v2ip_audio_format sink_audio_fmt
 #
-# Every field here carries its own validity marker, because a controller writing
-# one of them leaves the rest zeroed (mxr_pbuf_alloc zeroes the payload), and the
-# firmware applies each only behind its own marker. An address is valid only when
-# it is multicast with a non-zero port (video and anc both, audio rides along),
-# tx_rate only inside 5..100, a dscp byte only with MXR_V2IP_DSCP_SET, scaling only
-# under its MXR_SCALING_FLAG_*_VALID flags - and the mode/refresh pair and the
-# options nibble are separately valid. DeviceV2IPDetails.merge() mirrors all of it;
-# a receiver that replaces its cache wholesale reports a peer's addresses as
-# 0.0.0.0 the moment a controller writes anything else.
+# Every field carries its own validity marker and is applied only behind it,
+# because a controller writing one field leaves the rest zeroed:
 #
-# The sink trailer is the one part that is simply present or absent, by length.
+#   addresses   multicast with a non-zero port, video and anc both;
+#               audio is optional and rides along
+#   tx_rate     inside 5..100
+#   dscp        per byte, MXR_V2IP_DSCP_SET
+#   scaling     MXR_SCALING_FLAG_MODE_VALID covers mode and refresh,
+#               MXR_SCALING_FLAG_OPTIONS_VALID the options nibble
+#   tiling      a non-zero uid; every real window carries one, so an all-zero
+#               block means 'not carried' while a stamped uid with zero
+#               geometry is a real clear
 #
-# One caveat the markers cannot cover. A receiver-capable unit running firmware
-# that predates the scaling-config initialisation fix builds mxr_scaling_config
-# on the stack without zeroing it and only ever |= flags onto it, so:
-#   - MODE_VALID can be set by leftover stack, and mode/refresh behind it are
-#     then uninitialised memory - assigned only when a format really is
-#     configured. Nothing in the frame distinguishes that from a real config, so
-#     this is an exposure to note rather than one a client can close.
-#   - AUTO_SCALING is only ever OR'd, never cleared, so it too can be spuriously
-#     set. Reading bit 7 specifically is the best available reading, not a
-#     correct one; it confines the noise to one bit instead of five.
+# DeviceV2IPDetails.merge() carries the unmarked fields forward. Replacing the
+# cache wholesale reports a peer's addresses as 0.0.0.0 the moment a controller
+# writes anything else. The sink trailer is the exception: present or absent by
+# length, with no marker.
 #
-# Nothing on the wire distinguishes a fixed sender from an unfixed one. The
-# payload shape did not change, so MXR_PROTOCOL_VERSION stayed at 0x28 and no
-# feature bit was added - confirmed, not assumed.
+# Trust the scaling block only from a peer whose hello carries
+# MXR_FEATURE_CONFIG_INITIALISED. Without it the sender may have built those
+# flags on uninitialised stack, making MODE_VALID and the mode and refresh
+# behind it meaningless and AUTO_SCALING spurious, and nothing within a frame
+# distinguishes that from a real config. The firmware version cannot substitute
+# for the bit: release builds use low majors while development builds use major
+# 10 and above, so a numeric compare orders the two families wrongly.
 #
-# Do not reach for the firmware version in the hello as a gate. Release builds
-# use low majors (4.4.x) and development builds use major >= 10, one minor per
-# developer - a parallel numbering, not a later one. A numeric compare puts
-# 10.12.31 above every release that will ever carry the fix and 4.4.87 below a
-# dev build predating it by months, so "is this at least the threshold" is not a
-# well-formed question across the two families. Getting it right would mean
-# judging dev builds by build date and release builds by version, which is a
-# worse bug waiting to happen than the exposure it guards.
-#
-# The tiling block has no flag of its own, but its uid serves as one: both paths
-# that produce a real window stamp it (v2ip_fpga.c:1445 for a remote sink, 1470
-# for a local one), while a controller write passes tiling = NULL and leaves the
-# whole block zeroed, uid included. So it is the all-zero *block* that means 'not
-# carried', not an all-zero window:
-#   uid zero                    -> not carried; keep whatever is cached
-#   uid set, geometry zero      -> a real clear (the alignment check at 1457 is
-#                                  skipped for 0x0, which is how a window clears)
-#   uid set, geometry non-zero  -> a real window
-# Nothing caches tiling on this side today - 0x40 V2IP_TILING's process() is a
-# no-op and this frame does not parse the block - but if that changes, test the
-# uid, or a controller write will wipe the cached wall window of every sink it
-# touches until the next periodic broadcast heals it.
-# v2ip_device_config_update_options trailer (optional, MXR protocol >= 0x26):
-#   88..112  v2ip_av_source sink (zero when no active route)
-#   112..120 v2ip_audio_format sink_audio_fmt
+# Nothing here caches tiling. Test the uid if that changes, or a controller
+# write will wipe every sink's cached wall window.
 _BASE_SIZE          = 88
 _OPTIONS_SIZE       = 32
 _WITH_OPTIONS_SIZE  = _BASE_SIZE + _OPTIONS_SIZE

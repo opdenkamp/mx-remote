@@ -174,14 +174,13 @@ _AV_DETAILS_SIZE = 112
 class FrameSignalStatusNew(FrameBase):
     ''' signal status changed
 
-    A report is answered one packet per bay, not one per device: the port
-    number in the bay block at the tail is what names the reporting bay, so
-    demultiplex on it. Because that block sits behind the vsync and link-error
-    tail, a report shorter than the full 112 bytes cannot be attributed to a
-    bay at all and is dropped - firmware does the same since commit 88ea427.
+    Answered one packet per bay, not one per device. The port number naming the
+    reporting bay sits in the bay block at the tail, behind the vsync and
+    link-error fields, so a report shorter than the full 112 bytes cannot be
+    attributed to a bay and is dropped.
 
-    An empty payload is a broadcast request for every device to report; a
-    16-byte payload requests a report from the one unit it addresses. '''
+    An empty payload requests a report from every device; a 16-byte payload
+    requests one from the unit it addresses. '''
     @cached_property
     def signal_header_version(self) -> int:
         if ((pl := self.payload_u16(0)) is not None):
