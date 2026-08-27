@@ -21,10 +21,35 @@ mxr                            # console app: discover devices, log frames live
 mxr -l <local_ip>              # bind to a specific interface
 mxr -b                         # broadcast mode instead of multicast
 mxr -i <capture> [-f <ip>]     # parse a MatrixOS/Wireshark capture file offline
+python tests/run.py            # run every protocol test
+python tests/run.py e2e stats  # run named suites only
 ```
 
-There is **no test suite** and no lint config in this repo. Validate protocol changes by
-running `mxr` against live hardware or by replaying a capture file with `mxr -i`.
+There is no lint config in this repo.
+
+`tests/` holds standalone scripts with no test framework behind it — each builds
+frames, feeds them through `Remote.process_frame`, and asserts what was decoded.
+A suite prints what it decoded and ends with `ALL OK`, so it can be run on its
+own as well as through `run.py`.
+
+Two things they pin that code review does not catch:
+
+- **Struct sizes, not just field offsets.** The V2IP stats blocks are 20 and 44
+  bytes only because the firmware's `ALIGN(8)` sits where GCC ignores it. Writing
+  that declaration the other way round shifts every block after the first, and a
+  wrong split still totals 128.
+- **Field widths.** Padding in the fixtures is filled with recognisable bytes, so
+  a field read at the right offset with the wrong width returns a wrong value. A
+  zero-filled fixture cannot catch that: the widened read returns the same
+  answer.
+
+`tests/capture.py` holds real frames off a live mesh, with the device uids
+replaced. Its expected values come from firmware behaviour rather than from this
+decoder, which is the property a synthetic fixture cannot have — assert against
+something external, or a fixture only proves the decoder agrees with itself.
+
+Validate wire changes against live hardware as well, by running `mxr` or
+replaying a capture file with `mxr -i`.
 
 ### Versioning
 Version is single-sourced in `mx_remote/const.py` (`VERSION = '...'`); `pyproject.toml`
