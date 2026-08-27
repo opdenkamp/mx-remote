@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import socket
 from typing import Any, Callable, override
-from ..proto.Constants import BayStatusMask, BayFeaturesMask, EdidProfile, RCType, RCAction, RCKey
+from ..proto.Constants import BayStatusMask, BayFeaturesMask, EdidProfile, RCType, RCAction, RCKey, decode_enum
 from ..proto.BayConfig import BayConfig
 from ..proto.Data import VolumeMuteStatus
 from ..proto.FrameV2IPSourceSwitch import FrameV2IPSourceSwitch
@@ -362,7 +362,10 @@ class Bay(BayBase):
     def edid_profile(self) -> EdidProfile|None:
         if not self.is_hdmi or not self.is_input:
             return None
-        return EdidProfile(self._edid_profile)
+        # the wire field is 12 bits, so most of its range is not a member: a
+        # profile this build does not know is UNKNOWN, not a ValueError at the
+        # caller. The raw value stays available on the bay config.
+        return decode_enum(EdidProfile, self._edid_profile)
 
     @edid_profile.setter
     def edid_profile(self, val:int) -> None:
