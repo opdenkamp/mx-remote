@@ -51,6 +51,11 @@ something external, or a fixture only proves the decoder agrees with itself.
 Validate wire changes against live hardware as well, by running `mxr` or
 replaying a capture file with `mxr -i`.
 
+A client's uid is persisted at `~/.mxr-uid`, one file per account, and
+`process_frame` drops any frame carrying our own uid. Two clients run from one
+account are a single identity to the mesh and each discards everything the other
+sends, so a second one needs its own `uid_path`.
+
 ### Versioning
 Version is single-sourced in `mx_remote/const.py` (`VERSION = '...'`); `pyproject.toml`
 reads it via regex, so bump it there only. Release commits follow the convention

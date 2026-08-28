@@ -84,7 +84,15 @@ mx = mx_remote.Remote(target_ip="10.8.8.255", port=8811)
 
 # offline mode for processing capture files
 mx = mx_remote.Remote(open_connection=False)
+
+# separate identity, to run concurrent clients from one account
+mx = mx_remote.Remote(uid_path="/var/lib/myapp/.mxr-uid")
 ```
+
+The uid at `uid_path` (default `~/.mxr-uid`) is this client's identity on the mesh:
+addressing is by uid in the payload, and a frame carrying our own uid is dropped as
+an echo. Two clients sharing a uid are one peer to every device and each silently
+discards everything the other sends, so give concurrent clients separate paths.
 
 ### Device
 
@@ -104,6 +112,9 @@ device.version         # firmware version
 device.online          # True if responding
 device.status          # DeviceStatus enum (ONLINE, OFFLINE, REBOOTING, BOOTING, INACTIVE)
 device.features        # DeviceFeatures bitmask
+device.config_initialised  # False if the device broadcasts config blocks built from
+                           # uninitialised memory; scaling, bay 0 addresses and the
+                           # rc target padding are unreliable from it
 device.temperatures    # dict of temperature sensor readings
 
 # device type checks
