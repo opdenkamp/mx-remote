@@ -31,6 +31,8 @@ SUITES = [
     'capture',      # real frames off a live mesh
     'sources',      # stream source validity
     'structs',      # alignment padding, u16 bays, packed records
+    'roundtrip',    # our builders replayed through our decoders
+    'entry',        # the layer the runtime enters at
     'handlers',     # which frame handlers the suites above execute
     'txresult',     # a command reports success only when its frame was sent
     'vdetails',     # Bay.video_details prefers a report over the config snapshot
