@@ -92,11 +92,13 @@ class BayConfig:
 		return self.payload[37:end].split(b'\0',1)[0].decode('ascii', errors='replace')
 
 	@cached_property
-	def signal(self) -> MxrSignalType|None:
-		'''Signal type this bay reports, or None on a short record.
+	def signal_snapshot(self) -> MxrSignalType|None:
+		'''Signal type as of the last bay config broadcast, or None on a short record.
 
-		Bay config is broadcast for every bay, where a signal status report
-		covers only its own, so this is the wider source of the same field.
+		A fallback for a bay no signal status report has been seen for, not a
+		current-state field. It is filled when the bay config is broadcast, so
+		it refreshes on that cycle rather than on a signal change, and it is
+		two bytes where a signal status report carries the full detail.
 		'''
 		start = 37 + MXR_CFG_SIGNAL_STATUS_LEN
 		if len(self.payload) < (start + 2):

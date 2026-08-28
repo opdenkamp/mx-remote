@@ -360,7 +360,7 @@ class V2IPStreamSources:
     @property
     def valid(self) -> bool:
         """
-        True when this entry carries addresses a sender meant to send.
+        True when this entry carries a usable address.
 
         Video and anc must both be multicast with a non-zero port; audio is
         optional and rides along. A sender without MXR_FEATURE_CONFIG_INITIALISED
@@ -368,6 +368,19 @@ class V2IPStreamSources:
         rarely satisfy both halves of this test.
         """
         return v2ip_av_source_valid(self.video, self.anc)
+
+    @property
+    def cleared(self) -> bool:
+        """
+        True when every stream is zeroed, which reports that the source is gone.
+
+        Distinct from an entry that is neither valid nor cleared, which is
+        malformed. Treating a cleared entry as unusable discards the only signal
+        that a source went away.
+        """
+        return (v2ip_stream_cleared(self.video)
+                and v2ip_stream_cleared(self.audio)
+                and v2ip_stream_cleared(self.anc))
 
 class V2IPStreamSourcesList(list[V2IPStreamSources]):
     ''' list of V2IP sources '''
@@ -1230,12 +1243,16 @@ def v2ip_stream_valid(stream:'V2IPStreamSource|None') -> bool:
 
 def v2ip_av_source_valid(video:'V2IPStreamSource|None', anc:'V2IPStreamSource|None') -> bool:
     """
-    True when an av source block carries addresses a frame actually meant to send.
+    True when an av source block carries addresses a frame meant to send.
 
     Mirrors mxr_v2ip_av_source_valid(): video and anc must both be valid, audio
     is optional and is carried along with them.
     """
     return v2ip_stream_valid(video) and v2ip_stream_valid(anc)
+
+def v2ip_stream_cleared(stream:'V2IPStreamSource|None') -> bool:
+    """True when a stream source is zeroed, which is how "no source" is spelled."""
+    return (stream is not None) and (stream.ip == '0.0.0.0') and (stream.port == 0)
 
 class V2IPScalingSettings(DeviceV2IPScalingSettings):
     """Plain holder for a merged mxr_scaling_config."""

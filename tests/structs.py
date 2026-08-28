@@ -55,8 +55,8 @@ print('0x39 : handler set signal detected on the reporting bay')
 rec = bytes([0,0,0,0,0]) + nm('In 1') + nm('In 1') + sigdesc + sigtype + struct.pack('<I',0) + struct.pack('<I',2)
 b = BayConfig(rec)
 assert b.signal_type == '3840x2160p60Hz', repr(b.signal_type)
-assert b.signal is not None and b.signal.svd == 16 and b.signal.bpp == 10
-print('0x02 : description', repr(b.signal_type), '| signal', b.signal)
+assert b.signal_snapshot is not None and b.signal_snapshot.svd == 16 and b.signal_snapshot.bpp == 10
+print('0x02 : description', repr(b.signal_type), '| signal', b.signal_snapshot)
 
 # --- 0x3D mxr_amp_zone_settings: delays are 4-aligned, so padding precedes them
 from mx_remote.proto.FrameAmpZoneSettings import FrameAmpZoneSettings

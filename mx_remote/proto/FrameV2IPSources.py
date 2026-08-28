@@ -24,9 +24,13 @@ class FrameV2IPSources(FrameBase):
         '''All V2IP stream sources defined in this frame.
 
         Entries are positional, since Device.v2ip_source() indexes into this
-        list, so an unusable entry is kept rather than dropped: dropping one
-        would re-map every source after it. Test V2IPStreamSources.valid before
-        routing off an entry.
+        list, so an entry is kept rather than dropped: dropping one would re-map
+        every source after it.
+
+        Three states, not two. valid is a usable address. cleared - every stream
+        zeroed - reports that the source went away, which is the only way that
+        is signalled, so it must not be discarded as unusable. Anything else is
+        malformed and should leave a cached address alone.
         '''
         rv = V2IPStreamSourcesList()
         srcnum = 0

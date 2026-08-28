@@ -24,6 +24,7 @@ f = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x26, junk + good),
 srcs = f.sources
 print('entry 0 (stack junk):', srcs[0].video, '-> valid:', srcs[0].valid)
 print('entry 1 (real)      :', srcs[1].video, '-> valid:', srcs[1].valid)
+junk_src = srcs[0]
 assert srcs[0].valid is False, 'a non-multicast address must not read as usable'
 assert srcs[1].valid is True
 assert len(srcs) == 2, 'entries are positional - invalid ones are flagged, never dropped'
@@ -54,5 +55,20 @@ print('non-HDMI, 10bpp     :', nonhdmi, '| svd', nonhdmi.svd)
 unknown_depth = MxrSignalType(bytes([16, (0 << 5) | 1]))
 assert unknown_depth.is_set and unknown_depth.bpp == 0
 print('set, depth unknown  : bpp', unknown_depth.bpp, '(0, not None)')
+print()
+# Three states, not two. An all-zero entry reports that the source went away and
+# is the only signal of it, so it must not be discarded as malformed.
+cleared = entry(UID, [('0.0.0.0', 0), ('0.0.0.0', 0), ('0.0.0.0', 0)])
+f = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x26, cleared + good), ADDR)
+srcs = f.sources
+print('cleared entry       :', srcs[0].video, '-> valid', srcs[0].valid, '| cleared', srcs[0].cleared)
+assert srcs[0].valid is False and srcs[0].cleared is True
+assert srcs[1].valid is True and srcs[1].cleared is False
+
+f = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x26, junk), ADDR)
+malformed = f.sources[0]
+assert malformed.valid is False and malformed.cleared is False
+print('malformed entry     : neither valid nor cleared')
+
 print()
 print('ALL OK')

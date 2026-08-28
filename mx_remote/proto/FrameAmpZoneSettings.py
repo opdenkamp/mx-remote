@@ -81,9 +81,14 @@ class FrameAmpZoneSettings(FrameBase):
     def is_notification(self) -> bool:
         '''True when this reports a zone's settings rather than asking to change them.
 
-        An amp zeroes the target when it transmits, and acts on a received frame
-        only when the target is its own uid - so a zero target is a status
-        notification and the header uid attributes it.
+        An amp acts on a received frame only when the target is its own uid, so
+        a frame with a target set is a command addressed to one amp and caching
+        it would attribute a controller's request to the sending device. A
+        self-announcement carries zeros because nothing writes the field, not
+        because zero is a defined value.
+
+        The 0x1C protocol stamp on this opcode is load-bearing: an amp drops the
+        frame below it.
         '''
         uid = self.target_uid
         return (uid is None) or uid.empty
