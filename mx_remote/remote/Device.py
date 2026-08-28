@@ -754,7 +754,8 @@ class Device(DeviceBase):
 		'''Send a reboot command to the device.'''
 		frame = FrameReboot.construct(mxr=self.registry, target=self)
 		if frame is not None:
-			self.registry.transmit(frame.frame)
+			if self.registry.transmit(frame.frame) != len(frame.frame):
+				return False
 			self._rebooting = True
 			return True
 		return False
@@ -763,7 +764,8 @@ class Device(DeviceBase):
 		'''Promote this device to mesh controller.'''
 		frame = FrameMeshOperation.construct(mxr=self.registry, target=self, operation=MeshOperation.PROMOTE_CONTROLLER)
 		if frame is not None:
-			self.registry.transmit(frame.frame)
+			if self.registry.transmit(frame.frame) != len(frame.frame):
+				return False
 			return True
 		return False
 
@@ -771,7 +773,8 @@ class Device(DeviceBase):
 		'''Remove this device from the mesh network.'''
 		frame = FrameMeshOperation.construct(mxr=self.registry, target=self, operation=MeshOperation.UNREGISTER)
 		if frame is not None:
-			self.registry.transmit(frame.frame)
+			if self.registry.transmit(frame.frame) != len(frame.frame):
+				return False
 			return True
 		return False
 
@@ -779,7 +782,8 @@ class Device(DeviceBase):
 		'''Enable or disable V2IP statistics reporting on the device.'''
 		frame = FrameV2IPStats.construct(registry=self.registry, device=self, enable=enable)
 		if frame is not None:
-			self.registry.transmit(frame.frame)
+			if self.registry.transmit(frame.frame) != len(frame.frame):
+				return False
 			return True
 		return False
 
@@ -951,7 +955,8 @@ class MultiviewerImpl(Multiviewer):
 			return True
 		frame = FrameV2IPMultiviewer.construct_set_view_mode(mxr=self.device.registry, target=self.device, view_mode=view_mode)
 		if frame is not None:
-			self.device.registry.transmit(frame.frame)
+			if self.device.registry.transmit(frame.frame) != len(frame.frame):
+				return False
 			return True
 		return False
 
@@ -962,7 +967,8 @@ class MultiviewerImpl(Multiviewer):
 			return True
 		frame = FrameV2IPMultiviewer.construct_set_video_source(mxr=self.device.registry, target=self.device, screen=screen, source=source)
 		if frame is not None:
-			self.device.registry.transmit(frame.frame)
+			if self.device.registry.transmit(frame.frame) != len(frame.frame):
+				return False
 			return True
 		return False
 
@@ -973,7 +979,8 @@ class MultiviewerImpl(Multiviewer):
 			return True
 		frame = FrameV2IPMultiviewer.construct_set_audio_source(mxr=self.device.registry, target=self.device, source=source)
 		if frame is not None:
-			self.device.registry.transmit(frame.frame)
+			if self.device.registry.transmit(frame.frame) != len(frame.frame):
+				return False
 			return True
 		return False
 
@@ -984,7 +991,8 @@ class MultiviewerImpl(Multiviewer):
 			return True
 		frame = FrameV2IPMultiviewer.construct_set_audio_volume(mxr=self.device.registry, target=self.device, volume=volume, muted=muted)
 		if frame is not None:
-			self.device.registry.transmit(frame.frame)
+			if self.device.registry.transmit(frame.frame) != len(frame.frame):
+				return False
 			return True
 		return False
 
@@ -995,7 +1003,8 @@ class MultiviewerImpl(Multiviewer):
 			return True
 		frame = FrameV2IPMultiviewer.construct_set_edid_template(mxr=self.device.registry, target=self.device, edid=edid)
 		if frame is not None:
-			self.device.registry.transmit(frame.frame)
+			if self.device.registry.transmit(frame.frame) != len(frame.frame):
+				return False
 			return True
 		return False
 
@@ -1006,7 +1015,8 @@ class MultiviewerImpl(Multiviewer):
 			return True
 		frame = FrameV2IPMultiviewer.construct_set_remote_control(mxr=self.device.registry, target=self.device, source=source)
 		if frame is not None:
-			self.device.registry.transmit(frame.frame)
+			if self.device.registry.transmit(frame.frame) != len(frame.frame):
+				return False
 			return True
 		return False
 
@@ -1017,7 +1027,8 @@ class MultiviewerImpl(Multiviewer):
 			return True
 		frame = FrameV2IPMultiviewer.construct_set_pip_size(mxr=self.device.registry, target=self.device, size=size)
 		if frame is not None:
-			self.device.registry.transmit(frame.frame)
+			if self.device.registry.transmit(frame.frame) != len(frame.frame):
+				return False
 			return True
 		return False
 
@@ -1028,7 +1039,8 @@ class MultiviewerImpl(Multiviewer):
 			return True
 		frame = FrameV2IPMultiviewer.construct_set_pip_position(mxr=self.device.registry, target=self.device, position=position)
 		if frame is not None:
-			self.device.registry.transmit(frame.frame)
+			if self.device.registry.transmit(frame.frame) != len(frame.frame):
+				return False
 			return True
 		return False
 
@@ -1039,7 +1051,8 @@ class MultiviewerImpl(Multiviewer):
 			return True
 		frame = FrameV2IPMultiviewer.construct_set_screen_aspect(mxr=self.device.registry, target=self.device, aspect=aspect)
 		if frame is not None:
-			self.device.registry.transmit(frame.frame)
+			if self.device.registry.transmit(frame.frame) != len(frame.frame):
+				return False
 			return True
 		return False
 
@@ -1050,7 +1063,8 @@ class MultiviewerImpl(Multiviewer):
 			return True
 		frame = FrameV2IPMultiviewer.construct_set_auto_switch(mxr=self.device.registry, target=self.device, enable=enable)
 		if frame is not None:
-			self.device.registry.transmit(frame.frame)
+			if self.device.registry.transmit(frame.frame) != len(frame.frame):
+				return False
 			return True
 		return False
 
@@ -1061,7 +1075,8 @@ class MultiviewerImpl(Multiviewer):
 			return True
 		frame = FrameV2IPMultiviewer.construct_set_output_mode(mxr=self.device.registry, target=self.device, mode=mode)
 		if frame is not None:
-			self.device.registry.transmit(frame.frame)
+			if self.device.registry.transmit(frame.frame) != len(frame.frame):
+				return False
 			return True
 		return False
 
@@ -1072,7 +1087,8 @@ class MultiviewerImpl(Multiviewer):
 			return True
 		frame = FrameV2IPMultiviewer.construct_set_output_itc_mode(mxr=self.device.registry, target=self.device, mode=mode)
 		if frame is not None:
-			self.device.registry.transmit(frame.frame)
+			if self.device.registry.transmit(frame.frame) != len(frame.frame):
+				return False
 			return True
 		return False
 
@@ -1083,7 +1099,8 @@ class MultiviewerImpl(Multiviewer):
 			return True
 		frame = FrameV2IPMultiviewer.construct_set_hdcp_mode(mxr=self.device.registry, target=self.device, mode=mode)
 		if frame is not None:
-			self.device.registry.transmit(frame.frame)
+			if self.device.registry.transmit(frame.frame) != len(frame.frame):
+				return False
 			return True
 		return False
 
@@ -1094,7 +1111,8 @@ class MultiviewerImpl(Multiviewer):
 		if ((current is None) and (source is not None)) or ((current is not None) and (source is None)) or (current != source):
 			frame = FrameV2IPMultiviewer.construct_set_connected_source(mxr=self.device.registry, target=self.device, input=input, source=source)
 			if frame is not None:
-				self.device.registry.transmit(frame.frame)
+				if self.device.registry.transmit(frame.frame) != len(frame.frame):
+					return False
 				return True
 		return False
 
@@ -1103,6 +1121,7 @@ class MultiviewerImpl(Multiviewer):
 			return False
 		frame = FrameV2IPMultiviewer.construct_auto_route(mxr=self.device.registry, target=self.device)
 		if frame is not None:
-			self.device.registry.transmit(frame.frame)
+			if self.device.registry.transmit(frame.frame) != len(frame.frame):
+				return False
 			return True
 		return False

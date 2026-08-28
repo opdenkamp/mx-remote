@@ -815,7 +815,8 @@ class Bay(BayBase):
         '''Select the EDID profile for this bay.'''
         frame = FrameEDIDProfile.construct(mxr=self.device.registry, target=self.device, profile=profile)
         if frame is not None:
-            self.device.registry.transmit(frame.frame)
+            if self.device.registry.transmit(frame.frame) != len(frame.frame):
+                return False
             self.edid_profile = profile.value
             return True
         return False
@@ -825,7 +826,8 @@ class Bay(BayBase):
         '''Set the bay hidden state.'''
         frame = FrameBayHide.construct(mxr=self.device.registry, target=self, hidden=hidden)
         if frame is not None:
-            self.device.registry.transmit(frame.frame)
+            if self.device.registry.transmit(frame.frame) != len(frame.frame):
+                return False
             self.hidden = hidden
             return True
         return False
@@ -841,6 +843,10 @@ class Bay(BayBase):
         raw address (so its destination port is carried -- the legacy 0x1F frame
         has no port field). A raw address without a port defaults to the standard
         V2IP audio port. video/anc are sent as 0.0.0.0:0 (no change).
+
+        True means the frame was sent, not that the sink applied it: none of
+        these frames is acknowledged, so a sink that declines the route answers
+        nothing. Confirm by waiting for ``audio_source`` to change.
         '''
         if not self.is_v2ip_sink:
             return False
@@ -886,13 +892,21 @@ class Bay(BayBase):
         else:
             frame = FrameV2IPSourceSwitch.construct(mxr=self.device.registry, target=self, audio=source)
         if (frame is not None):
-            self.device.registry.transmit(frame.frame)
+            if self.device.registry.transmit(frame.frame) != len(frame.frame):
+                return False
             return True
         return False
 
     @override
     async def select_video_source(self, port:int, opt:bool=True) -> bool:
-        '''Select the video source for this output bay by port number.'''
+        '''Select the video source for this output bay by port number.
+
+        On the V2IP path True means the switch frame was sent, not that the sink
+        applied it: the frame carries no acknowledgement, so a sink that declines
+        the route answers nothing. A sink that does switch announces it, so
+        confirm by waiting for ``video_source`` to change. The HTTP path used for
+        a non-V2IP output does check for a response.
+        '''
         if not self.is_output:
             return False
         if self.is_v2ip_sink:
@@ -900,7 +914,8 @@ class Bay(BayBase):
             if source_bay is not None:
                 frame = FrameV2IPSourceSwitch.construct(mxr=self.device.registry, target=self, video=source_bay)
                 if frame is not None:
-                    self.device.registry.transmit(frame.frame)
+                    if self.device.registry.transmit(frame.frame) != len(frame.frame):
+                        return False
                     return True
         return await self.device.get_api(f"port/set/{port}/{self.bay}/{1 if opt else 0}") is not None
 
@@ -922,7 +937,8 @@ class Bay(BayBase):
         '''Set the user-defined name for this bay.'''
         frame = FrameSetName.construct(mxr=self.device.registry, target=self, name=name)
         if frame is not None:
-            self.device.registry.transmit(frame.frame)
+            if self.device.registry.transmit(frame.frame) != len(frame.frame):
+                return False
             self.user_name = name
             return True
         return False
@@ -932,7 +948,7 @@ class Bay(BayBase):
         pkt = FrameRCAction.construct(mxr=self.device.registry, target=self, action=action)
         if pkt is None:
             return False
-        return self.device.registry.transmit(pkt.frame) == len(pkt)
+        return self.device.registry.transmit(pkt.frame) == len(pkt.frame)
 
     @override
     async def power_on(self) -> bool:
@@ -992,7 +1008,7 @@ class Bay(BayBase):
         pkt = FrameVolumeSet.construct(mxr=self.device.registry, target=self, volume=new_value)
         if pkt is None:
             return False
-        if self.device.registry.transmit(pkt.frame):
+        if self.device.registry.transmit(pkt.frame) == len(pkt.frame):
             self.callbacks.on_volume_changed(bay=self, volume=new_value)
             return True
         return False
@@ -1126,7 +1142,8 @@ class Bay(BayBase):
     def set_zone_settings(self, settings:AmpZoneSettings) -> bool:
         frame = FrameAmpZoneSettings.construct(mxr=self.device.registry, target=self, settings=settings)
         if (frame is not None):
-            self.device.registry.transmit(frame.frame)
+            if self.device.registry.transmit(frame.frame) != len(frame.frame):
+                return False
             self.amp_settings = settings
             return True
         return False
