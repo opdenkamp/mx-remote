@@ -7,7 +7,7 @@
 '''Protocol frame for changing a bay name on a device.'''
 
 from .FrameBase import FrameBase
-from ..Interface import DeviceRegistry, BayBase
+from ..Interface import DeviceRegistry, BayBase, DeviceBase, MxrDeviceUid
 
 class FrameSetName(FrameBase):
     '''Change a bay name.'''
@@ -22,5 +22,38 @@ class FrameSetName(FrameBase):
             name_bytes
         return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x22, protocol=0x11, payload=payload)
 
+    @property
+    def target_uid(self) -> MxrDeviceUid|None:
+        '''Device whose bay is being renamed.'''
+        return self.payload_uuid(0)
+
+    @property
+    def target_device(self) -> DeviceBase|None:
+        return self.mxr.get_by_uid(self.target_uid)
+
+    @property
+    def port(self) -> int|None:
+        '''Port id of the bay being renamed (mbay_port_id, a u16).'''
+        return self.payload_u16(16)
+
+    @property
+    def bay(self) -> BayBase|None:
+        return self.payload_bay(device=self.target_device, idx=16, u16=True)
+
+    @property
+    def name(self) -> str|None:
+        '''The new name, read from its fixed 16-byte field.
+
+        The field carries no terminator of its own, so a name that fills it has
+        none and must not be read as a C string. Note the firmware keeps only the
+        first 15 characters: mbay_apply_name is handed a copy truncated to
+        MXR_DEVICE_NAME_LEN - 1, so a 16-character name arrives whole and is
+        stored short.
+        '''
+        return self.payload_str(18, 16)
+
     def __str__(self) -> str:
-        return f"Name change"
+        target = self.bay if (self.bay is not None) else self.target_device
+        if (target is None):
+            return f"set bay name: port {self.port} -> '{self.name}'"
+        return f"set bay name: {target} -> '{self.name}'"

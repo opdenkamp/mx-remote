@@ -21,13 +21,15 @@ logging.disable(logging.CRITICAL)
 
 import mx_remote
 from mx_remote.Uid import MxrDeviceUid
-from mx_remote.proto.Constants import RCAction, RCKey
+from mx_remote.proto.Constants import RCAction, RCKey, EdidProfile
 from mx_remote.proto.Factory import create_mxr_frame, process_mxr_frame
 from mx_remote.proto.FrameTXRCKey import FrameTXRCKey
 from mx_remote.proto.FrameTXRCAction import FrameTXRCAction
 from mx_remote.proto.FrameAmpZoneSettings import FrameAmpZoneSettings
 from mx_remote.Interface import AmpZoneSettings
 from mx_remote.proto.FrameV2IPAudio import FrameV2IPAudio
+from mx_remote.proto.FrameSetName import FrameSetName
+from mx_remote.proto.FrameEDIDProfile import FrameEDIDProfile
 
 UID = bytes(range(1, 17))
 SRC = bytes(range(50, 66))
@@ -81,8 +83,42 @@ assert f.bay is not None and f.bay.port == out_bay.port
 assert f.action == RCAction.ACTION_VOLUME_UP, f.action
 print('0x0E : target, bay and action round-trip')
 
-# 0x22 CHANGE_BAY_NAME and 0x34 BAY_EDID_PROFILE have no round trip to test:
-# both are build-only, with no field accessors on the decode side at all.
+# --- 0x22 CHANGE_BAY_NAME: uid, mbay_port_id at 16, then a 16-byte name at 18.
+#     Port and name are adjacent and both readable at the wrong offset, so the
+#     values are picked to make a misattribution visible rather than plausible.
+f = decode(FrameSetName.construct(mxr=mx, target=out_bay, name='Kitchen TV'))
+assert isinstance(f, FrameSetName), type(f)
+assert f.target_uid == MxrDeviceUid(UID), f.target_uid
+assert f.port == out_bay.port, f.port
+assert f.name == 'Kitchen TV', repr(f.name)
+assert f.bay is not None and f.bay.port == out_bay.port, f.bay
+print('0x22 : target, port and name round-trip ->', f)
+
+# The name field carries no terminator, so a name filling it has none and must
+# be read at its width rather than as a C string.
+f = decode(FrameSetName.construct(mxr=mx, target=out_bay, name='ABCDEFGHIJKLMNOP'))
+assert f.name == 'ABCDEFGHIJKLMNOP', repr(f.name)
+print('0x22 : full-width name reads back whole ->', repr(f.name))
+
+# --- 0x34 BAY_EDID_PROFILE: uid then a bare u16 profile at 16. No port field,
+#     because the receiver applies it to MBAY_ID_0, its own input bay.
+PROFILE = EdidProfile.TEMPLATE_4K
+assert PROFILE != list(EdidProfile)[0], 'pick a profile that is not the first member'
+f = decode(FrameEDIDProfile.construct(mxr=mx, target=dev, profile=PROFILE))
+assert isinstance(f, FrameEDIDProfile), type(f)
+assert f.target_uid == MxrDeviceUid(UID), f.target_uid
+assert f.profile_raw == PROFILE.value, f.profile_raw
+assert f.profile == PROFILE, f.profile
+print('0x34 : target and profile round-trip ->', f)
+
+# A profile from newer firmware must read as unknown rather than as a real one
+raw = bytearray(create_mxr_frame(mx._uid, 0x34, UID + struct.pack('<H', 0x7FFF) + bytes(6)))
+raw[4:20] = UID
+f = process_mxr_frame(mx, time.time(), bytes(raw), ADDR)
+assert f.profile_raw == 0x7FFF, f.profile_raw
+assert f.profile == EdidProfile.UNKNOWN, f.profile
+assert str(f.profile) == 'unknown', str(f.profile)
+print('0x34 : unknown profile ->', f)
 
 # --- 0x43 SELECT_INPUT: the orientation case. sink and source are distinct uids
 #     and distinct endpoint ids, so swapping either pair fails rather than

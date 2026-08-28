@@ -651,6 +651,10 @@ class EdidProfile(IntEnum):
 			return '4K HDR Dolby Atmos'
 		if (self.value >= EdidProfile.SINK_1.value) and (self.value <= EdidProfile.SINK_32.value):
 			return f'copy from sink #{self.value - EdidProfile.SINK_1.value + 1}'
+		if self.value == EdidProfile.UNKNOWN.value:
+			# decode_enum lands here for any value this build has no member for,
+			# so it is a profile we cannot name, not one somebody configured
+			return 'unknown'
 		return f"custom #{self.value}"
 
 	TEMPLATE_1080P_STEREO = 0
