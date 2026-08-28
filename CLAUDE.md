@@ -42,6 +42,10 @@ Two things they pin that code review does not catch:
   a field read at the right offset with the wrong width returns a wrong value. A
   zero-filled fixture cannot catch that: the widened read returns the same
   answer.
+- **Which handlers run at all.** `tests/handlers.py` reports how many frame
+  `process()` methods the other suites execute and fails if one loses its
+  coverage. A handler nothing calls is invisible to every other check here,
+  since they all measure tests that run.
 
 `tests/capture.py` holds real frames off a live mesh, with the device uids
 replaced. Its expected values come from firmware behaviour rather than from this

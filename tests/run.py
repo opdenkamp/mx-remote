@@ -31,6 +31,7 @@ SUITES = [
     'capture',      # real frames off a live mesh
     'sources',      # stream source validity
     'structs',      # alignment padding, u16 bays, packed records
+    'handlers',     # which frame handlers the suites above execute
 ]
 
 def main() -> int:

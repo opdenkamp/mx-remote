@@ -34,6 +34,14 @@ f = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x26, zeroport), AD
 assert f.sources[0].valid is False
 print('port 0              : rejected')
 
+# the handler is what puts the list on the device
+f = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x26, junk + good), ADDR)
+f.process()
+cached = mx.get_by_uid(mx_remote.MxrDeviceUid(UID)).v2ip_sources
+assert cached is not None and len(cached) == 2, cached
+assert cached[0].valid is False and cached[1].valid is True
+print('handler             : both entries cached, validity preserved')
+
 # an unset signal type answers nothing
 unset = MxrSignalType(bytes([0, (5 << 5)]))
 print('unset signal type   :', unset, '| svd', unset.svd, '| color', unset.color, '| bpp', unset.bpp)

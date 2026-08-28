@@ -32,6 +32,11 @@ assert f.scrambled is True
 # the four fields must be distinguishable: selected != video here on purpose
 assert f.selected_bay.port != f.video_bay.port, 'selected must not be read as video'
 print('0x08 : sink/selected/video/audio all read from their own field')
+f.process()
+sink = mx.get_by_uid(mx_remote.MxrDeviceUid(UID)).get_by_portnum(2)
+assert sink.video_source.port == 0, sink.video_source
+assert sink.audio_source.port == 1, sink.audio_source
+print('0x08 : handler routed video 0 and audio 1 to the sink')
 
 # --- 0x39 mxr_bay_status: local_bay is a u16, description is 14 bytes not 16
 sigdesc = b'3840x2160p60Hz'                      # exactly 14, no terminator
@@ -42,6 +47,9 @@ f = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x39, p), ADDR)
 print('0x39 :', f)
 assert f.bay is not None and f.bay.port == 1, f.bay
 assert f.signal_type == '3840x2160p60Hz', repr(f.signal_type)
+f.process()
+assert f.bay.signal_detected is True
+print('0x39 : handler set signal detected on the reporting bay')
 
 # --- bay config: description and signal type are separate fields
 rec = bytes([0,0,0,0,0]) + nm('In 1') + nm('In 1') + sigdesc + sigtype + struct.pack('<I',0) + struct.pack('<I',2)
@@ -53,7 +61,7 @@ print('0x02 : description', repr(b.signal_type), '| signal', b.signal)
 # --- 0x3D mxr_amp_zone_settings: delays are 4-aligned, so padding precedes them
 from mx_remote.proto.FrameAmpZoneSettings import FrameAmpZoneSettings
 DELAY_L, DELAY_R = 96000, 144000                 # 2s and 3s at 48kHz: both > 65535
-p = (UID + struct.pack('<H', 1) + bytes([200, 200, 1, 248])
+p = (bytes(16) + struct.pack('<H', 1) + bytes([200, 200, 1, 248])
      + bytes(2)                                   # padding before delay_left
      + struct.pack('<II', DELAY_L, DELAY_R)
      + bytes([128, 128, 0, 1, 40]) + bytes(3)
@@ -69,6 +77,17 @@ assert f.eq_left == [1,2,3,4,5] and f.eq_right == [6,7,8,9,10]
 # a delay above 65535 is the case a 22/26 read cannot represent
 assert f.delay_left > 0xFFFF and f.delay_right > 0xFFFF
 print('0x3D : delays above 65535 survive, and bass/eq still line up')
+f.process()
+zone_bay = mx.get_by_uid(mx_remote.MxrDeviceUid(UID)).get_by_portnum(1)
+assert zone_bay.amp_settings is not None, 'a notification must reach the cache'
+assert zone_bay.amp_settings.delay_left == DELAY_L
+# a targeted frame is a request, so it must not reach the cache
+req = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x3D, UID + p[16:]), ADDR)
+assert not req.is_notification
+before = zone_bay.amp_settings.delay_left
+req.process()
+assert zone_bay.amp_settings.delay_left == before, 'a request must not be cached'
+print('0x3D : notification cached, request ignored')
 
 print()
 print('ALL OK')
