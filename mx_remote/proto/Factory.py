@@ -108,9 +108,6 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 	if hdr.opcode == 0x1F:
 		from .FrameV2IPSourceSwitch import FrameV2IPSourceSwitch
 		return FrameV2IPSourceSwitch(header=hdr, timestamp=timestamp)
-	if hdr.opcode == 0x16:
-		from .FramePDUState import FramePDUState
-		return FramePDUState(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x20:
 		from .FrameV2IPLink import FrameV2IPLinkStatus
 		return FrameV2IPLinkStatus(header=hdr, timestamp=timestamp)
@@ -225,20 +222,21 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 
 	# Opcodes reaching here are ones current firmware does not emit:
 	#
+	#   0x16        PDU_STATE               dead; no current MatrixOS build
+	#                                       supports it
 	#   0x17..0x1E  the CEC range           never implemented
-	#   0x25        SYS_BAY_V2IP_DETAILS    retired 2024-09; see below
-	#   0x33        RESERVED_1              was MX_OP_NB, the table's end sentinel
+	#   0x25        SYS_BAY_V2IP_DETAILS    retired 2024-09, replaced by 0x3C
 	#   0x2D        VIDEO_CLOCK_RATE_OLD    superseded by clock_rate in 0x31
 	#   0x2E, 0x2F  V2IP_BLIST_*            behind V2IP_SUPPORT_BLACKLIST, which
 	#                                       no project defines
+	#   0x33        RESERVED_1              was MX_OP_NB, the table's end sentinel
 	#
-	# Never reuse 0x25. It carried v2ip_device_sources - video, audio and anc at
-	# 0, 8 and 16, audio_return at 24, source_clock at 32 - until 0x3C replaced it
-	# with the same data reorganised behind a uid. A unit from before that change
-	# still decodes 0x25 as those addresses, so anything reissued under the number
-	# is read as a stream configuration by whatever is left in the field. 0x33 is
-	# reserved for a different reason: it was only ever the count marker, so no
-	# unit ever decoded a payload from it.
+	# Never reuse 0x16 or 0x25. Both carried a real payload - 0x16 a PDU's state,
+	# 0x25 v2ip_device_sources, with video, audio and anc at 0, 8 and 16,
+	# audio_return at 24 and source_clock at 32 - so a unit old enough to decode
+	# them reads anything reissued under those numbers as the old payload rather
+	# than ignoring it. 0x33 is reserved for a different reason: it was only ever
+	# the table's end marker, so no unit ever read a payload from it.
 	#
 	# Add decoders here rather than removing them: a unit on older firmware still
 	# emits superseded opcodes, which is what 0x06, 0x36 and 0x47 are for. An

@@ -49,7 +49,6 @@ BASELINE = {
     'FrameMeshOperation.FrameMeshOperation',
     'FrameMirrorStatus.FrameMirrorStatus',
     'FrameNetworkStatus.FrameNetworkStatus',
-    'FramePDUState.FramePDUState',
     'FramePowerChange.FramePowerChange',
     'FrameRCAction.FrameRCAction',
     'FrameRCKey.FrameRCKey',

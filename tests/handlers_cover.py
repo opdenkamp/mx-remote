@@ -135,18 +135,6 @@ rx(0x30, PEER + struct.pack('<I', 0x03))
 assert dev._topology, dev._topology       # no public accessor; the handler writes here
 print('0x30 topo   : %d entr(y/ies)' % len(dev._topology))
 
-# ---- 0x16 PDU_STATE: decodes for the log, but nothing consumes it, so the
-#      handler is a no-op. Before it was one it named two methods that do not
-#      exist, and every PDU frame raised out of the receive path.
-f = decode(0x16, struct.pack('<ffffff', 1.5, 230.0, 345.0, 12.0, 0.98, 50.0)
-                 + bytes([1, 0, 1, 0, 0, 0, 0, 0]))
-assert round(f.current, 2) == 1.5, f.current
-assert round(f.voltage, 2) == 230.0, f.voltage
-f.process()                                            # no consumer, must not raise
-rx(0x16, struct.pack('<ffffff', 1.5, 230.0, 345.0, 12.0, 0.98, 50.0)
-       + bytes([1, 0, 1, 0, 0, 0, 0, 0]))
-print('0x16 pdu    : decodes %sA/%sV, handler is a no-op' % (f.current, f.voltage))
-
 # ---- 0x3E AMP_DOLBY_STATE: uid, then mode and flags
 rx(0x3E, UID + bytes([2, 0b11]))
 ds = dev.dolby_settings
