@@ -226,10 +226,19 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 	# Opcodes reaching here are ones current firmware does not emit:
 	#
 	#   0x17..0x1E  the CEC range           never implemented
-	#   0x25, 0x33  RESERVED_0 / RESERVED_1 retired; never reuse the numbers
+	#   0x25        SYS_BAY_V2IP_DETAILS    retired 2024-09; see below
+	#   0x33        RESERVED_1              was MX_OP_NB, the table's end sentinel
 	#   0x2D        VIDEO_CLOCK_RATE_OLD    superseded by clock_rate in 0x31
 	#   0x2E, 0x2F  V2IP_BLIST_*            behind V2IP_SUPPORT_BLACKLIST, which
 	#                                       no project defines
+	#
+	# Never reuse 0x25. It carried v2ip_device_sources - video, audio and anc at
+	# 0, 8 and 16, audio_return at 24, source_clock at 32 - until 0x3C replaced it
+	# with the same data reorganised behind a uid. A unit from before that change
+	# still decodes 0x25 as those addresses, so anything reissued under the number
+	# is read as a stream configuration by whatever is left in the field. 0x33 is
+	# reserved for a different reason: it was only ever the count marker, so no
+	# unit ever decoded a payload from it.
 	#
 	# Add decoders here rather than removing them: a unit on older firmware still
 	# emits superseded opcodes, which is what 0x06, 0x36 and 0x47 are for. An
