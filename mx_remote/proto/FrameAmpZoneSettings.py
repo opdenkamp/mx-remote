@@ -24,7 +24,18 @@ _LOGGER = logging.getLogger(__name__)
 #   24..28  u32 delay_left  28..32 u32 delay_right
 #   32 bass  33 treble  34 bridged  35 power_mode  36 power_auto_level
 #   37..40  padding         40..44 u32 power_auto_time
-#   44..49  eq_left[5]      49..54 eq_right[5]
+#   44..49  eq_left[5]      49..54 eq_right[5]  54..56 tail padding
+#
+# The frame is 56 bytes: the amp allocates sizeof(mxr_amp_zone_settings) and
+# writes through a struct pointer, so the padding and the tail are on the wire
+# and its own receive path rejects anything shorter.
+#
+# Reading the delays two bytes early yields (delay & 0xFFFF) << 16, which is
+# zero for a zero delay - the value every zone has until someone configures
+# one. A decode this wrong is still correct on the default, so testing against
+# a working system cannot find it.
+
+_PAYLOAD_SIZE = 56
 
 class FrameAmpZoneSettings(FrameBase):
     '''Amplifier zone settings for a bay (gain, EQ, delay, power mode, etc.).'''
@@ -65,6 +76,17 @@ class FrameAmpZoneSettings(FrameBase):
     @property
     def target_uid(self) -> MxrDeviceUid|None:
         return self.payload_uuid(0)
+
+    @property
+    def is_notification(self) -> bool:
+        '''True when this reports a zone's settings rather than asking to change them.
+
+        An amp zeroes the target when it transmits, and acts on a received frame
+        only when the target is its own uid - so a zero target is a status
+        notification and the header uid attributes it.
+        '''
+        uid = self.target_uid
+        return (uid is None) or uid.empty
 
     @property
     def zone(self) -> int|None:
@@ -154,7 +176,16 @@ class FrameAmpZoneSettings(FrameBase):
         return settings
 
     def process(self) -> None:
-        '''Update the local device cache with amplifier zone settings.'''
+        '''Cache a zone's reported settings.
+
+        Only a notification is cached. A targeted frame is a request, and the
+        amp reports what it actually applied in the notification that follows -
+        caching the request would report a change the amp may have refused.
+        '''
+        if not self.is_notification:
+            return
+        if (len(self) < _PAYLOAD_SIZE):
+            return
         bay = self.bay
         if bay is not None:
             bay.amp_settings = self.as_settings
