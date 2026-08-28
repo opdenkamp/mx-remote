@@ -75,4 +75,40 @@ if bad:
         print('  ' + b)
     raise SystemExit(1)
 print(f'cap            : none exceed 0x{PROAMP8_CAP:02X}')
+
+# The scan above only inspects the sends it recognises, so it cannot notice a
+# second way through. These assert the two structural claims the rest of the
+# transmit path rests on - one builder, one socket write - because nothing else
+# does, and a scan of construct_base calls stays green while someone bypasses
+# construct_base entirely.
+lib = pathlib.Path(root).parent
+
+def sites(pattern, skip=()):
+    '''Every line in the library matching pattern, excluding comments and defs.'''
+    found = []
+    for path in sorted(lib.rglob('*.py')):
+        if path.name in skip:
+            continue
+        for i, line in enumerate(path.read_text(encoding='utf-8').splitlines(), start=1):
+            if re.search(pattern, line) and not line.strip().startswith(('#', 'def ')):
+                found.append(f'{path.name}:{i}')
+    return found
+
+builders = sites(r'FrameHeader\.construct\(', skip=('FrameHeader.py',))
+assert len(builders) == 1 and builders[0].startswith('FrameBase.py:'), \
+    f'a frame header is built outside construct_base: {builders}'
+print(f'builders       : 1 ({builders[0]})')
+
+writers = sites(r'\.sendto\(|\.send\(')
+assert len(writers) == 1 and writers[0].startswith('ConnectionAsync.py:'), \
+    f'the socket is written outside the transport: {writers}'
+print(f'socket writes  : 1 ({writers[0]})')
+
+# Asserting an empty result is vacuous if the name has been renamed, so confirm
+# the symbol still exists before concluding nothing calls it.
+assert (lib / 'proto' / 'Factory.py').read_text(encoding='utf-8').count('def create_mxr_frame(') == 1, \
+    'create_mxr_frame has moved; this check no longer looks at anything'
+raw = sites(r'create_mxr_frame\(')
+assert not raw, f'create_mxr_frame bypasses construct_base: {raw}'
+print('raw builder    : create_mxr_frame has no caller in the library')
 print('\nALL OK')
