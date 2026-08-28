@@ -29,12 +29,20 @@ print('construct_base : opcode version by default, explicit override honoured')
 # 2. no frame the library actually builds may exceed the ProAmp8 / AmpOS cap of 0x22
 PROAMP8_CAP = 0x22
 root = pathlib.Path(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'mx_remote', 'proto'))
-call = re.compile(r'construct_base\((.*?)\)', re.S)
-bad, checked = [], 0
+# Calls only. The pattern also matches the def in FrameBase, which carries a
+# type annotation rather than an opcode - exclude it by name rather than
+# letting it fall through as unreadable, or a real unreadable call hides
+# behind it.
+call = re.compile(r'(?<!def )construct_base\((.*?)\)', re.S)
+bad, unparsed, checked = [], [], 0
 for path in sorted(root.glob('Frame*.py')):
     for args in call.findall(path.read_text(encoding='utf-8')):
         m = re.search(r'opcode\s*=\s*(0x[0-9A-Fa-f]+|\d+|_OPCODE)', args)
         if not m:
+            # A site whose opcode this cannot read is unchecked, not compliant.
+            # Skipping it silently is how a call written with a named constant
+            # would leave the scan green while never being looked at.
+            unparsed.append(f'{path.name}: {args.strip()[:60]}')
             continue
         raw = m.group(1)
         if raw == '_OPCODE':
@@ -55,6 +63,11 @@ for path in sorted(root.glob('Frame*.py')):
 # silent all-clear.
 MIN_SITES = 30
 assert checked >= MIN_SITES, f'scan matched only {checked} sites; the pattern has drifted'
+if unparsed:
+    print('construct_base sites whose opcode could not be read:')
+    for u in unparsed:
+        print(f'  {u}')
+assert not unparsed, f'{len(unparsed)} transmit sites went unchecked'
 print(f'tx frames      : {checked} construct_base call sites checked')
 if bad:
     print('\nOVER THE PROAMP8 CAP:')
