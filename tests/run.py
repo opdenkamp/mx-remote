@@ -32,6 +32,7 @@ SUITES = [
     'sources',      # stream source validity
     'structs',      # alignment padding, u16 bays, packed records
     'handlers',     # which frame handlers the suites above execute
+    'txresult',     # a command reports success only when its frame was sent
 ]
 
 def main() -> int:
