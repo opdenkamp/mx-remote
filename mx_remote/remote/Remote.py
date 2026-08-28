@@ -14,10 +14,11 @@ import aiofiles
 import aiohttp
 import os
 from pathlib import Path
+import random
 import time
 
 from .ConnectionAsync import ConnectionAsync
-from ..const import __version__
+from ..const import MXR_HELLO_INTERVAL_MIN, MXR_HELLO_INTERVAL_RAND, __version__
 from .Device import Device
 from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, mxr_broadcast_address
 from ..proto.Constants import MXR_PROTOCOL_VERSION
@@ -60,7 +61,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._callbacks = State(callbacks, http_session)
         self.remotes:dict[MxrDeviceUid,Device] = {}
         self._links = BayLinks(self)
-        self._last_hello = 0
+        self._hello_due = 0.0
         self._tasks:set[asyncio.Task[None]] = set()
         self._uid:bytes|None = None
         self._uid_path = uid_path
@@ -221,6 +222,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
     async def _background_probe(self) -> None:
         while not self._closing:
             await asyncio.sleep(1)
+            if (time.time() >= self._hello_due):
+                self.tx_hello()
             tx_discover = False
             if (not self.has_completed_devices()):
                 tx_discover = True
@@ -335,14 +338,32 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         _LOGGER.debug("discovering devices")
         return self.transmit(pkt.frame)
 
+    def _arm_hello(self) -> None:
+        '''Schedule the next announcement, mirroring the firmware's hello timer.
+
+        MatrixOS re-draws min 2.5s + random(0..2.5s) after each hello it sends,
+        so a mesh of devices does not synchronise into bursts. The interval is
+        re-drawn per send rather than fixed for the same reason.
+        '''
+        self._hello_due = time.time() + MXR_HELLO_INTERVAL_MIN \
+            + (random.random() * MXR_HELLO_INTERVAL_RAND)
+
     def tx_hello(self) -> int:
         '''Transmit a hello frame to announce this device on the network.'''
         pkt = constructFrameHello(self)
         if (pkt is None):
             return 0
         _LOGGER.debug("sending hello")
-        self._last_hello = time.time()
-        return self.transmit(pkt.frame)
+        sent = self.transmit(pkt.frame)
+        if (sent > 0):
+            # Only a hello that went out buys the next interval. A send that wrote
+            # nothing leaves _hello_due where it was, so the next probe tick tries
+            # again, which is what firmware does - it resets hello_timeout only in
+            # the success branch of mxr_transmit. Arming here on failure instead
+            # would silence a client for a full interval every time a write failed,
+            # and on an interface that never writes, permanently.
+            self._arm_hello()
+        return sent
 
     def on_connection_made(self) -> None:
         '''Callback invoked after ConnectionAsync has started the server.'''
@@ -373,10 +394,6 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         '''Called when a UDP frame was received.'''
         timestamp = time.time()
         self.process_frame(timestamp=timestamp, data=data, addr=addr)
-
-        if (self.conn is not None):
-            if (timestamp - self._last_hello >= 30):
-                self.tx_hello()
 
     @override
     def on_mxr_update(self, data:Any) -> None:

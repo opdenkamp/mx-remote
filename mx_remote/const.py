@@ -26,6 +26,17 @@ MX_MCAST_UDP_IP = '224.8.8.8'
 MX_MCAST_UDP_PORT = 8812
 """UDP port used in multicast mode (default)."""
 
+MXR_HELLO_INTERVAL_MIN = 2.5
+"""Shortest gap between hello announcements, in seconds (firmware ``hello_timeout`` minimum)."""
+
+MXR_HELLO_INTERVAL_RAND = 2.5
+"""Random spread added to each hello interval, in seconds.
+
+Mirrors ``rand_timeout_init(&mxr_class->hello_timeout, 2500, 2500)``: the delay is
+re-drawn after every hello that is sent, so devices announcing on the same mesh do
+not converge into synchronised bursts.
+"""
+
 V2IP_UDP_PORT_VIDEO = 50020
 """Default destination UDP port for a V2IP video stream (firmware ``V2IP_UDP_PORT_VIDEO``)."""
 
