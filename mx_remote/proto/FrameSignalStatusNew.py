@@ -9,29 +9,12 @@
 from enum import IntEnum
 from functools import cached_property
 from .FrameBase import FrameBase
-from ..Interface import BayBase, SignalStatus
+from ..Interface import VideoColourSpace, VideoSignalDetails, BayBase, SignalStatus
 from ..Uid import MxrDeviceUid
 import struct
 from .Svd import SvdMap, Svd
 from .Constants import BayStatusMask, MxrSignalType, decode_enum
 
-class VideoColourSpace(IntEnum):
-    '''Video colour space encoding format.'''
-    RGB = 0
-    YUV444 = 1
-    YUV422 = 2
-    YUV420 = 3
-
-    def __str__(self) -> str:
-        if self.value == 0:
-            return 'RGB'
-        if self.value == 1:
-            return '4:4:4'
-        if self.value == 2:
-            return '4:2:2'
-        if self.value == 3:
-            return '4:2:0'
-        return 'unknown'
 
 class AvDetailsSupportFlags:
     '''Bitmask indicating which AV detail fields are present in the frame.'''
@@ -318,9 +301,17 @@ class FrameSignalStatusNew(FrameBase):
                 if self.stream_flags.video_hdr:
                     signal_type += ' HDR'
             signal_type += f' / {self.frame_rate}Hz'
+            details = VideoSignalDetails(
+                svd=self.video.svd.id,
+                colour=self.video.colour_space,
+                bpp=self.video.colour_depth,
+                non_int=(self.stream_flags is not None) and self.stream_flags.video_non_int_clock,
+                from_report=True)
         else:
             signal_type = 'No Signal'
-        bay.on_mxr_update(SignalStatus(detected=self.stream_valid, description=signal_type))
+            details = None
+        bay.on_mxr_update(SignalStatus(detected=self.stream_valid, description=signal_type,
+                                       details=details))
 
     def __str__(self) -> str:
         if (self.payload is None):

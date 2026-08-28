@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import socket
 from typing import Any, Callable, override
-from ..proto.Constants import BayStatusMask, BayFeaturesMask, EdidProfile, RCType, RCAction, RCKey, decode_enum
+from ..proto.Constants import MxrSignalType, BayStatusMask, BayFeaturesMask, EdidProfile, RCType, RCAction, RCKey, decode_enum
 from ..proto.BayConfig import BayConfig
 from ..proto.Data import VolumeMuteStatus
 from ..proto.FrameV2IPSourceSwitch import FrameV2IPSourceSwitch
@@ -24,6 +24,8 @@ from ..proto.FrameVolumeSet import FrameVolumeSet
 from ..proto.FrameAmpZoneSettings import FrameAmpZoneSettings
 from ..proto.FrameV2IPAudio import FrameV2IPAudio
 from ..Interface import (
+    VideoColourSpace,
+    VideoSignalDetails,
     BayBase,
     DeviceBase,
     BayLink,
@@ -71,6 +73,8 @@ class Bay(BayBase):
         self._hdbt_connected = None
         self._signal_detected = None
         self._signal_type = None
+        self._video_details:VideoSignalDetails|None = None
+        self._signal_snapshot:MxrSignalType|None = None
         self._hpd_detected = None
         self._cec_detected = None
         self._arc = self.ARC_NONE
@@ -649,6 +653,27 @@ class Bay(BayBase):
 
     @property
     @override
+    def video_details(self) -> VideoSignalDetails|None:
+        """Current video format, or None if neither source has carried one.
+
+        A signal status report is preferred, because it arrives on a signal
+        change. The bay config snapshot is the fallback for a bay no report has
+        been seen for, and refreshes on the bay config broadcast cycle, so it can
+        lag a change by a broadcast interval. from_report says which you have.
+        """
+        if (self._video_details is not None):
+            return self._video_details
+        snapshot = self._signal_snapshot
+        if (snapshot is None) or not snapshot.is_set:
+            return None
+        return VideoSignalDetails(svd=snapshot.svd,
+                                  colour=decode_enum(VideoColourSpace, snapshot.color),
+                                  bpp=snapshot.bpp,
+                                  non_int=snapshot.non_int,
+                                  from_report=False)
+
+    @property
+    @override
     def signal_type(self) -> str:
         '''Video/audio signal type.'''
         return self._signal_type if (self._signal_type is not None) else 'unknown'
@@ -1123,6 +1148,7 @@ class Bay(BayBase):
         self.user_name = data.user_name
         self.bay = data.bay
         self._on_mxr_bay_status(data.status)
+        self._signal_snapshot = data.signal_snapshot
         if BayStatusMask.SIGNAL_DETECTED not in data.status or not self.device.is_v2ip:
             self.signal_type = data.signal_type
         if self.is_output:
@@ -1185,6 +1211,7 @@ class Bay(BayBase):
             self.power_status = data
         elif isinstance(data, SignalStatus):
             self.signal_detected = data.detected
+            self._video_details = data.details
             if (data.description is not None):
                 self.signal_type = data.description
         elif isinstance(data, RCAction):

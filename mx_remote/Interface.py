@@ -173,10 +173,96 @@ class ConnectStatus(IntEnum):
     def __repr__(self) -> str:
         return str(self)
 
+class VideoColourSpace(IntEnum):
+    '''Video colour space encoding format.'''
+    RGB = 0
+    YUV444 = 1
+    YUV422 = 2
+    YUV420 = 3
+
+    def __str__(self) -> str:
+        if self.value == 0:
+            return 'RGB'
+        if self.value == 1:
+            return '4:4:4'
+        if self.value == 2:
+            return '4:2:2'
+        if self.value == 3:
+            return '4:2:0'
+        return 'unknown'
+
+class VideoSignalDetails:
+    """
+    Video format of a bay: CTA-861 svd, colour space, bit depth, frame rate kind.
+
+    ``from_report`` says where it came from, because the two sources do not carry
+    the same currency. A signal status report is the live format and arrives on a
+    signal change. The bay config snapshot is a fallback for a bay no report has
+    been seen for: it refreshes on the bay config broadcast cycle, so it can lag a
+    change by a broadcast interval.
+
+    ``bpp`` is a bit depth in both cases, not a wire index. None means no format
+    is set; 0 means one is set whose depth is not known, and those are different
+    answers.
+    """
+    def __init__(self, svd:int|None, colour:VideoColourSpace|None, bpp:int|None,
+                 non_int:bool|None, from_report:bool) -> None:
+        self._svd = svd
+        self._colour = colour
+        self._bpp = bpp
+        self._non_int = non_int
+        self._from_report = from_report
+
+    @property
+    def svd(self) -> int|None:
+        '''CTA-861 short video descriptor, or None when no format is set.'''
+        return self._svd
+
+    @property
+    def colour(self) -> VideoColourSpace|None:
+        '''Colour space, or None when no format is set or the value is unknown to this build.'''
+        return self._colour
+
+    @property
+    def bpp(self) -> int|None:
+        '''Bit depth, 0 when a format is set whose depth is not known.'''
+        return self._bpp
+
+    @property
+    def non_int(self) -> bool|None:
+        '''True for a non-integer (1000/1001) frame rate.'''
+        return self._non_int
+
+    @property
+    def from_report(self) -> bool:
+        '''True when this came from a signal status report rather than the bay config snapshot.'''
+        return self._from_report
+
+    def __eq__(self, other:Any) -> bool:
+        if not isinstance(other, VideoSignalDetails):
+            return NotImplemented
+        return (self._svd == other._svd) and (self._colour == other._colour) \
+            and (self._bpp == other._bpp) and (self._non_int == other._non_int)
+
+    def __hash__(self) -> int:
+        return hash((self._svd, self._colour, self._bpp, self._non_int))
+
+    def __str__(self) -> str:
+        if self._svd is None:
+            return 'no format'
+        src = 'report' if self._from_report else 'bay config'
+        bpp = f', {self._bpp}bpp' if self._bpp else ''
+        return f'svd {self._svd}, {self._colour}{bpp} ({src})'
+
+    def __repr__(self) -> str:
+        return str(self)
+
 class SignalStatus:
-    def __init__(self, detected:bool, description:str|None=None) -> None:
+    def __init__(self, detected:bool, description:str|None=None,
+                 details:VideoSignalDetails|None=None) -> None:
         self._detected = detected
         self._description = description
+        self._details = details
 
     @property
     def detected(self) -> bool:
@@ -185,6 +271,11 @@ class SignalStatus:
     @property
     def description(self) -> str|None:
         return self._description
+
+    @property
+    def details(self) -> VideoSignalDetails|None:
+        '''Structured video format, or None when the report carried no valid stream.'''
+        return self._details
 
 class AmpDolbySettings:
     """
@@ -983,6 +1074,15 @@ class BayBase(ABC):
     @abstractmethod
     def signal_type(self) -> str:
         '''Audio or video signal type'''
+
+    @property
+    @abstractmethod
+    def video_details(self) -> VideoSignalDetails|None:
+        '''Current video format, or None if neither source has carried one.
+
+        Prefers the signal status report, which arrives on a signal change, and
+        falls back to the bay config snapshot for a bay no report has been seen
+        for. Read from_report to tell which one this is.'''
 
     @property
     @abstractmethod
