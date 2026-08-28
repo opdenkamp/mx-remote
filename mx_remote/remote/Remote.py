@@ -62,6 +62,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self.remotes:dict[MxrDeviceUid,Device] = {}
         self._links = BayLinks(self)
         self._hello_due = 0.0
+        self._probe_failures = 0
         self._tasks:set[asyncio.Task[None]] = set()
         self._uid:bytes|None = None
         self._uid_path = uid_path
@@ -219,21 +220,56 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 return True
         return False
 
+    def _on_task_done(self, task:'asyncio.Task[None]') -> None:
+        '''Drop a finished background task, and report it if something killed it.
+
+        asyncio only surfaces an unretrieved task exception when the task object is
+        garbage collected, which is a different moment and may never come, so a task
+        that dies otherwise does so in silence. Retrieving it here is what makes any
+        future background task fail loudly, including one whose own guard misses.
+        '''
+        self._tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if (exc is not None):
+            _LOGGER.error(f"background task {task.get_name()} died: {exc!r}")
+
     async def _background_probe(self) -> None:
         while not self._closing:
             await asyncio.sleep(1)
-            if (time.time() >= self._hello_due):
-                self.tx_hello()
-            tx_discover = False
-            if (not self.has_completed_devices()):
-                tx_discover = True
-            else:
-                for _, device in self.remotes.items():
-                    device.check_online()
-                    if not device.check_configuration_complete_timeout():
-                        tx_discover = True
-            if tx_discover and ((time.time() - self._discover_timeout) >= 5):
-                self.tx_discover()
+            try:
+                self._probe_once()
+                self._probe_failures = 0
+            except Exception as e:
+                # A send raises on a closed or unreachable socket. Letting that
+                # escape ends the task, and this loop is the only thing that
+                # announces this client and drives discovery, so one transient
+                # failure would silence it permanently.
+                #
+                # A disconnected interface fails every tick, so only the first
+                # carries a traceback: a full one per second buries everything
+                # else in the log, and the repeats say nothing the first did not.
+                self._probe_failures += 1
+                if (self._probe_failures == 1):
+                    _LOGGER.warning(f"probe failed: {traceback.format_exc()}")
+                else:
+                    _LOGGER.debug(f"probe still failing ({self._probe_failures}): {e!r}")
+
+    def _probe_once(self) -> None:
+        '''One pass of the probe loop: announce if due, then discover if needed.'''
+        if (time.time() >= self._hello_due):
+            self.tx_hello()
+        tx_discover = False
+        if (not self.has_completed_devices()):
+            tx_discover = True
+        else:
+            for _, device in self.remotes.items():
+                device.check_online()
+                if not device.check_configuration_complete_timeout():
+                    tx_discover = True
+        if tx_discover and ((time.time() - self._discover_timeout) >= 5):
+            self.tx_discover()
 
     async def start_async(self) -> None:
         '''Start the server that listens for mx_remote frames from other devices.'''
@@ -243,7 +279,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         await self.conn.start_srv()
         checker = asyncio.create_task(self._background_probe())
         self._tasks.add(checker)
-        checker.add_done_callback(self._tasks.discard)
+        checker.add_done_callback(self._on_task_done)
 
     async def stop_async(self) -> None:
         '''Stop the server and close all connections.'''

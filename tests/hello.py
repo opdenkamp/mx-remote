@@ -94,4 +94,104 @@ assert spread > RemoteModule.MXR_HELLO_INTERVAL_RAND * 0.3, \
     'the interval must be re-drawn per send, not fixed'
 assert min(deltas) >= RemoteModule.MXR_HELLO_INTERVAL_MIN, 'a draw must never be shorter than the minimum'
 
+# ---- a send that raises must not end the loop. This loop is now the only thing
+# that announces and the only thing that drives discovery, so a task that dies on
+# a transient socket error silences the client for good.
+async def survives_raising_transmit():
+    mx = mx_remote.Remote(open_connection=False)
+    mx._uid = bytes(range(0x20, 0x30))
+    sent = []
+    state = {'raise': True}
+    def wire(data):
+        if state['raise']:
+            raise OSError('network is unreachable')
+        sent.append(data)
+        return len(data)
+    mx.transmit = wire
+    task = asyncio.ensure_future(mx._background_probe())
+    await asyncio.sleep(2.2)
+    alive_while_failing = not task.done()
+    state['raise'] = False          # the socket comes back
+    await asyncio.sleep(2.2)
+    mx._closing = True
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    return alive_while_failing, [f for f in sent if opcode(f) == HELLO]
+
+alive, recovered = asyncio.run(survives_raising_transmit())
+print('raising wire       : loop alive=%s, hellos after recovery=%d' % (alive, len(recovered)))
+assert alive, 'a raising send must not end the probe loop'
+assert len(recovered) >= 1, 'the client must announce again once sending works'
+
+# ---- a task that dies must say so. asyncio only reports an unretrieved task
+# exception when the task object is collected, which is a different moment and may
+# never come, so without this a background task dies in silence. Driven through
+# start_async so the real registration is what is under test, not _on_task_done.
+class Boom(BaseException):
+    """Not an Exception, so the loop's own guard does not catch it."""
+
+class FakeConn:
+    async def start_srv(self):
+        return (None, None)
+    def close(self):
+        pass
+
+async def dying_task_is_reported():
+    records = []
+    class Catch(logging.Handler):
+        def emit(self, rec):
+            records.append(rec)
+    logging.disable(logging.NOTSET)
+    log = logging.getLogger('mx_remote.remote.Remote')
+    log.addHandler(Catch()); log.setLevel(logging.DEBUG)
+    try:
+        mx = mx_remote.Remote(open_connection=False)
+        mx._uid = bytes(range(0x20, 0x30))
+        mx.conn = FakeConn()
+        mx._probe_once = lambda: (_ for _ in ()).throw(Boom('probe exploded'))
+        await mx.start_async()
+        await asyncio.sleep(1.6)
+        task = next(iter(mx._tasks), None)
+        died = [r for r in records if r.levelno >= logging.ERROR and 'died' in r.getMessage()]
+        return died
+    finally:
+        log.removeHandler(Catch)
+        logging.disable(logging.CRITICAL)
+
+died = asyncio.run(dying_task_is_reported())
+print('task killed by a BaseException: %d error(s) logged' % len(died))
+assert len(died) >= 1, 'a background task that dies must be reported, not vanish'
+
+# ---- a disconnected interface must not bury the log in identical tracebacks
+async def one_traceback_then_quiet():
+    records = []
+    class Catch(logging.Handler):
+        def emit(self, rec):
+            records.append(rec)
+    logging.disable(logging.NOTSET)
+    log = logging.getLogger('mx_remote.remote.Remote')
+    log.addHandler(Catch()); log.setLevel(logging.DEBUG)
+    try:
+        mx = mx_remote.Remote(open_connection=False)
+        mx._uid = bytes(range(0x20, 0x30))
+        mx.transmit = lambda data: (_ for _ in ()).throw(OSError('network is unreachable'))
+        task = asyncio.ensure_future(mx._background_probe())
+        await asyncio.sleep(3.2)
+        mx._closing = True
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        return [r for r in records if r.levelno >= logging.WARNING]
+    finally:
+        logging.disable(logging.CRITICAL)
+
+warns = asyncio.run(one_traceback_then_quiet())
+print('3 failing ticks    : %d warning(s)' % len(warns))
+assert len(warns) == 1, 'only the first failure carries a traceback; repeats must not flood'
+
 print('ALL OK')
