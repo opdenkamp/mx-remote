@@ -105,7 +105,7 @@ Three layers, decoupled by abstract base classes:
    - `Device` (`DeviceBase`), `Bay` (`BayBase`) — live device/port state.
    - `ConnectionAsync` — `asyncio.DatagramProtocol` UDP transport (multicast/broadcast).
    - `State` — dispatches events to registered `MxrCallbacks`.
-   - `V2IP`, `Link`, `P8PDU` — OneIP streaming, virtual bay links, PDU support.
+   - `V2IP`, `Link` — OneIP streaming and virtual bay links.
 
 ### Receive data flow
 `ConnectionAsync` datagram → `Remote.on_datagram_received` → `Remote.process_frame` →

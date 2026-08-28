@@ -58,25 +58,20 @@ for path in sorted(root.glob('Frame*.py')):
             bad.append(f'{path.name}: opcode 0x{opcode:02X} stamps 0x{proto:02X}{note}')
         elif note:
             print(f'  over-stamp   : {path.name} opcode 0x{opcode:02X} -> 0x{proto:02X}{note}')
-# A pattern that stops matching reports every site clean. Assert the scan
-# found what it expects to find, so a rename is a red test rather than a
-# silent all-clear.
+# A scan that finds nothing passes every assertion made about what it found, so
+# the count is asserted too, and before the unparsed list is read - an empty one
+# means nothing matched just as readily as it means nothing was unreadable. A
+# floor rather than an exact number: a call site that passes its opcode
+# positionally is skipped by design, so the two counts need not match.
 MIN_SITES = 30
-assert checked >= MIN_SITES, f'scan matched only {checked} sites; the pattern has drifted'
+assert checked >= MIN_SITES, \
+    f'only {checked} call sites matched, expected at least {MIN_SITES} - the scan is finding nothing'
 if unparsed:
     print('construct_base sites whose opcode could not be read:')
     for u in unparsed:
         print(f'  {u}')
 assert not unparsed, f'{len(unparsed)} transmit sites went unchecked'
 print(f'tx frames      : {checked} construct_base call sites checked')
-
-# A scan that finds nothing passes every assertion made about what it found, so
-# the count is asserted too. A floor rather than an exact number: a call site
-# that passes its opcode positionally is skipped by design, so the two counts
-# are not required to match.
-MIN_SITES = 30
-assert checked >= MIN_SITES, \
-    f'only {checked} call sites matched, expected at least {MIN_SITES} - the scan is finding nothing'
 if bad:
     print('\nOVER THE PROAMP8 CAP:')
     for b in bad:
