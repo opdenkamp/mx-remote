@@ -29,6 +29,19 @@ classifiers = [
   "Topic :: System :: Networking :: Monitoring",
 ]
 
+[tool.hatch.build.targets.sdist]
+# Allowlist, not an ignore list: the working tree also holds an unrelated git
+# repository and machine-local tool config, and a default sdist sweeps in every
+# file that is merely not gitignored.
+include = [
+  "/mx_remote",
+  "/tests",
+  "/hatch_build.py",
+  "/README.md",
+  "/LICENSE",
+  "/CLAUDE.md",
+]
+
 [tool.hatch.version]
 source = "regex"
 path = "mx_remote/const.py"
