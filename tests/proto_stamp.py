@@ -69,6 +69,14 @@ if unparsed:
         print(f'  {u}')
 assert not unparsed, f'{len(unparsed)} transmit sites went unchecked'
 print(f'tx frames      : {checked} construct_base call sites checked')
+
+# A scan that finds nothing passes every assertion made about what it found, so
+# the count is asserted too. A floor rather than an exact number: a call site
+# that passes its opcode positionally is skipped by design, so the two counts
+# are not required to match.
+MIN_SITES = 30
+assert checked >= MIN_SITES, \
+    f'only {checked} call sites matched, expected at least {MIN_SITES} - the scan is finding nothing'
 if bad:
     print('\nOVER THE PROAMP8 CAP:')
     for b in bad:
