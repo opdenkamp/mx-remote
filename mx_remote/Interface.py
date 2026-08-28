@@ -1195,17 +1195,23 @@ class DeviceV2IPScalingSettings(ABC):
     @property
     @abstractmethod
     def mode(self) -> int:
-        pass
+        '''Scaling mode, carried only when flags has MXR_SCALING_FLAG_MODE_VALID'''
 
     @property
     @abstractmethod
     def refresh(self) -> int:
-        pass
+        '''Refresh rate paired with mode, under the same MXR_SCALING_FLAG_MODE_VALID marker'''
 
     @property
     @abstractmethod
     def flags(self) -> int:
-        pass
+        '''mxr_scaling_config.flags.
+
+        MXR_SCALING_FLAG_MODE_VALID and MXR_SCALING_FLAG_OPTIONS_VALID mark
+        which half a sender meant to send, and are separately valid; a sender
+        setting neither is offering no scaling at all. MXR_SCALING_FLAG_AUTO_SCALING
+        is the only option bit with a defined meaning.
+        '''
 
 def v2ip_stream_valid(stream:'V2IPStreamSource|None') -> bool:
     """
@@ -1356,6 +1362,12 @@ class DeviceV2IPDetails:
 
     @property
     def tx_rate(self) -> int|None:
+        '''Source rate this device transmits at, or None if none is known.
+
+        Only a rate within V2IP_SOURCE_RATE_MIN..MAX is one a sender meant to
+        send; anything else is an absent offer rather than a rate, and merge()
+        keeps the previously known value instead of caching what was on the wire.
+        '''
         return self._tx_rate
 
     @property
