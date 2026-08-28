@@ -100,6 +100,19 @@ wire(False)
 assert asyncio.run(out.tx_action(mx_remote.RCAction.ACTION_POWER_ON)) is False
 print('tx_action   : False on a failed send')
 
+# ---- Device-level commands take the same path, and hold most of the call sites
+# (19 of the 25), so a Bay-only suite would leave them unguarded.
+assert dev.rebooting is False, 'device must not start out rebooting'
+wire(False)
+assert asyncio.run(dev.reboot()) is False, 'a failed send must report False'
+assert dev.rebooting is False, 'a failed send must not mark the device rebooting'
+print('reboot      : False on a failed send, state untouched')
+
+wire(True)
+assert asyncio.run(dev.reboot()) is True, 'reboot must report success on a full write'
+assert dev.rebooting is True, 'a sent reboot must mark the device rebooting'
+print('reboot      : True, state applied')
+
 print('frames handed to the wire:', len(sent))
-assert len(sent) == 7
+assert len(sent) == 9
 print('ALL OK')
