@@ -52,6 +52,19 @@ replaced. Its expected values come from firmware behaviour rather than from this
 decoder, which is the property a synthetic fixture cannot have — assert against
 something external, or a fixture only proves the decoder agrees with itself.
 
+Two things a test of a *command* must do, both of which look like coverage
+when they are missing:
+
+- **Assert both directions.** A command that returns False for an unrelated
+  reason satisfies a failure-only assertion on its own, so the success case is
+  what gives the failure case meaning.
+- **Pick an input that can reach the send.** Every multiviewer getter reads
+  `UNKNOWN` until a config frame arrives, and each setter returns True without
+  transmitting when the value already matches — so a table built from the first
+  enum member, which is `UNKNOWN`, never transmits at all.
+
+`tests/txresult.py` is the worked example of both.
+
 Validate wire changes against live hardware as well, by running `mxr` or
 replaying a capture file with `mxr -i`.
 
