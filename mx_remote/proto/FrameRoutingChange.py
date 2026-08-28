@@ -15,27 +15,27 @@ class FrameRoutingChange(FrameBase):
     @cached_property
     def sink_bay(self) -> BayBase|None:
         '''Sink (output) bay that received a new routing.'''
-        return self.payload_bay(device=self.remote_device, idx=0)
+        return self.payload_bay(device=self.remote_device, idx=0, u16=True)
 
     @cached_property
     def selected_bay(self) -> BayBase|None:
         '''The (video) bay that was selected.'''
-        return self.payload_bay(device=self.remote_device, idx=1)
+        return self.payload_bay(device=self.remote_device, idx=2, u16=True)
 
     @cached_property
     def video_bay(self) -> BayBase|None:
         '''The new video source bay.'''
-        return self.payload_bay(device=self.remote_device, idx=2)
+        return self.payload_bay(device=self.remote_device, idx=4, u16=True)
 
     @cached_property
     def audio_bay(self) -> BayBase|None:
         '''The new audio source bay.'''
-        return self.payload_bay(device=self.remote_device, idx=4)
+        return self.payload_bay(device=self.remote_device, idx=7, u16=True)
 
     @cached_property
     def scrambled(self) -> bool|None:
         '''Whether the signal is scrambled.'''
-        return self.payload_bool(3)
+        return self.payload_bool(6)
 
     def process(self) -> None:
         '''Update the local device cache with the new routing.'''

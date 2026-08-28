@@ -7,7 +7,7 @@
 '''Protocol frame for bay status updates (signal, features, status flags).'''
 
 from functools import cached_property
-from .Constants import BayStatusMask, BayFeaturesMask
+from .Constants import BayStatusMask, BayFeaturesMask, MXR_CFG_SIGNAL_STATUS_LEN
 from .FrameBase import FrameBase
 from ..Interface import BayBase, SignalStatus
 import logging
@@ -19,12 +19,12 @@ class FrameBayStatus(FrameBase):
     @cached_property
     def bay(self) -> BayBase|None:
         '''Bay this status report applies to.'''
-        return self.payload_bay(device=self.remote_device, idx=0)
+        return self.payload_bay(device=self.remote_device, idx=0, u16=True)
 
     @cached_property
     def signal_type(self) -> str|None:
         '''Signal type description string.'''
-        return self.payload_str(2, 16)
+        return self.payload_str(2, MXR_CFG_SIGNAL_STATUS_LEN)
 
     @cached_property
     def status(self) -> BayStatusMask|None:

@@ -30,6 +30,7 @@ SUITES = [
     'stats',        # V2IP stats block boundaries
     'capture',      # real frames off a live mesh
     'sources',      # stream source validity
+    'structs',      # alignment padding, u16 bays, packed records
 ]
 
 def main() -> int:

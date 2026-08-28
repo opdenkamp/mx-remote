@@ -104,6 +104,10 @@ exceeds its own MXR_PROTOCOL_VERSION, and a ProAmp8 caps at 0x22 - so an opcode
 whose payload only ever grew trailing fields keeps its original version, and
 new-format detection stays on payload length."""
 
+MXR_CFG_SIGNAL_STATUS_LEN = 14
+"""Width of the signal description in mxr_cfg_signal. The 2-byte signal type
+follows it, so the union is 16 bytes and the description is not."""
+
 MXR_DEVICE_NAME_LEN = 16
 """Width of the fixed-size name/serial fields on the wire.
 

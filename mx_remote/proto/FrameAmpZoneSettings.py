@@ -14,6 +14,18 @@ import logging
 
 _LOGGER = logging.getLogger(__name__)
 
+# mxr_amp_zone_settings is ALIGN(8) - aligned, not packed - so delay_left cannot
+# begin at 22 after volume_max at 21; it pads to 24. Everything after it already
+# assumes that: bass at 32, power_auto_time at 40 and the eq bands at 44 and 49
+# are only correct with two bytes of padding before the delays.
+#
+#   16..18  u16 zone        18 gain_left     19 gain_right
+#   20 volume_min           21 volume_max    22..24 padding
+#   24..28  u32 delay_left  28..32 u32 delay_right
+#   32 bass  33 treble  34 bridged  35 power_mode  36 power_auto_level
+#   37..40  padding         40..44 u32 power_auto_time
+#   44..49  eq_left[5]      49..54 eq_right[5]
+
 class FrameAmpZoneSettings(FrameBase):
     '''Amplifier zone settings for a bay (gain, EQ, delay, power mode, etc.).'''
     @staticmethod
@@ -27,9 +39,9 @@ class FrameAmpZoneSettings(FrameBase):
         payload.append(settings.gain_right & 0xFF)
         payload.append(settings.volume_min & 0xFF)
         payload.append(settings.volume_max & 0xFF)
+        payload += bytes([0, 0]) # pad to the 4-byte alignment of delay_left
         payload += settings.delay_left.to_bytes(length=4, byteorder="little")
         payload += settings.delay_right.to_bytes(length=4, byteorder="little")
-        payload += bytes([0, 0]) # padding
         payload.append(settings.bass & 0xFF)
         payload.append(settings.treble & 0xFF)
         payload.append(settings.bridged & 0xFF)
@@ -84,11 +96,11 @@ class FrameAmpZoneSettings(FrameBase):
 
     @property
     def delay_left(self) -> int:
-        return int.from_bytes(self.payload[22:26], "little")
+        return int.from_bytes(self.payload[24:28], "little")
 
     @property
     def delay_right(self) -> int:
-        return int.from_bytes(self.payload[26:30], "little")
+        return int.from_bytes(self.payload[28:32], "little")
 
     @property
     def bass(self) -> int|None:

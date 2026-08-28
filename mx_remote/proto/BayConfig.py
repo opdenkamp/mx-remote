@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 from functools import cached_property
-from .Constants import BayStatusMask, BayFeaturesMask
+from .Constants import BayStatusMask, BayFeaturesMask, MxrSignalType, MXR_CFG_SIGNAL_STATUS_LEN
 import struct
 
 class BayConfig:
@@ -82,8 +82,26 @@ class BayConfig:
 
 	@cached_property
 	def signal_type(self) -> str:
-		'''Video signal type.'''
-		return self.payload[37:53].split(b'\0',1)[0].decode('ascii', errors='replace')
+		'''Video signal description.
+
+		mxr_cfg_signal is 14 bytes of description followed by a 2-byte
+		mxr_signal_type, so reading 16 runs a full-width description into
+		the type bytes.
+		'''
+		end = 37 + MXR_CFG_SIGNAL_STATUS_LEN
+		return self.payload[37:end].split(b'\0',1)[0].decode('ascii', errors='replace')
+
+	@cached_property
+	def signal(self) -> MxrSignalType|None:
+		'''Signal type this bay reports, or None on a short record.
+
+		Bay config is broadcast for every bay, where a signal status report
+		covers only its own, so this is the wider source of the same field.
+		'''
+		start = 37 + MXR_CFG_SIGNAL_STATUS_LEN
+		if len(self.payload) < (start + 2):
+			return None
+		return MxrSignalType(self.payload[start:start + 2])
 
 	@cached_property
 	def status(self) -> BayStatusMask:
