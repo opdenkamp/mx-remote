@@ -97,8 +97,17 @@ Three layers, decoupled by abstract base classes:
 `remote_id == self.uid` (our own echoes) are skipped.
 
 ### Frame wire format
-`[0x50, 0x38, protocol, 0x00]` ("P8" magic + protocol version) + opcode (u16 LE) +
-length (u16 LE) + payload. Built by `proto/Factory.py::create_mxr_frame`.
+A 24-byte header, then the payload:
+
+```
+0   [0x50, 0x38, protocol, 0x00]   "P8" magic + protocol version
+4   sender uid                     16 bytes, the device that sent this frame
+20  opcode                         u16 LE
+22  payload length                 u16 LE
+24  payload
+```
+
+Built by `proto/Factory.py::create_mxr_frame`, decoded by `proto/FrameHeader.py`.
 
 ## Working on the protocol
 
