@@ -21,7 +21,7 @@ logging.disable(logging.CRITICAL)
 
 import mx_remote
 from mx_remote.Uid import MxrDeviceUid
-from mx_remote.proto.Constants import RCAction, RCKey, EdidProfile
+from mx_remote.proto.Constants import RCAction, RCKey, EdidProfile, MXR_DEVICE_NAME_LEN
 from mx_remote.proto.Factory import create_mxr_frame, process_mxr_frame
 from mx_remote.proto.FrameTXRCKey import FrameTXRCKey
 from mx_remote.proto.FrameTXRCAction import FrameTXRCAction
@@ -94,11 +94,20 @@ assert f.name == 'Kitchen TV', repr(f.name)
 assert f.bay is not None and f.bay.port == out_bay.port, f.bay
 print('0x22 : target, port and name round-trip ->', f)
 
-# The name field carries no terminator, so a name filling it has none and must
-# be read at its width rather than as a C string.
+# A 16-character name must go out as 15. The receiver copies
+# MXR_DEVICE_NAME_LEN - 1 and terminates, so sending all 16 names the bay
+# something other than what was asked for. Our two halves agree with each other
+# at 16, which is why this asserts against the firmware's width rather than
+# against what the builder happens to produce.
 f = decode(FrameSetName.construct(mxr=mx, target=out_bay, name='ABCDEFGHIJKLMNOP'))
-assert f.name == 'ABCDEFGHIJKLMNOP', repr(f.name)
-print('0x22 : full-width name reads back whole ->', repr(f.name))
+assert f.name == 'ABCDEFGHIJKLMNO', repr(f.name)
+assert len(f.name) == MXR_DEVICE_NAME_LEN - 1, len(f.name)
+print('0x22 : a 16-char name is sent as 15 ->', repr(f.name))
+
+# and a name that fits is untouched, so the truncation is a limit not a habit
+f = decode(FrameSetName.construct(mxr=mx, target=out_bay, name='ABCDEFGHIJKLMNO'))
+assert f.name == 'ABCDEFGHIJKLMNO', repr(f.name)
+print('0x22 : a 15-char name is unchanged ->', repr(f.name))
 
 # --- 0x34 BAY_EDID_PROFILE: uid then a bare u16 profile at 16. No port field,
 #     because the receiver applies it to MBAY_ID_0, its own input bay.

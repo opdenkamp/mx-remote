@@ -6,6 +6,7 @@
 ######################################################
 '''Protocol frame for changing a bay name on a device.'''
 
+from .Constants import MXR_DEVICE_NAME_LEN
 from .FrameBase import FrameBase
 from ..Interface import DeviceRegistry, BayBase, DeviceBase, MxrDeviceUid
 
@@ -14,9 +15,12 @@ class FrameSetName(FrameBase):
     @staticmethod
     def construct(mxr:DeviceRegistry, target:BayBase, name:str) -> FrameBase|None:
         '''Build a bay name change frame for transmission.'''
-        if len(name) > 16:
-            name = name[:16]
-        name_bytes = name.encode(encoding='ascii').ljust(16, b'\x00')
+        # 15, not 16: the receiver copies MXR_DEVICE_NAME_LEN - 1 bytes and
+        # terminates, so a name filling the field is stored one short. Sending
+        # all 16 means the bay ends up named something other than what was
+        # asked for, with success reported either way.
+        name = name[:MXR_DEVICE_NAME_LEN - 1]
+        name_bytes = name.encode(encoding='ascii', errors='replace').ljust(MXR_DEVICE_NAME_LEN, b'\x00')
         payload = target.device.remote_id.byte_value + \
             bytes([(target.port >> 0) & 0xFF, (target.port >> 8) & 0xFF]) + \
             name_bytes
@@ -45,10 +49,9 @@ class FrameSetName(FrameBase):
         '''The new name, read from its fixed 16-byte field.
 
         The field carries no terminator of its own, so a name that fills it has
-        none and must not be read as a C string. Note the firmware keeps only the
-        first 15 characters: mbay_apply_name is handed a copy truncated to
-        MXR_DEVICE_NAME_LEN - 1, so a 16-character name arrives whole and is
-        stored short.
+        none and must not be read as a C string: read it at its width. A sender
+        that fills all MXR_DEVICE_NAME_LEN bytes is readable here, even though a
+        receiver keeps only the first MXR_DEVICE_NAME_LEN - 1 of them.
         '''
         return self.payload_str(18, 16)
 
