@@ -50,6 +50,11 @@ for path in sorted(root.glob('Frame*.py')):
             bad.append(f'{path.name}: opcode 0x{opcode:02X} stamps 0x{proto:02X}{note}')
         elif note:
             print(f'  over-stamp   : {path.name} opcode 0x{opcode:02X} -> 0x{proto:02X}{note}')
+# A pattern that stops matching reports every site clean. Assert the scan
+# found what it expects to find, so a rename is a red test rather than a
+# silent all-clear.
+MIN_SITES = 30
+assert checked >= MIN_SITES, f'scan matched only {checked} sites; the pattern has drifted'
 print(f'tx frames      : {checked} construct_base call sites checked')
 if bad:
     print('\nOVER THE PROAMP8 CAP:')
