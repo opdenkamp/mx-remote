@@ -34,6 +34,7 @@ SUITES = [
     'handlers',     # which frame handlers the suites above execute
     'txresult',     # a command reports success only when its frame was sent
     'vdetails',     # Bay.video_details prefers a report over the config snapshot
+    'protogate',    # a frame is not sent to a device that cannot receive it
 ]
 
 def main() -> int:

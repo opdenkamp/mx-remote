@@ -20,7 +20,7 @@ class FrameSetName(FrameBase):
         payload = target.device.remote_id.byte_value + \
             bytes([(target.port >> 0) & 0xFF, (target.port >> 8) & 0xFF]) + \
             name_bytes
-        return FrameBase.construct_base(mxr=mxr, opcode=0x22, protocol=0x11, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x22, protocol=0x11, payload=payload)
 
     def __str__(self) -> str:
         return f"Name change"

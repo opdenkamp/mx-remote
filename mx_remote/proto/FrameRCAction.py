@@ -21,7 +21,7 @@ class FrameRCAction(FrameBase):
         '''Build an RC action frame for transmission.'''
         payload = target.device.remote_id.byte_value
         payload += bytes([(target.port & 0xFF), ((target.port >> 8) & 0xFF), (int(action.value) & 0xFF), ((int(action.value) >> 8) & 0xFF)])
-        return FrameBase.construct_base(mxr=mxr, opcode=0x0E, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x0E, payload=payload)
 
     @cached_property
     def bay(self) -> BayBase|None:

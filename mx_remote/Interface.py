@@ -1895,7 +1895,19 @@ class DeviceBase(ABC):
     @property
     @abstractmethod
     def protocol(self) -> int:
-        pass
+        """Highest protocol version this device advertises, or 0 if none has been seen."""
+
+    @abstractmethod
+    def supports_opcode(self, opcode:int) -> bool:
+        """True when this device can receive opcode.
+
+        Each opcode has a minimum protocol version, and a device whose cap is
+        lower drops the frame without answering - there is no NAK at any layer,
+        so an ungated send looks like success. A device that has advertised no
+        version yet returns True: refusing on that would break every send made
+        before the first hello arrives, and the firmware itself only compares
+        against a version it has.
+        """
 
     @property
     @abstractmethod

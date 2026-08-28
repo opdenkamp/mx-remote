@@ -7,12 +7,16 @@
 
 '''Base class and utilities for decoded MX Remote protocol frames.'''
 
+from typing import Any
+import logging
 from functools import cached_property
 import time
 from .Constants import MXR_OPCODE_VERSIONS, MXR_PROTOCOL_VERSION
 from .FrameHeader import FrameHeader
 from ..Interface import DeviceBase, DeviceRegistry, BayBase
 from ..Uid import MxrDeviceUid
+
+_LOGGER = logging.getLogger(__name__)
 
 def append_payload_str(payload:list[int], value:str, sz:int) -> list[int]:
     '''Append a fixed-size ASCII string to a payload byte list, zero-padded to sz.
@@ -46,14 +50,19 @@ class FrameBase:
         return MXR_OPCODE_VERSIONS.get(opcode, MXR_PROTOCOL_VERSION)
 
     @staticmethod
-    def construct_base(mxr:DeviceRegistry, opcode:int, protocol:int|None=None, payload:bytes=bytes([]), size:int|None=None) -> 'FrameBase|None':
+    def construct_base(mxr:DeviceRegistry, opcode:int, protocol:int|None=None, payload:bytes=bytes([]), size:int|None=None, target:Any=None) -> 'FrameBase|None':
         '''Construct a new frame for transmission with the given opcode and payload.
 
         Leave protocol unset unless the payload really does need a newer
         receiver than the opcode itself does; it then defaults to the opcode's
-        own minimum from MXR_OPCODE_VERSIONS.'''
+        own minimum from MXR_OPCODE_VERSIONS.
+
+        Pass target for anything addressed at one device, so a frame it cannot
+        receive is refused here rather than sent into silence.'''
         if (protocol is None):
             protocol = FrameBase.opcode_protocol(opcode)
+        if not FrameBase.target_supports(mxr=mxr, target=target, opcode=opcode):
+            return None
         header = FrameHeader.construct(mxr=mxr, opcode=opcode, protocol=protocol)
         if (header is None):
             return None
@@ -65,6 +74,28 @@ class FrameBase:
                 payload += bytes([0 for _ in range(size - len(payload))])
         rv.payload = payload
         return rv
+
+    @staticmethod
+    def target_supports(mxr:DeviceRegistry, target:Any, opcode:int) -> bool:
+        '''Whether a frame addressed at target can be received by it.
+
+        Accepts what the constructFrame helpers are given: a device, a bay, a
+        uid, or None for a broadcast, which has no single target and is always
+        allowed.
+        '''
+        if (target is None):
+            return True
+        device = getattr(target, 'device', None) or (target if hasattr(target, 'supports_opcode') else None)
+        if (device is None):
+            device = mxr.get_by_uid(target) if isinstance(target, (str, bytes, MxrDeviceUid)) else None
+        if (device is None) or not hasattr(device, 'supports_opcode'):
+            return True
+        if device.supports_opcode(opcode):
+            return True
+        _LOGGER.warning(
+            f"not sending opcode {opcode:02X} to {device}: it advertises protocol "
+            f"{device.protocol:02X} and the opcode needs {FrameBase.opcode_protocol(opcode):02X}")
+        return False
 
     @property
     def mxr(self) -> DeviceRegistry:

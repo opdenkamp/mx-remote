@@ -24,7 +24,7 @@ class FrameVolumeSet(FrameBase):
         payload.append((target.port >> 8) & 0xFF)
         payload += volume.value
         payload += bytes([0, 0, 0]) # padding
-        return FrameBase.construct_base(mxr=mxr, opcode=0x14, protocol=0x11, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x14, protocol=0x11, payload=payload)
 
     @cached_property
     def target_device(self) -> DeviceBase|None:

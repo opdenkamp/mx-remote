@@ -50,7 +50,7 @@ class FrameV2IPManualSourceSwitch(FrameBase):
             payload += bytes([port & 0xFF, (port >> 8) & 0xFF, 0, 0])
         if audio_fmt is not None:
             payload += audio_fmt.value
-        return FrameBase.construct_base(mxr=mxr, opcode=_OPCODE, payload=bytes(payload))
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=_OPCODE, payload=bytes(payload))
 
     @cached_property
     def target_uid(self) -> MxrDeviceUid|None:

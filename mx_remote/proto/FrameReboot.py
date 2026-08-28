@@ -15,7 +15,7 @@ class FrameReboot(FrameBase):
     @staticmethod
     def construct(mxr:DeviceRegistry, target:DeviceBase) -> FrameBase|None:
         '''Build a reboot frame for transmission to the target device.'''
-        return FrameBase.construct_base(mxr=mxr, opcode=0x28, payload=target.remote_id.byte_value)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x28, payload=target.remote_id.byte_value)
     
     def __str__(self) -> str:
         return "reboot"

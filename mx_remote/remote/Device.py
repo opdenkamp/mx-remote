@@ -55,6 +55,7 @@ import logging
 import time
 
 from ..Interface import DeviceBase, BayBase, DeviceRegistry
+from ..proto.FrameBase import FrameBase
 from ..proto.Constants import DeviceFeature
 
 _LOGGER = logging.getLogger(__name__)
@@ -274,6 +275,14 @@ class Device(DeviceBase):
 		if (self._hello.supported_protocol is None):
 			return 0
 		return self._hello.supported_protocol
+
+	@override
+	def supports_opcode(self, opcode:int) -> bool:
+		'''True when this device can receive opcode. See DeviceBase.supports_opcode.'''
+		protocol = self.protocol
+		if (protocol == 0):
+			return True
+		return protocol >= FrameBase.opcode_protocol(opcode)
 
 	@property
 	def name(self) -> str:

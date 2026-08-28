@@ -241,7 +241,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.VIEW_MODE.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(view_mode.value)
-        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
 
     @staticmethod
     def construct_set_video_source(mxr:DeviceRegistry, target:DeviceBase, screen:int, source:MultiviewerSource) -> FrameBase|None:
@@ -252,7 +252,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload += bytes([0 for _ in range(7)])
         payload.append(screen)
         payload.append(source.value)
-        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
 
     @staticmethod
     def construct_set_audio_source(mxr:DeviceRegistry, target:DeviceBase, source:MultiviewerSource) -> FrameBase|None:
@@ -262,7 +262,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.AUDIO_SOURCE.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(source.value - 1)
-        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
 
     @staticmethod
     def construct_set_audio_volume(mxr:DeviceRegistry, target:DeviceBase, volume:int, muted:bool) -> FrameBase|None:
@@ -273,7 +273,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload += bytes([0 for _ in range(7)])
         payload.append(volume)
         payload.append(1 if muted else 0)
-        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
 
     @staticmethod
     def construct_set_edid_template(mxr:DeviceRegistry, target:DeviceBase, edid:MultiviewerEDIDTemplate) -> FrameBase|None:
@@ -283,7 +283,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.EDID_TEMPLATE.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(edid.value)
-        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
 
     @staticmethod
     def construct_set_remote_control(mxr:DeviceRegistry, target:DeviceBase, source:MultiviewerSource) -> FrameBase|None:
@@ -293,7 +293,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.ROUTE_RC.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(source.value - 1)
-        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
 
     @staticmethod
     def construct_set_pip_size(mxr:DeviceRegistry, target:DeviceBase, size:MultiviewerPipSize) -> FrameBase|None:
@@ -303,7 +303,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.PIP_SIZE.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(size.value)
-        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
 
     @staticmethod
     def construct_set_pip_position(mxr:DeviceRegistry, target:DeviceBase, position:MultiviewerPipPosition) -> FrameBase|None:
@@ -313,7 +313,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.PIP_POSITION.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(position.value)
-        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
 
     @staticmethod
     def construct_set_screen_aspect(mxr:DeviceRegistry, target:DeviceBase, aspect:MultiviewerAspectRatio) -> FrameBase|None:
@@ -323,7 +323,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.ASPECT.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(aspect.value)
-        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
 
     @staticmethod
     def construct_set_auto_switch(mxr:DeviceRegistry, target:DeviceBase, enable:bool) -> FrameBase|None:
@@ -333,7 +333,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.AUTO_SWITCH.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(1 if enable else 0)
-        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
 
     @staticmethod
     def construct_set_output_mode(mxr:DeviceRegistry, target:DeviceBase, mode:MultiviewerOutputMode) -> FrameBase|None:
@@ -343,7 +343,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.OUTPUT_MODE.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(mode.value)
-        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
 
     @staticmethod
     def construct_set_output_itc_mode(mxr:DeviceRegistry, target:DeviceBase, mode:MultiviewerITCMode) -> FrameBase|None:
@@ -353,7 +353,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.OUTPUT_ITC_MODE.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(mode.value)
-        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
 
     @staticmethod
     def construct_set_hdcp_mode(mxr:DeviceRegistry, target:DeviceBase, mode:MultiviewerHDCPMode) -> FrameBase|None:
@@ -363,7 +363,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.HDCP_MODE.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(mode.value)
-        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
 
     @staticmethod
     def construct_set_connected_source(mxr:DeviceRegistry, target:DeviceBase, input:int, source:MxrDeviceUid|None) -> FrameBase|None:
@@ -378,7 +378,7 @@ class FrameV2IPMultiviewer(FrameBase):
             payload += source.byte_value
         payload.append(input)
         payload += bytes([0 for _ in range(7)])
-        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
 
     @staticmethod
     def construct_auto_route(mxr:DeviceRegistry, target:DeviceBase) -> FrameBase|None:
@@ -387,7 +387,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.AUTO_ROUTE.value)
         payload += bytes([0 for _ in range(7)])
-        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
 
     @staticmethod
     def construct_status(

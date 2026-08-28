@@ -22,7 +22,7 @@ class FrameBayHide(FrameBase):
             bytes([(target.port >> 0) & 0xFF, (target.port >> 8) & 0xFF]) + \
             bytes([1 if hidden else 0]) + \
             bytes([0 for _ in range(5)])
-        return FrameBase.construct_base(mxr=mxr, opcode=0x27, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x27, payload=payload)
 
     @cached_property
     def target(self) -> DeviceBase|None:

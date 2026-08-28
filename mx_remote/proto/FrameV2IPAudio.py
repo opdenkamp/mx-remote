@@ -732,17 +732,17 @@ class FrameV2IPAudio(FrameBase):
     @staticmethod
     def construct_mute(mxr:DeviceRegistry, target:MxrDeviceUid, endpoint_id:int, mute:bool) -> FrameBase|None:
         body = _audio_cmd_header(AudioCommandOpcode.MUTE, target) + _pack_audio_param(endpoint_id, 1 if mute else 0)
-        return FrameBase.construct_base(mxr=mxr, opcode=0x43, payload=body)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x43, payload=body)
 
     @staticmethod
     def construct_trigger(mxr:DeviceRegistry, target:MxrDeviceUid, endpoint_id:int, trigger:bool) -> FrameBase|None:
         body = _audio_cmd_header(AudioCommandOpcode.TRIGGER, target) + _pack_audio_param(endpoint_id, 1 if trigger else 0)
-        return FrameBase.construct_base(mxr=mxr, opcode=0x43, payload=body)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x43, payload=body)
 
     @staticmethod
     def construct_volume(mxr:DeviceRegistry, target:MxrDeviceUid, endpoint_id:int, volume:int) -> FrameBase|None:
         body = _audio_cmd_header(AudioCommandOpcode.VOLUME, target) + _pack_audio_param(endpoint_id, volume & 0xFFFFFFFF)
-        return FrameBase.construct_base(mxr=mxr, opcode=0x43, payload=body)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x43, payload=body)
 
     @cached_property
     def opcode(self) -> AudioCommandOpcode:

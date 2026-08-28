@@ -49,7 +49,7 @@ class FrameV2IPSourceSwitch(FrameBase):
             payload += bytes([int(ip[0]), int(ip[1]), int(ip[2]), int(ip[3])])
         else:
             payload += bytes([0, 0, 0, 0])
-        return FrameBase.construct_base(mxr=mxr, opcode=0x1F, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x1F, payload=payload)
 
     @cached_property
     def target_device(self) -> DeviceBase|None:

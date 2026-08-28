@@ -65,7 +65,7 @@ class FrameAmpZoneSettings(FrameBase):
         for r in range(5):
             payload.append(settings.eq_right[r] & 0xFF)
         payload += bytes([0, 0]) # padding
-        return FrameBase.construct_base(mxr=mxr, opcode=0x3D, protocol=0x1C, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x3D, protocol=0x1C, payload=payload)
 
     @property
     def target_device(self) -> DeviceBase|None:

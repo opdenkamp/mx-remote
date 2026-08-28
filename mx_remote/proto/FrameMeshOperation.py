@@ -55,7 +55,7 @@ class FrameMeshOperation(FrameBase):
             payload += option.remote_id.byte_value
         else:
             payload += bytes([0 for _ in range(16)])
-        return FrameBase.construct_base(mxr=mxr, opcode=0x3B, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x3B, payload=payload)
 
     @cached_property
     def operation(self) -> MeshOperation|None:
