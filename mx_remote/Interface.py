@@ -294,6 +294,38 @@ class AmpDolbySettings:
     pcm_upmix_active:bool
     """ PCM upmixing active """
 
+    def __eq__(self, other:Any) -> bool:
+        """Compare by value.
+
+        Without this the on-change guards that hold one of these compare by
+        identity, so a device re-broadcasting settings it already sent looks
+        like a change and fires a callback every time. Driven off the
+        annotations rather than a written-out field list, so a field added
+        later cannot be left out of the comparison and quietly restore that.
+        """
+        if not isinstance(other, AmpDolbySettings):
+            return NotImplemented
+        return all(getattr(self, n, None) == getattr(other, n, None)
+                   for n in type(self).__annotations__)
+
+    def __ne__(self, other:Any) -> bool:
+        result = self.__eq__(other)
+        return result if (result is NotImplemented) else (not result)
+
+    def __str__(self) -> str:
+        """Render the values, not the identity.
+
+        These are re-created from every frame that carries them, so the default
+        object repr changes on each one and makes an unchanged setting look like
+        a new value in a log or a diff.
+        """
+        fields = ', '.join(f'{n}={getattr(self, n, None)!r}'
+                           for n in type(self).__annotations__)
+        return f'AmpDolbySettings({fields})'
+
+    def __repr__(self) -> str:
+        return str(self)
+
 class AmpZoneSettings:
     """
     Zone specific settings for an amplifier input/output
@@ -343,6 +375,38 @@ class AmpZoneSettings:
 
     def __str__(self) -> str:
         return f"gain:{self.gain_left}/{self.gain_right} volume:{self.volume_min}/{self.volume_max} delay:{self.delay_left}/{self.delay_right} bass:{self.bass} treble:{self.treble} bridged:{self.bridged} eqleft:{self.eq_left} eqright:{self.eq_right} power:{self.power_mode} pwrlevel:{self.power_level} pwrtimeout:{self.power_timeout}"
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    def __eq__(self, other:Any) -> bool:
+        """Compare by value.
+
+        Without this the on-change guards that hold one of these compare by
+        identity, so a device re-broadcasting settings it already sent looks
+        like a change and fires a callback every time. Driven off the
+        annotations rather than a written-out field list, so a field added
+        later cannot be left out of the comparison and quietly restore that.
+        """
+        if not isinstance(other, AmpZoneSettings):
+            return NotImplemented
+        return all(getattr(self, n, None) == getattr(other, n, None)
+                   for n in type(self).__annotations__)
+
+    def __ne__(self, other:Any) -> bool:
+        result = self.__eq__(other)
+        return result if (result is NotImplemented) else (not result)
+
+    def __str__(self) -> str:
+        """Render the values, not the identity.
+
+        These are re-created from every frame that carries them, so the default
+        object repr changes on each one and makes an unchanged setting look like
+        a new value in a log or a diff.
+        """
+        fields = ', '.join(f'{n}={getattr(self, n, None)!r}'
+                           for n in type(self).__annotations__)
+        return f'AmpZoneSettings({fields})'
 
     def __repr__(self) -> str:
         return str(self)

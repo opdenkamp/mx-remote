@@ -34,6 +34,7 @@ SUITES = [
     'roundtrip',    # our builders replayed through our decoders
     'entry',        # the layer the runtime enters at
     'handlers_cover',  # the handlers no other suite reaches
+    'idempotent',   # the same frame applied twice changes nothing the second time
     'handlers',     # which frame handlers the suites above execute
     'txresult',     # a command reports success only when its frame was sent
     'vdetails',     # Bay.video_details prefers a report over the config snapshot

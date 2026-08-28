@@ -6,7 +6,7 @@
 ######################################################
 '''Video-over-IP stream source configuration and parsing.'''
 
-from typing import override
+from typing import Any, override
 from ..Uid import MxrDeviceUid
 from ..Interface import V2IPStreamSource, V2IPStreamSources, V2IPAudioFormat
 import socket
@@ -40,6 +40,18 @@ class V2IPStreamSourceImpl(V2IPStreamSource):
 
     def __str__(self) -> str:
         return f"{self.label}={self.ip}:{self.port}"
+
+    def __eq__(self, other:Any) -> bool:
+        """Compare by address. The container compares element-wise, so without
+        this a re-broadcast source list never matches the cached one."""
+        if not isinstance(other, V2IPStreamSourceImpl):
+            return NotImplemented
+        return (self._ip == other._ip) and (self._port == other._port) \
+            and (self._label == other._label)
+
+    def __ne__(self, other:Any) -> bool:
+        result = self.__eq__(other)
+        return result if (result is NotImplemented) else (not result)
 
 class V2IPConfig:
     '''V2IP source configuration for a single port with video, audio, and ancillary streams.'''
@@ -119,6 +131,19 @@ class V2IPStreamSourcesImpl(V2IPStreamSources):
     def arc(self, stream:V2IPStreamSource|None) -> None:
         self._arc = stream
 
+    def __eq__(self, other:Any) -> bool:
+        """Compare by the addresses carried, so an unchanged re-broadcast of a
+        device's sources does not read as a change."""
+        if not isinstance(other, V2IPStreamSourcesImpl):
+            return NotImplemented
+        return (self._video == other._video) and (self._audio == other._audio) \
+            and (self._anc == other._anc) and (self._arc == other._arc) \
+            and (self._uid == other._uid)
+
+    def __ne__(self, other:Any) -> bool:
+        result = self.__eq__(other)
+        return result if (result is NotImplemented) else (not result)
+
     def __str__(self) -> str:
         return f"video:{self.video} audio:{self.audio} anc:{self.anc}"
 
@@ -129,6 +154,7 @@ class V2IPStreamSourcesImpl(V2IPStreamSources):
 # uint_fast16_t. Only its low two bytes are ever used. So a v2ip_av_source of
 # three of them is 24 bytes.
 V2IP_AV_SOURCE_WIRE_SIZE = 24
+
 
 def parse_v2ip_av_source(data:bytes, offset:int=0) -> V2IPStreamSourcesImpl:
     '''Parse a v2ip_av_source struct (24 bytes) into a V2IPStreamSourcesImpl with video/audio/anc.'''
