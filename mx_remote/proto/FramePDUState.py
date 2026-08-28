@@ -56,10 +56,14 @@ class FramePDUState(FrameBase):
         return self.payload[24 + outlet] if outlet < 8 else 0
 
     def process(self) -> None:
-        '''Update the local device cache with the PDU state.'''
-        dev = self.mxr.get(self.remote_id)
-        if dev is not None:
-            dev.on_mxr_update_pdu(self.state)
+        '''No-op: nothing in this library consumes PDU state.
+
+        The frame still decodes, so a PDU reporting on the mesh is readable in a
+        log, but there is no device model to write it to. Both calls this method
+        used to make - a registry get() and a device on_mxr_update_pdu() - name
+        methods that do not exist, so any PDU frame raised out of the receive
+        path rather than being cached.
+        '''
 
     def __eq__(self, other:Any) -> bool:
         if not isinstance(other, FramePDUState):

@@ -144,9 +144,14 @@ async def dying_task_is_reported():
     class Catch(logging.Handler):
         def emit(self, rec):
             records.append(rec)
+    handler = Catch()
     logging.disable(logging.NOTSET)
     log = logging.getLogger('mx_remote.remote.Remote')
-    log.addHandler(Catch()); log.setLevel(logging.DEBUG)
+    prev_level, prev_prop = log.level, log.propagate
+    # do not propagate: with logging re-enabled these records would reach the root
+    # handler and print to stderr, in the middle of whatever suite is running
+    log.propagate = False
+    log.addHandler(handler); log.setLevel(logging.DEBUG)
     try:
         mx = mx_remote.Remote(open_connection=False)
         mx._uid = bytes(range(0x20, 0x30))
@@ -158,7 +163,11 @@ async def dying_task_is_reported():
         died = [r for r in records if r.levelno >= logging.ERROR and 'died' in r.getMessage()]
         return died
     finally:
-        log.removeHandler(Catch)
+        # remove the instance, not the class: passing the class leaves the handler
+        # attached, and the logger keeps emitting into every suite that runs after
+        log.removeHandler(handler)
+        log.setLevel(prev_level)
+        log.propagate = prev_prop
         logging.disable(logging.CRITICAL)
 
 died = asyncio.run(dying_task_is_reported())
@@ -171,9 +180,14 @@ async def one_traceback_then_quiet():
     class Catch(logging.Handler):
         def emit(self, rec):
             records.append(rec)
+    handler = Catch()
     logging.disable(logging.NOTSET)
     log = logging.getLogger('mx_remote.remote.Remote')
-    log.addHandler(Catch()); log.setLevel(logging.DEBUG)
+    prev_level, prev_prop = log.level, log.propagate
+    # do not propagate: with logging re-enabled these records would reach the root
+    # handler and print to stderr, in the middle of whatever suite is running
+    log.propagate = False
+    log.addHandler(handler); log.setLevel(logging.DEBUG)
     try:
         mx = mx_remote.Remote(open_connection=False)
         mx._uid = bytes(range(0x20, 0x30))
@@ -188,6 +202,9 @@ async def one_traceback_then_quiet():
             pass
         return [r for r in records if r.levelno >= logging.WARNING]
     finally:
+        log.removeHandler(handler)
+        log.setLevel(prev_level)
+        log.propagate = prev_prop
         logging.disable(logging.CRITICAL)
 
 warns = asyncio.run(one_traceback_then_quiet())
