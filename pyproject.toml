@@ -38,7 +38,9 @@ include = [
   "/tests",
   "/hatch_build.py",
   "/README.md",
+  "/docs",
   "/LICENSE",
+  "/AGENTS.md",
   "/CLAUDE.md",
 ]
 
