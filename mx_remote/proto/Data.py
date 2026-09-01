@@ -7,6 +7,12 @@
 
 '''Data structures for volume and mute status used in protocol frames.'''
 
+# A volume or mute field carrying this asks the receiver to leave that setting
+# as it is. It is a request-only value, and it is not a bitmask: read as one it
+# sets both channel bits, so a request declining to touch the mute records as
+# one muting both channels.
+MXR_AUDIO_DONT_CHANGE = 0xFF
+
 class MuteStatus:
     ''' mute left/right status '''
     def __init__(self, val:int):
@@ -44,14 +50,23 @@ class VolumeMuteStatus:
 
     @property
     def value(self) -> bytes:
+        '''The three wire bytes: left volume, right volume, mute bitmask.
+
+        A setting this object holds no value for is sent as
+        MXR_AUDIO_DONT_CHANGE rather than as zero, which the receiver would
+        apply - silencing a bay on a mute-only change, or unmuting one on a
+        volume-only change.
+        '''
         return bytes(bytearray([
-            self.volume_left,
-            self.volume_right,
+            self._volume_left if (self._volume_left is not None) else MXR_AUDIO_DONT_CHANGE,
+            self._volume_right if (self._volume_right is not None) else MXR_AUDIO_DONT_CHANGE,
             self.muted_value,
         ]))
 
     @property
     def muted_value(self) -> int:
+        if (self._muted_left is None) and (self._muted_right is None):
+            return MXR_AUDIO_DONT_CHANGE
         if not self.muted:
             return 0
         if self.muted_left and self.muted_right:

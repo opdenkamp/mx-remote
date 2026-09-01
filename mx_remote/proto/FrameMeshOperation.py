@@ -44,6 +44,28 @@ class MeshOperation(IntEnum):
     def __repr__(self) -> str:
         return str(self)
 
+# mxr_mesh_operation is ALIGN(8): u8 operation at 0, three bytes of padding to
+# the uid alignment, target uid at 4, parameter uid at 20, and four bytes of
+# tail padding out to 40.
+_WIRE_SIZE = 40
+
+# Two protocol versions do different jobs on this opcode.
+#
+# _ACCEPT is what a receiver requires before acting on the frame at all. It sits
+# below this opcode's entry in MXR_OPCODE_VERSIONS, because that entry was
+# raised later, when REPORT_CONTROLLER gained an installer id in the second
+# parameter word. Admitting on the table entry would ignore every device
+# between the two.
+#
+# _INSTALLER is that later version. It selects one trailing field rather than a
+# layout, which is the only place in this protocol where the stamp picks a
+# field.
+#
+# Sends stamp the table entry, so they reach _INSTALLER and above. No device
+# caps between the two, so nothing is lost by that.
+_ACCEPT_PROTOCOL = 0x1A
+_INSTALLER_PROTOCOL = 0x1D
+
 class FrameMeshOperation(FrameBase):
     ''' Mesh operation '''
 
@@ -55,11 +77,30 @@ class FrameMeshOperation(FrameBase):
             payload += option.remote_id.byte_value
         else:
             payload += bytes([0 for _ in range(16)])
-        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x3B, payload=payload)
+        # 40, not the 36 bytes the fields occupy: mxr_mesh_operation is an
+        # 8-aligned struct, so it is 40 bytes wide and the receiver refuses
+        # anything shorter than its own sizeof before reading the operation.
+        # A frame short by the four trailing pad bytes is dropped in silence.
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x3B, payload=payload, size=_WIRE_SIZE)
+
+    @cached_property
+    def acceptable(self) -> bool:
+        '''Whether a receiver would act on this frame at all.
+
+        A frame failing either gate is one no device on the mesh acted on, so
+        reading an operation out of it invents mesh state rather than tracking
+        it. A short payload is the dangerous one: the operation byte can still
+        be read from it, and the uid behind it cannot.
+        '''
+        pl = self.payload
+        return (pl is not None) and (len(pl) >= _WIRE_SIZE) \
+            and (self.protocol >= _ACCEPT_PROTOCOL)
 
     @cached_property
     def operation(self) -> MeshOperation|None:
-        '''Mesh operation type.'''
+        '''Mesh operation type, or None when no receiver would have acted.'''
+        if not self.acceptable:
+            return None
         pl = self.payload_u8(0)
         if (pl is None):
             return None

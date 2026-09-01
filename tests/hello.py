@@ -134,8 +134,13 @@ class Boom(BaseException):
     """Not an Exception, so the loop's own guard does not catch it."""
 
 class FakeConn:
+    def __init__(self):
+        self.sent = []
     async def start_srv(self):
         return (None, None)
+    def transmit(self, data):
+        self.sent.append(data)
+        return len(data)
     def close(self):
         pass
 
@@ -173,6 +178,26 @@ async def dying_task_is_reported():
 died = asyncio.run(dying_task_is_reported())
 print('task killed by a BaseException: %d error(s) logged' % len(died))
 assert len(died) >= 1, 'a background task that dies must be reported, not vanish'
+
+# ---- a client must announce itself before it can be heard. A device drops
+# every frame from a uid it has no record of, except hello and discover, so a
+# command sent between start_async returning and the probe loop's first pass
+# would be dropped by every peer - and nothing answers a frame it discarded, so
+# the caller sees success. The announce has to be on the way out of start_async,
+# not one probe interval later.
+async def announces_on_start():
+    mx = mx_remote.Remote(open_connection=False)
+    mx._uid = bytes(range(0x40, 0x50))
+    conn = FakeConn()
+    mx.conn = conn
+    mx._probe_once = lambda: None          # the loop must not be what sends these
+    await mx.start_async()
+    return [d[20] | (d[21] << 8) for d in conn.sent]
+
+opcodes = asyncio.run(announces_on_start())
+print('opcodes sent by start_async: %s' % [hex(o) for o in opcodes])
+assert 0x00 in opcodes, 'start_async must announce this client before anything else is sent'
+assert 0x01 in opcodes, 'start_async must solicit, rather than wait out each peer announce interval'
 
 # ---- a disconnected interface must not bury the log in identical tracebacks
 async def one_traceback_then_quiet():

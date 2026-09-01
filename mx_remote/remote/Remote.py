@@ -35,6 +35,10 @@ from ..const import MX_BCAST_UDP_PORT, MX_MCAST_UDP_IP, MX_MCAST_UDP_PORT
 
 _LOGGER = logging.getLogger(__name__)
 
+# The opcodes a device accepts from a sender it has no record of: the
+# announcement itself, and the request for one.
+_ACCEPT_UNANNOUNCED = (0x00, 0x01)
+
 class Remote(DeviceRegistry, ConnectionCallbacks):
     ''' Main component that handles the network connections and registration of remote devices '''
 
@@ -277,6 +281,17 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             raise Exception("connection not open")
         await self._load_uid()
         await self.conn.start_srv()
+        # Announce before anything else can be sent. A device drops every frame
+        # from a uid it has no record of, except hello and discover, so a
+        # command issued between here and the probe loop's first pass would be
+        # dropped by every peer that has not seen us - silently, since nothing
+        # answers a frame it discarded.
+        #
+        # The discover behind it makes each peer hello back rather than waiting
+        # out its own announce interval. It goes second so a peer has our
+        # announce before it answers.
+        self.tx_hello()
+        self.tx_discover()
         checker = asyncio.create_task(self._background_probe())
         self._tasks.add(checker)
         checker.add_done_callback(self._on_task_done)
@@ -411,11 +426,33 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         proc = False
         try:
             frame = process_mxr_frame(mxr=self, timestamp=timestamp, data=data, addr=addr)
+            if (frame is not None) and (frame.header.protocol > MXR_PROTOCOL_VERSION):
+                # The stamp is the version at which this opcode's payload last
+                # changed, not the sender's version. Above ours means this
+                # opcode's layout is newer than we know: the frames we would
+                # decode into wrong state, and the ones devices drop before
+                # dispatch.
+                #
+                # A release raises the stamp only where a layout moved, so this
+                # silences those opcodes until the library is bumped, not the
+                # mesh.
+                _LOGGER.debug(f"rx {addr[0]}: opcode {frame.header.opcode:02X} needs protocol "
+                              f"{frame.header.protocol:02X}, this build knows {MXR_PROTOCOL_VERSION:02X}")
+                frame = None
             if (frame is not None) and (frame.header.remote_id != self.uid):
-                proc = True
+                # A device announces itself before it sends anything else, so a
+                # frame from a uid with no record is one no device would act on.
+                # Decode and report it - this library is also used to watch the
+                # bus - but keep it out of the cache and the callbacks.
+                #
+                # Hello and discover are exempt: the hello is what makes a
+                # sender known, so gating it leaves it unknown forever.
+                proc = (frame.remote_device is not None) \
+                    or (frame.header.opcode in _ACCEPT_UNANNOUNCED)
                 if (self._addr_filter is None) or (addr[0] == self._addr_filter):
                     ts = f'[{timestamp}] ' if (self.conn is None) else ''
-                    _LOGGER.debug(f"{ts}rx {addr[0]}: {frame.header.opcode:02X}({len(frame)}) - {str(frame)}")
+                    skipped = '' if proc else ' (sender has not announced)'
+                    _LOGGER.debug(f"{ts}rx {addr[0]}: {frame.header.opcode:02X}({len(frame)}) - {str(frame)}{skipped}")
         except Exception:
             _LOGGER.warning(f"failed to decode frame {traceback.format_exc()}")
             raise

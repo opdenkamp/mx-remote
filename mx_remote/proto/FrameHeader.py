@@ -141,10 +141,16 @@ class FrameHeader:
 
     @property
     def payload(self) -> bytes|None:
-        '''Frame payload bytes.'''
+        '''Frame payload bytes, bounded by both the declared and the arrived length.
+
+        A sender may pad the datagram past the length it declared, and a
+        truncated datagram declares more than it carries. Taking the smaller of
+        the two keeps len(payload) meaningful as a layout discriminator, which
+        is how frames whose opcode carries two layouts tell them apart.
+        '''
         if len(self) < 25:
             return None
-        return self.data[24:]
+        return self.data[24:24 + min(self.payload_len, len(self.data) - 24)]
 
     @payload.setter
     def payload(self, val:bytes) -> None:

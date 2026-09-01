@@ -1203,6 +1203,11 @@ class Bay(BayBase):
         elif isinstance(data, BayFeaturesMask):
             self._features = data
         elif isinstance(data, SelectedBays):
+            # None means the report named no bay, not that the route was
+            # cleared. A manual switch carrying a zero address resolves to no
+            # advertising bay and arrives here as None, while the addressed sink
+            # falls back to whatever it was using - so clearing the route on
+            # None would invent a state no device is in.
             if (data.video is not None):
                 self.video_source = data.video
             if (data.audio is not None):

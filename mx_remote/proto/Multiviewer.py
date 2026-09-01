@@ -43,6 +43,25 @@ class MultiviewerViewMode(IntEnum):
     FOUR_SCREEN_LARGE = 7
     FOUR_SCREEN_SMALL = 8
 
+    @property
+    def screens(self) -> int:
+        '''How many screens this layout shows, 0 when the layout is unknown.
+
+        This is the bound on a screen index: the multiviewer indexes its window
+        array by whatever index it is sent, and an index at the count is one
+        past the last window.
+        '''
+        return {
+            MultiviewerViewMode.SINGLE: 1,
+            MultiviewerViewMode.PIP: 2,
+            MultiviewerViewMode.TWO_SCREEN_LARGE: 2,
+            MultiviewerViewMode.TWO_SCREEN_SMALL: 2,
+            MultiviewerViewMode.THREE_SCREEN_LARGE: 3,
+            MultiviewerViewMode.THREE_SCREEN_SMALL: 3,
+            MultiviewerViewMode.FOUR_SCREEN_LARGE: 4,
+            MultiviewerViewMode.FOUR_SCREEN_SMALL: 4,
+        }.get(self, 0)
+
 class MultiviewerPipPosition(IntEnum):
     '''Picture-in-picture window position on screen.'''
     UNKNOWN = 0
@@ -81,6 +100,7 @@ class MultiviewerHDCPMode(IntEnum):
     UNKNOWN = 0
     V1_4 = 1
     V2_2 = 2
+    OFF = 3
 
 class MultiviewerITCMode(IntEnum):
     '''IT Content mode for output signal type.'''
@@ -123,6 +143,11 @@ class MultiviewerBoolSetting(IntEnum):
     OFF = 0
     ON = 1
 
+# Sources are numbered from zero on the wire and from one here, so every
+# crossing adds or subtracts one. MAX_SCREENS is the width of the window array
+# a status report carries.
+MULTIVIEWER_MAX_SCREENS = 4
+
 class MultiviewerSource(IntEnum):
     '''Input source selection for multiviewer screens.'''
     UNKNOWN = 0
@@ -130,6 +155,20 @@ class MultiviewerSource(IntEnum):
     SOURCE_2 = 2
     SOURCE_3 = 3
     SOURCE_4 = 4
+
+    @staticmethod
+    def from_wire(val:int|None) -> 'MultiviewerSource':
+        '''Decode a zero-based wire source index.'''
+        if (val is None) or (val < 0) or (val >= MULTIVIEWER_MAX_SCREENS):
+            return MultiviewerSource.UNKNOWN
+        return MultiviewerSource(val + 1)
+
+    @property
+    def wire_value(self) -> int|None:
+        '''The zero-based index for this source, None when it names no source.'''
+        if (self == MultiviewerSource.UNKNOWN):
+            return None
+        return int(self.value) - 1
 
 
 class MultiviewerConfig(ABC):

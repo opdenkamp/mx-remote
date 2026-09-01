@@ -165,7 +165,8 @@ class V2IPRxStats:
         #
         # A state this build does not know is UNKNOWN rather than a ValueError
         # out of whatever happened to touch the property first.
-        return decode_enum(V2IPDecoderState, int(self._data[40])) or V2IPDecoderState.UNKNOWN
+        st = decode_enum(V2IPDecoderState, int(self._data[40]))
+        return st if (st is not None) else V2IPDecoderState.UNKNOWN
 
     def __str__(self) -> str:
         viseq = f" (seq: {self.video_sequence_errors})" if self.video_sequence_errors > 0 else ''

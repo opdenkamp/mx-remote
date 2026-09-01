@@ -40,6 +40,7 @@ SUITES = [
     'vdetails',     # Bay.video_details prefers a report over the config snapshot
     'protogate',    # a frame is not sent to a device that cannot receive it
     'hello',        # a client announces itself on a clock, not on receipt
+    'wirefix',      # layouts and sentinels no protocol version signals
 ]
 
 def main() -> int:
@@ -49,7 +50,9 @@ def main() -> int:
         if name not in SUITES:
             print(f'unknown suite: {name}')
             return 2
-        r = subprocess.run([sys.executable, os.path.join(here, name + '.py')],
+        # -B: a suite that imports a stale .pyc reports on code that is no
+        # longer in the tree, and reports it as a pass.
+        r = subprocess.run([sys.executable, '-B', os.path.join(here, name + '.py')],
                            capture_output=True, text=True)
         ok = (r.returncode == 0) and ('ALL OK' in r.stdout)
         print(f'{name:<12} {"ok" if ok else "FAILED"}')

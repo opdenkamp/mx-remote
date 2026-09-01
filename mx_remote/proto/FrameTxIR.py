@@ -38,48 +38,95 @@ from ..Uid import MxrDeviceUid
 # from 34 prepends two padding bytes and shifts every u16 timing by one byte.
 _TX_IR_HEADER_SIZE = 36
 
+# A receiver requires one timing beyond the struct before it will look at the
+# request at all. Unlike the IR capture notification this opcode carries no
+# protocol gate - its handler ignores the stamp - so length is the whole test.
+_MIN_SIZE = _TX_IR_HEADER_SIZE + 2
+
 
 class FrameTxIR(FrameBase):
     '''Targeted IR transmit request.'''
 
     @cached_property
+    def acceptable(self) -> bool:
+        '''Whether a receiver would look at this request at all.
+
+        Every field below reads None when this is False, so a request holding
+        no timing cannot be mistaken for one asking to blast nothing.
+        '''
+        pl = self.payload
+        if (pl is None) or (len(pl) < _MIN_SIZE):
+            return False
+        # The count is a declaration, not a measurement: nothing on the wire
+        # ties it to the number of timings that arrived. A frame claiming more
+        # than it carries is refused rather than handed to a caller that would
+        # index the timings by it.
+        nb = self.payload_u16(idx=28)
+        return (nb is not None) and (nb <= ((len(pl) - _TX_IR_HEADER_SIZE) // 2))
+
+    @cached_property
+    def replayable(self) -> bool:
+        '''Whether the receiver would emit anything for this request.
+
+        A second threshold, above `acceptable`: one timing gets the request
+        read, more than one gets something blasted, because the first timing is
+        dropped.
+        '''
+        return self.acceptable and ((nb := self.nb_timings) is not None) and (nb > 1)
+
+    @cached_property
     def target_uid(self) -> MxrDeviceUid | None:
+        if not self.acceptable:
+            return None
         return self.payload_uuid(0)
 
     @cached_property
     def local_mode(self) -> int | None:
-        return self.payload_u8(16)
+        return self.payload_u8(16) if self.acceptable else None
 
     @cached_property
     def local_bay(self) -> int | None:
-        return self.payload_u8(17)
+        return self.payload_u8(17) if self.acceptable else None
 
     @cached_property
     def timestamp_ticks(self) -> int | None:
-        return self.payload_u32(20)
+        return self.payload_u32(20) if self.acceptable else None
 
     @cached_property
     def timer_resolution(self) -> int | None:
-        return self.payload_u16(24)
+        return self.payload_u16(24) if self.acceptable else None
 
     @cached_property
     def carrier_frequency(self) -> int | None:
-        return self.payload_u16(26)
+        return self.payload_u16(26) if self.acceptable else None
 
     @cached_property
     def nb_timings(self) -> int | None:
-        return self.payload_u16(28)
+        return self.payload_u16(28) if self.acceptable else None
 
     @cached_property
     def repeat_offset(self) -> int | None:
-        return self.payload_u16(30)
+        return self.payload_u16(30) if self.acceptable else None
 
     @cached_property
     def meta_status(self) -> int | None:
-        return self.payload_u8(32)
+        return self.payload_u8(32) if self.acceptable else None
 
     @cached_property
     def timings_raw(self) -> bytes | None:
+        '''Raw timings, in the same form a capture carries them.
+
+        The receiver drops the first timing and blasts from the second, so this
+        list is one longer than what is emitted. It is not a leading gap to be
+        stripped: the interval before the burst is taken from the timestamp
+        instead, and the first timing is discarded outright.
+
+        A capture's timings go here unchanged - both opcodes append at their
+        struct's sizeof and both skip the first element - so a caller replaying
+        one it received has nothing to adjust.
+        '''
+        if not self.acceptable:
+            return None
         return self.payload_idx(_TX_IR_HEADER_SIZE)
 
     def __str__(self) -> str:

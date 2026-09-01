@@ -131,5 +131,78 @@ Built by `proto/Factory.py::create_mxr_frame`, decoded by `proto/FrameHeader.py`
 When adding or editing a `Frame*` class, byte layouts **must match the MatrixOS firmware C
 structs** — verify against the firmware source rather than inferring from samples. Adding a
 new opcode requires both the `Frame*` class and a dispatch entry in
-`Factory.py::_mxr_frame_factory`. Note the proto/ and remote/ modules use tab indentation
+`Factory.py::_mxr_frame_factory`.
+
+Get sizes and offsets from a compiler, not by adding up field widths. Two things
+defeat reading:
+
+- `mxr_uid` is `uint32_t[4]`, so it aligns to 4 and shifts every field behind it
+  in a struct that is not `PACKED`.
+- an `ALIGN(8)` struct is as wide as its alignment rounds it to, and its tail
+  padding is part of the payload. Receivers test `len < sizeof(...)` before
+  reading a field, so a frame short by its padding is dropped without a reply —
+  which looks exactly like one that was accepted and ignored.
+
+Paste the struct into a throwaway `.c` file with `__builtin_offsetof` and run it.
+Note that `uint_fast16_t` is 4 bytes on the target, so model it as `uint32_t`
+rather than letting the host pick.
+
+Compile the struct's *own* component types, at the version you are decoding.
+Substituting today's equivalents makes the result a reconstruction rather than a
+measurement, and a reconstruction that happens to be right is indistinguishable
+from one that is wrong until something else disagrees with it. Types get renamed
+and moved between headers without their layout changing, so a name that no
+longer exists is not evidence that the layout did change.
+
+`PACKED` on a struct sets where its members are *placed*, not how wide they are.
+A nested aggregate keeps its own internal padding, so a packed struct holding an
+array of unpacked 12-byte records still spends 48 bytes on four of them — it
+just starts them at an unaligned offset. Assuming the nesting flattens gives a
+smaller size that looks plausible and decodes.
+
+A protocol version outlives layout revisions. The struct at the commit that
+introduced a version is not necessarily the struct any device sent under it, and
+two revisions can share one version — so date a layout from the releases that
+carried it, not from the commit that named it.
+
+That needs both halves of the release history, which only the firmware side has.
+The tag says what bytes a version sends; the distribution list says whether
+anyone runs it. Tags alone invent field versions nobody has, and this protocol
+has several — versions tagged and never uploaded are why two apparent
+compatibility problems here turned out not to exist.
+
+The protocol floor in `MXR_OPCODE_VERSIONS` is a delivery gate, not a layout
+selector. A payload can widen without its floor moving, and then the stamp says
+nothing about which layout arrived — dispatch on payload length instead.
+`tests/wirefix.py` covers the cases where the two come apart.
+
+## Writing down a deliberate divergence
+
+A note recording *what the firmware does* reads as *what this library should
+do*, and the gap between them is where every deliberate difference lives. So
+write the divergence beside the fact, not somewhere else: "firmware ignores this
+below 0x22" invites the next reader to delete the path that decodes it, where
+"firmware ignores it, we decode it anyway, because those units still transmit
+and nothing else answers them" does not.
+
+This library is older than the firmware currently shipping and serves versions
+that will never be upgraded, so it decodes more than any device does. That is
+the intended relationship, not drift to be tidied up.
+
+## Fixtures that cannot fail
+
+A fixture can be too simple to reach the code under test. It can also be too
+*helpful*: it reaches the code with the interesting input already removed, or it
+supplies for free the precondition the code is supposed to establish. The second
+kind is worse, because it occupies the slot where the real test would go and
+reports green forever.
+
+Ask what the setup does for the code, and whether a caller gets that for free.
+A frame stamped at a version no device sends, a payload length chosen so that
+one wrong branch still parses, a send exercised only against a device that had
+already been introduced to us — each passes, and none of them can fail.
+
+The check is mechanical: break the thing the test is for, one part at a time,
+and watch that test go red for the right reason. An assertion that fires on a
+sanity check placed above the subject has tested nothing. Note the proto/ and remote/ modules use tab indentation
 while `Interface.py` and `const.py` use spaces — match the file you are editing.

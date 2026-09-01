@@ -100,7 +100,7 @@ class UtpLinkErrorStatusImpl(UtpLinkErrorStatus):
         return errs
 
 class NetworkPortStatusImplPre22(NetworkPortStatus):
-    '''Network port status for protocol versions before 0x22.'''
+    '''Network port status for protocol versions 0x12 to 0x21.'''
     def __init__(self, data:bytes, protocol:int) -> None:
         self.data = data
         self.protocol = protocol
@@ -125,7 +125,8 @@ class NetworkPortStatusImplPre22(NetworkPortStatus):
 
     @cached_property
     def link_speed(self) -> UtpLinkSpeed:
-        return decode_enum(UtpLinkSpeed, self.data[3] & 0x7) or UtpLinkSpeed.UNKNOWN
+        sp = decode_enum(UtpLinkSpeed, self.data[3] & 0x7)
+        return sp if (sp is not None) else UtpLinkSpeed.UNKNOWN
 
     @cached_property
     def link_full_duplex(self) -> bool:
@@ -249,7 +250,8 @@ class NetworkPortStatusImpl(NetworkPortStatus):
 
     @cached_property
     def link_speed(self) -> UtpLinkSpeed:
-        return decode_enum(UtpLinkSpeed, self.data[38] & 0x7) or UtpLinkSpeed.UNKNOWN
+        sp = decode_enum(UtpLinkSpeed, self.data[38] & 0x7)
+        return sp if (sp is not None) else UtpLinkSpeed.UNKNOWN
 
     @cached_property
     def link_full_duplex(self) -> bool:
@@ -264,6 +266,30 @@ class NetworkPortStatusImpl(NetworkPortStatus):
     def __str__(self) -> str:
         return f"network status port {self.name} ip: {self.ip} mac: {self.mac_address} querier: {self.querier} errors: {self.errors} vct: {self.vct_status} speed: {self.link_speed} full duplex: {self.link_full_duplex} cable: {str(self.cable_status)}"
 
+class NetworkPortStatusImplPre12(NetworkPortStatusImplPre22):
+    """The report as it was before the addresses were added, 136 bytes.
+
+    Every field it carries sits where the version after it puts them, so the
+    two addresses are the whole difference. They are absent rather than zero:
+    those bytes are not part of this payload.
+
+    A stamp outlives layout revisions, and this one outlived a change from a
+    packed struct to an 8-aligned one. The packed form is 126 bytes with every
+    block lower, and it is not decoded here - it was the protocol revision that
+    change rejected, and no tagged build ever carried it.
+    """
+    @cached_property
+    def ip(self) -> str|None:
+        return None
+
+    @cached_property
+    def querier(self) -> str|None:
+        return None
+
+    @cached_property
+    def mac_address(self) -> str|None:
+        return None
+
 class FrameNetworkStatus(FrameBase):
     '''Network port status report with link speed, errors, and cable diagnostics.'''
     @property
@@ -271,6 +297,13 @@ class FrameNetworkStatus(FrameBase):
         '''Parsed network port status, version-dependent.'''
         if (self.payload is None):
             return None
+        # The stamp selects the layout, and it is the only thing that can: 0x12
+        # and 0x22 are both 144 bytes. Devices still send the older forms -
+        # a unit stamps from its own table - and current firmware ignores
+        # everything below 0x22, so a client reading them serves units no
+        # device on the mesh answers.
+        if (self.protocol < 0x12):
+            return NetworkPortStatusImplPre12(data=self.payload, protocol=self.protocol)
         if (self.protocol < 0x22):
             return NetworkPortStatusImplPre22(data=self.payload, protocol=self.protocol)
         return NetworkPortStatusImpl(data=self.payload, protocol=self.protocol)

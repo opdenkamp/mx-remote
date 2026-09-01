@@ -10,6 +10,10 @@ from .Constants import MXR_DEVICE_NAME_LEN
 from .FrameBase import FrameBase
 from ..Interface import DeviceRegistry, BayBase, DeviceBase, MxrDeviceUid
 
+# mxr_bay_name_data is ALIGN(8): uid at 0, u16 port at 16, 16-byte name at 18,
+# and six bytes of tail padding out to 40.
+_WIRE_SIZE = 40
+
 class FrameSetName(FrameBase):
     '''Change a bay name.'''
     @staticmethod
@@ -24,7 +28,12 @@ class FrameSetName(FrameBase):
         payload = target.device.remote_id.byte_value + \
             bytes([(target.port >> 0) & 0xFF, (target.port >> 8) & 0xFF]) + \
             name_bytes
-        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x22, protocol=0x11, payload=payload)
+        # 40, not the 34 bytes the fields occupy: mxr_bay_name_data is an
+        # 8-aligned struct, so it is 40 bytes wide and the receiver refuses
+        # anything shorter than its own sizeof before reading a field. A frame
+        # short by the six trailing pad bytes is dropped without a reply, which
+        # looks exactly like a rename that was accepted and ignored.
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x22, protocol=0x11, payload=payload, size=_WIRE_SIZE)
 
     @property
     def target_uid(self) -> MxrDeviceUid|None:

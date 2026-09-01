@@ -974,7 +974,9 @@ class MultiviewerImpl(Multiviewer):
 			return False
 		if (self.video_source(screen=screen) == source):
 			return True
-		frame = FrameV2IPMultiviewer.construct_set_video_source(mxr=self.device.registry, target=self.device, screen=screen, source=source)
+		# The layout in the last status report is what bounds the screen index.
+		frame = FrameV2IPMultiviewer.construct_set_video_source(mxr=self.device.registry, target=self.device,
+			screen=screen, source=source, screens=self.view_mode.screens)
 		if frame is not None:
 			if self.device.registry.transmit(frame.frame) != len(frame.frame):
 				return False

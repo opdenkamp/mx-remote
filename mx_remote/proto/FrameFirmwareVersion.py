@@ -16,7 +16,8 @@ class FrameFirmwareVersion(FrameBase):
     @cached_property
     def fw_type(self) -> FirmwareType:
         '''Firmware component type.'''
-        return decode_enum(FirmwareType, self.payload_u8(0)) or FirmwareType.UNKNOWN
+        fw = decode_enum(FirmwareType, self.payload_u8(0))
+        return fw if (fw is not None) else FirmwareType.UNKNOWN
 
     @cached_property
     def fw_version(self) -> str|None:

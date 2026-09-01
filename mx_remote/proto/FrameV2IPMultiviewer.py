@@ -13,6 +13,9 @@ from .FrameBase import FrameBase
 from .Constants import decode_enum
 from ..Interface import MxrDeviceUid, DeviceBase, DeviceRegistry
 from .Multiviewer import *
+import logging
+
+_LOGGER = logging.getLogger(__name__)
 
 class V2IPMultiviewerConfig(FrameBase, MultiviewerConfig):
     '''Parsed multiviewer configuration status with view mode, PIP, audio, and source settings.'''
@@ -87,8 +90,9 @@ class V2IPMultiviewerConfig(FrameBase, MultiviewerConfig):
     @property
     @override
     def hdcp_mode(self) -> MultiviewerHDCPMode:
+        '''Content protection, including OFF - a mode, not the absence of one.'''
         pl = self.payload_u8(idx=173)
-        if (pl is None) or (pl > 2):
+        if (pl is None) or (pl > int(MultiviewerHDCPMode.OFF)):
             return MultiviewerHDCPMode.UNKNOWN
         return MultiviewerHDCPMode(pl)
 
@@ -127,10 +131,7 @@ class V2IPMultiviewerConfig(FrameBase, MultiviewerConfig):
     @property
     @override
     def audio_source(self) -> MultiviewerSource:
-        pl = self.payload_u8(idx=179)
-        if (pl is None) or (pl > 3):
-            return MultiviewerSource.UNKNOWN
-        return MultiviewerSource(pl + 1)
+        return MultiviewerSource.from_wire(self.payload_u8(idx=179))
 
     @property
     @override
@@ -150,18 +151,20 @@ class V2IPMultiviewerConfig(FrameBase, MultiviewerConfig):
 
     @override
     def video_source(self, screen:int) -> MultiviewerSource:
-        pl = self.payload_u8(idx=182 + screen)
-        if (pl is None) or (pl > 4):
+        '''Source shown on one screen.
+
+        The report numbers its sources from zero, the same as the audio source
+        beside it. Reading them one-based loses source 1 to UNKNOWN and reports
+        every other one as its predecessor.
+        '''
+        if (screen < 0) or (screen >= MULTIVIEWER_MAX_SCREENS):
             return MultiviewerSource.UNKNOWN
-        return MultiviewerSource(pl)
+        return MultiviewerSource.from_wire(self.payload_u8(idx=182 + screen))
 
     @property
     @override
     def remote_control(self) -> MultiviewerSource:
-        pl = self.payload_u8(idx=186)
-        if (pl is None) or (pl > 3):
-            return MultiviewerSource.UNKNOWN
-        return MultiviewerSource(pl + 1)
+        return MultiviewerSource.from_wire(self.payload_u8(idx=186))
 
     def __eq__(self, value: object) -> bool:
         if not isinstance(value, V2IPMultiviewerConfig):
@@ -177,6 +180,19 @@ class V2IPMultiviewerConfig(FrameBase, MultiviewerConfig):
 #   17..24   padding
 #   24..     sub-command parameters
 _PARAMS_OFFSET = 24
+
+# The module's own version is not on the mesh at all. MXR_OP_FIRMWARE_VERSION
+# reports the MCU, the FPGA and the Linux image, never a loaded module, so a
+# client speaking only this protocol cannot tell which multiviewer build it is
+# talking to - and several of its behaviours changed between builds. Where a
+# behaviour depends on the module version, say so rather than assuming either
+# side of it. The version is readable over HTTP from the device, which is a
+# different transport and a different decision.
+
+# One past the last byte a status report is read at, which is the remote-control
+# source. The module refuses a report shorter than its settings struct; this is
+# the same refusal expressed in terms of what we read.
+_STATUS_MIN_SIZE = 187
 
 class FrameV2IPMultiviewer(FrameBase):
     '''V2IP multiviewer command and status frame.'''
@@ -196,7 +212,10 @@ class FrameV2IPMultiviewer(FrameBase):
         pl = self.payload_u8(idx=16)
         if (pl is None) or (pl > 15):
             return MultiviewerOpcode.UNKNOWN
-        return decode_enum(MultiviewerOpcode, pl) or MultiviewerOpcode.UNKNOWN
+        # `or` would be wrong here: STATUS is zero, so the only sub-opcode
+        # that carries device state is the one an `or` discards.
+        op = decode_enum(MultiviewerOpcode, pl)
+        return op if (op is not None) else MultiviewerOpcode.UNKNOWN
 
     @cached_property
     def target_uid(self) -> MxrDeviceUid|None:
@@ -226,7 +245,15 @@ class FrameV2IPMultiviewer(FrameBase):
         acting on the request as well would report the change twice, and would
         report it even when the multiviewer refused.
         '''
+        # A short report is refused rather than decoded. Every field below reads
+        # with a fallback, so a truncated one decodes as "the device reported
+        # nothing" and replaces a good cached status with that. Length is the
+        # only thing separating it from a device genuinely reporting nothing,
+        # and the module itself refuses the same frame.
         if (self.opcode != MultiviewerOpcode.STATUS) or (self.payload is None):
+            return
+        if (len(self.payload) < _STATUS_MIN_SIZE):
+            _LOGGER.debug("multiviewer status is %d bytes, need %d", len(self.payload), _STATUS_MIN_SIZE)
             return
         settings = V2IPMultiviewerConfig(header=self.header)
         if ((dev := self.remote_device) is not None):
@@ -241,18 +268,37 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.VIEW_MODE.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(view_mode.value)
-        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, payload=payload)
 
     @staticmethod
-    def construct_set_video_source(mxr:DeviceRegistry, target:DeviceBase, screen:int, source:MultiviewerSource) -> FrameBase|None:
-        '''Build a frame to set the video source for a screen.'''
+    def construct_set_video_source(mxr:DeviceRegistry, target:DeviceBase, screen:int, source:MultiviewerSource,
+                                   screens:int=MULTIVIEWER_MAX_SCREENS) -> FrameBase|None:
+        '''Build a frame to set the video source for a screen.
+
+        Both bytes are numbered from zero on the wire. Sending them one-based
+        addresses the screen after the one meant and the source before it, and
+        leaves the last source unreachable.
+
+        Pass screens when the layout in the last status report shows fewer than
+        MULTIVIEWER_MAX_SCREENS: an index the layout does not have is refused
+        here, because a multiviewer indexes its window array by whatever it is
+        sent and reports nothing when the index is past the end. A caller that
+        does not know the layout passes nothing and gets the array width, which
+        still bounds the index to a window that exists in every layout.
+        '''
+        wire_source = source.wire_value
+        if (wire_source is None):
+            return None
+        limit = screens if (0 < screens < MULTIVIEWER_MAX_SCREENS) else MULTIVIEWER_MAX_SCREENS
+        if (screen < 0) or (screen >= limit):
+            return None
         payload = bytearray()
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.VIDEO_SOURCE.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(screen)
-        payload.append(source.value)
-        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        payload.append(wire_source)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, payload=payload)
 
     @staticmethod
     def construct_set_audio_source(mxr:DeviceRegistry, target:DeviceBase, source:MultiviewerSource) -> FrameBase|None:
@@ -261,8 +307,10 @@ class FrameV2IPMultiviewer(FrameBase):
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.AUDIO_SOURCE.value)
         payload += bytes([0 for _ in range(7)])
-        payload.append(source.value - 1)
-        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        if ((wire_source := source.wire_value) is None):
+            return None
+        payload.append(wire_source)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, payload=payload)
 
     @staticmethod
     def construct_set_audio_volume(mxr:DeviceRegistry, target:DeviceBase, volume:int, muted:bool) -> FrameBase|None:
@@ -271,9 +319,14 @@ class FrameV2IPMultiviewer(FrameBase):
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.AUDIO_VOLUME.value)
         payload += bytes([0 for _ in range(7)])
+        # A volume the module refuses is dropped without a reply, and on some
+        # module builds the mute byte beside it is applied anyway - so an
+        # out-of-range volume changes the mute and nothing else. Refuse it here.
+        if not (0 <= volume <= 100):
+            return None
         payload.append(volume)
         payload.append(1 if muted else 0)
-        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, payload=payload)
 
     @staticmethod
     def construct_set_edid_template(mxr:DeviceRegistry, target:DeviceBase, edid:MultiviewerEDIDTemplate) -> FrameBase|None:
@@ -283,7 +336,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.EDID_TEMPLATE.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(edid.value)
-        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, payload=payload)
 
     @staticmethod
     def construct_set_remote_control(mxr:DeviceRegistry, target:DeviceBase, source:MultiviewerSource) -> FrameBase|None:
@@ -292,8 +345,10 @@ class FrameV2IPMultiviewer(FrameBase):
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.ROUTE_RC.value)
         payload += bytes([0 for _ in range(7)])
-        payload.append(source.value - 1)
-        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        if ((wire_source := source.wire_value) is None):
+            return None
+        payload.append(wire_source)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, payload=payload)
 
     @staticmethod
     def construct_set_pip_size(mxr:DeviceRegistry, target:DeviceBase, size:MultiviewerPipSize) -> FrameBase|None:
@@ -303,7 +358,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.PIP_SIZE.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(size.value)
-        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, payload=payload)
 
     @staticmethod
     def construct_set_pip_position(mxr:DeviceRegistry, target:DeviceBase, position:MultiviewerPipPosition) -> FrameBase|None:
@@ -313,7 +368,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.PIP_POSITION.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(position.value)
-        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, payload=payload)
 
     @staticmethod
     def construct_set_screen_aspect(mxr:DeviceRegistry, target:DeviceBase, aspect:MultiviewerAspectRatio) -> FrameBase|None:
@@ -323,7 +378,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.ASPECT.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(aspect.value)
-        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, payload=payload)
 
     @staticmethod
     def construct_set_auto_switch(mxr:DeviceRegistry, target:DeviceBase, enable:bool) -> FrameBase|None:
@@ -333,7 +388,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.AUTO_SWITCH.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(1 if enable else 0)
-        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, payload=payload)
 
     @staticmethod
     def construct_set_output_mode(mxr:DeviceRegistry, target:DeviceBase, mode:MultiviewerOutputMode) -> FrameBase|None:
@@ -343,7 +398,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.OUTPUT_MODE.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(mode.value)
-        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, payload=payload)
 
     @staticmethod
     def construct_set_output_itc_mode(mxr:DeviceRegistry, target:DeviceBase, mode:MultiviewerITCMode) -> FrameBase|None:
@@ -353,17 +408,23 @@ class FrameV2IPMultiviewer(FrameBase):
         payload.append(MultiviewerOpcode.OUTPUT_ITC_MODE.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(mode.value)
-        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, payload=payload)
 
     @staticmethod
     def construct_set_hdcp_mode(mxr:DeviceRegistry, target:DeviceBase, mode:MultiviewerHDCPMode) -> FrameBase|None:
-        '''Build a frame to set the HDCP mode.'''
+        '''Build a frame to set the HDCP mode.
+
+        UNKNOWN is not a mode a multiviewer can be put into - it is what this
+        client calls a value it did not recognise - so it is refused here.
+        '''
+        if (mode == MultiviewerHDCPMode.UNKNOWN):
+            return None
         payload = bytearray()
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.HDCP_MODE.value)
         payload += bytes([0 for _ in range(7)])
         payload.append(mode.value)
-        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, payload=payload)
 
     @staticmethod
     def construct_set_connected_source(mxr:DeviceRegistry, target:DeviceBase, input:int, source:MxrDeviceUid|None) -> FrameBase|None:
@@ -378,7 +439,7 @@ class FrameV2IPMultiviewer(FrameBase):
             payload += source.byte_value
         payload.append(input)
         payload += bytes([0 for _ in range(7)])
-        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, payload=payload)
 
     @staticmethod
     def construct_auto_route(mxr:DeviceRegistry, target:DeviceBase) -> FrameBase|None:
@@ -387,7 +448,7 @@ class FrameV2IPMultiviewer(FrameBase):
         payload += target.remote_id.byte_value
         payload.append(MultiviewerOpcode.AUTO_ROUTE.value)
         payload += bytes([0 for _ in range(7)])
-        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, protocol=0x20, payload=payload)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x42, payload=payload)
 
     @staticmethod
     def construct_status(
@@ -416,7 +477,7 @@ class FrameV2IPMultiviewer(FrameBase):
             fw_scaler=fw_scaler,
             config=config,
         )
-        return FrameBase.construct_base(mxr=mxr, opcode=0x42, protocol=0x20, payload=bytes(payload))
+        return FrameBase.construct_base(mxr=mxr, opcode=0x42, payload=bytes(payload))
 
     def __str__(self) -> str:
         if (self.opcode == MultiviewerOpcode.STATUS):

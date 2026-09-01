@@ -13,7 +13,7 @@ from typing import TypeVar
 MXR_PROTOCOL_VERSION = 0x28
 """Highest mx_remote protocol version this library understands.
 
-Mirrors MXR_PROTOCOL_VERSION in libP8/mx_remote/inc/mx_remote_proto.h. Bump
+Mirrors the firmware's own protocol version. Bump
 when adding RX support for an opcode revision; transmitters stamp the
 per-opcode minimum from MXR_OPCODE_VERSIONS so older peers still parse the
 frame."""
@@ -94,8 +94,8 @@ MXR_OPCODE_VERSIONS: dict[int, int] = {
     0x48: 0x23,  # RC_IR_TX
     0x49: 0x28,  # V2IP_VIDEOWALL (owned by the v2ipwall module; no MatrixOS handler)
 }
-"""Per-opcode minimum compatible protocol version, mirroring the third arg of
-MXR_OPCODE() in libP8/mx_remote/inc/mx_opcodes.h. Transmitters stamp the
+"""Per-opcode minimum compatible protocol version, mirroring the firmware's
+own opcode table. Transmitters stamp the
 header.protocol with the value for the opcode being sent so that older
 receivers correctly reject frames they cannot decode.
 

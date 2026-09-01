@@ -222,21 +222,27 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 
 	# Opcodes reaching here are ones current firmware does not emit:
 	#
-	#   0x16        PDU_STATE               dead; no current MatrixOS build
-	#                                       supports it
+	#   0x16        PDU_STATE               transmitted only by the power brick
+	#                                       build, which is not produced
 	#   0x17..0x1E  the CEC range           never implemented
-	#   0x25        SYS_BAY_V2IP_DETAILS    retired 2024-09, replaced by 0x3C
+	#   0x25        RESERVED_0              was SYS_BAY_V2IP_DETAILS until
+	#                                       2024-09, replaced by 0x3C
 	#   0x2D        VIDEO_CLOCK_RATE_OLD    superseded by clock_rate in 0x31
 	#   0x2E, 0x2F  V2IP_BLIST_*            behind V2IP_SUPPORT_BLACKLIST, which
 	#                                       no project defines
-	#   0x33        RESERVED_1              was MX_OP_NB, the table's end sentinel
+	#   0x33        RESERVED_1              reserved without ever being assigned
 	#
-	# Never reuse 0x16 or 0x25. Both carried a real payload - 0x16 a PDU's state,
-	# 0x25 v2ip_device_sources, with video, audio and anc at 0, 8 and 16,
-	# audio_return at 24 and source_clock at 32 - so a unit old enough to decode
-	# them reads anything reissued under those numbers as the old payload rather
-	# than ignoring it. 0x33 is reserved for a different reason: it was only ever
-	# the table's end marker, so no unit ever read a payload from it.
+	# Never reuse 0x16, 0x25 or 0x33. The first two carried a real payload, so a
+	# unit old enough to decode them reads anything reissued under those numbers
+	# as the old payload rather than ignoring it. 0x33 has held a reserved slot
+	# for as long as the table has had one, and reserving it is what keeps every
+	# number after it stable.
+	#
+	# An opcode number is also a delivery bound: a device drops any opcode at or
+	# above its own build's opcode count, before dispatch and without a reply.
+	# Nothing here tracks that count. A unit too old for an opcode also caps its
+	# protocol below that opcode's floor, so DeviceBase.supports_opcode refuses
+	# the send first.
 	#
 	# Add decoders here rather than removing them: a unit on older firmware still
 	# emits superseded opcodes, which is what 0x06, 0x36 and 0x47 are for. An
