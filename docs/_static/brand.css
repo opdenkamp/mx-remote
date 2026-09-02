@@ -1,0 +1,34 @@
+/* Shapes Furo to the house style. The palette itself is set in conf.py, where
+   Furo wants it; this file holds what a variable cannot express. */
+
+/* The mark is portrait, so a width bound keeps it from filling the sidebar. */
+.sidebar-logo {
+  max-width: 4.5rem;
+  margin: 0 auto 0.5rem;
+}
+
+.sidebar-brand-text {
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+h1, h2, h3, h4 {
+  letter-spacing: -0.025em;
+}
+
+/* Furo underlines links only on hover; the guides lean on them heavily enough
+   that a reader should see where they are while scanning. */
+article a.reference.internal,
+article a.reference.external {
+  text-decoration-color: var(--color-brand-content);
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+}
+
+/* Signatures are the spine of the API reference: give them the brand rule so
+   they read as landmarks rather than as another grey block. */
+dl.py > dt {
+  border-left: 3px solid var(--color-brand-content);
+  padding-left: 0.6rem;
+}

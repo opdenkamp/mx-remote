@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="20 0 120 190" width="120" height="190" role="img" aria-label="Op den Kamp IT Solutions">
+  <circle cx="70" cy="50" r="30" fill="none" stroke="#0588c4" stroke-width="26"/>
+  <g fill="#117a8b">
+    <rect x="27" y="117" width="16" height="66"/>
+    <rect x="57" y="117" width="76" height="16"/>
+    <rect x="87" y="117" width="16" height="66"/>
+  </g>
+</svg>
