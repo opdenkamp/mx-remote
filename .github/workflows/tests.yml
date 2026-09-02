@@ -1,0 +1,46 @@
+name: Tests
+
+# Runs the protocol suites on every version the package claims to support, so
+# a name that only exists on the newest one cannot pass review unnoticed:
+# `requires-python` in pyproject.toml is a promise nothing else checks.
+# Keep the matrix floor equal to that declared minimum.
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      # One version failing should still report the others.
+      fail-fast: false
+      matrix:
+        python-version: [ '3.11', '3.12', '3.13' ]
+
+    name: Python ${{ matrix.python-version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        # Installs the declared dependencies and exercises the stub-generating
+        # build hook, both of which can break per version on their own.
+        run: pip install .
+
+      - name: Run the protocol suites
+        run: python tests/run.py

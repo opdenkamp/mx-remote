@@ -73,6 +73,13 @@ A client's uid is persisted at `~/.mxr-uid`, one file per account, and
 account are a single identity to the mesh and each discards everything the other
 sends, so a second one needs its own `uid_path`.
 
+### Python versions
+`requires-python` is 3.11, and `.github/workflows/tests.yml` runs the suites on
+3.11, 3.12 and 3.13 so that floor is checked rather than assumed. A name that
+only exists on a newer version goes through `mx_remote/compat.py`, the one place
+that tests `sys.version_info`, and its fallback needs a dependency marked
+`python_version < '<the version that added it>'` in `pyproject.toml`.
+
 ### Versioning
 Version is single-sourced in `mx_remote/const.py` (`VERSION = '...'`); `pyproject.toml`
 reads it via regex, so bump it there only. Release commits follow the convention
