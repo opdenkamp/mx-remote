@@ -6,7 +6,8 @@
 ######################################################
 '''Video-over-IP stream source configuration and parsing.'''
 
-from typing import Any, override
+from typing import Any
+from ..compat import override
 from ..Uid import MxrDeviceUid
 from ..Interface import V2IPStreamSource, V2IPStreamSources, V2IPAudioFormat
 import socket

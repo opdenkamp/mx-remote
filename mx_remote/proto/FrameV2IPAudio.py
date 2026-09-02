@@ -10,7 +10,7 @@ from enum import IntEnum
 from functools import cached_property
 import logging
 import struct
-from typing import override
+from ..compat import override
 
 from .FrameHeader import FrameHeader
 from .FrameBase import FrameBase

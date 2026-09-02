@@ -9,7 +9,8 @@
 from functools import cached_property
 import logging
 import asyncio
-from typing import Any, override
+from typing import Any
+from ..compat import override
 import aiofiles
 import aiohttp
 import os

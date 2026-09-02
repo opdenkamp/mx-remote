@@ -6,7 +6,7 @@
 ######################################################
 '''Protocol frame for device system status notifications.'''
 
-from typing import override
+from ..compat import override
 from .FrameBase import FrameBase
 
 class FrameSystemStatus(FrameBase):

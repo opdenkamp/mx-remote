@@ -11,6 +11,8 @@ dependencies = [
   "aiohttp>=3.10.5",
   "aiofiles>=24.1.0",
   "netifaces>=0.11.0",
+  # typing.override, from 3.12 on; mx_remote.compat picks the right one.
+  "typing_extensions>=4.4; python_version < '3.12'",
 ]
 requires-python = ">=3.11"
 authors = [

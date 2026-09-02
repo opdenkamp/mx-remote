@@ -8,7 +8,7 @@
 
 from enum import Enum
 from functools import cached_property
-from typing import override
+from ..compat import override
 from .FrameBase import FrameBase
 from .Constants import decode_enum
 from ..Interface import MxrDeviceUid, DeviceBase, DeviceRegistry

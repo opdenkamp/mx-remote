@@ -7,7 +7,7 @@
 '''Protocol frame for V2IP bay-to-device UID mapping.'''
 
 from functools import cached_property
-from typing import override
+from ..compat import override
 from ..Interface import MxrDeviceUid
 from .FrameBase import FrameBase
 

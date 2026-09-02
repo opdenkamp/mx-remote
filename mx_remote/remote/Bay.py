@@ -9,7 +9,8 @@
 from __future__ import annotations
 import logging
 import socket
-from typing import Any, Callable, override
+from typing import Any, Callable
+from ..compat import override
 from ..proto.Constants import MxrSignalType, BayStatusMask, BayFeaturesMask, EdidProfile, RCType, RCAction, RCKey, decode_enum
 from ..proto.BayConfig import BayConfig
 from ..proto.Data import VolumeMuteStatus

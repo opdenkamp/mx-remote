@@ -49,7 +49,8 @@ from ..proto.Multiviewer import (
 	MultiviewerHDCPMode,
 )
 from ..Uid import MxrDeviceUid
-from typing import Any, Callable, override
+from typing import Any, Callable
+from ..compat import override
 from datetime import datetime
 import logging
 import time
