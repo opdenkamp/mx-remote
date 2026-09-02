@@ -9,6 +9,8 @@ streaming, multiviewer control, and more.
 If you are looking to integrate Pulse-Eight **neo**, **OneIP**, or **ProAmp8** devices into
 your own software or home-automation system, this is the library for it.
 
+**Documentation:** [opdenkamp.github.io/mx-remote](https://opdenkamp.github.io/mx-remote/)
+
 ## What is MX Remote?
 
 MX Remote is the network protocol these Pulse-Eight devices use to discover and control one
@@ -65,10 +67,10 @@ asyncio.run(main())
 
 ## Documentation
 
-The documentation is published at
-**[opdenkamp.github.io/mx-remote](https://opdenkamp.github.io/mx-remote/)**, where the
-guides below are joined by an API reference generated from the docstrings. The same
-guides are readable here in [docs/](docs/README.md).
+The guides below are published at
+**[opdenkamp.github.io/mx-remote](https://opdenkamp.github.io/mx-remote/)** alongside an
+API reference generated from the docstrings, and are readable here in
+[docs/](docs/README.md).
 
 | Page | Covers |
 | --- | --- |

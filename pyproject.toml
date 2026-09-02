@@ -51,7 +51,7 @@ pattern = "VERSION = '(?P<version>[^']+)'"
 
 [project.urls]
 Homepage = "https://github.com/opdenkamp/mx-remote/"
-Documentation = "https://github.com/opdenkamp/mx-remote/"
+Documentation = "https://opdenkamp.github.io/mx-remote/"
 Repository = "https://github.com/opdenkamp/mx-remote.git"
 "Bug Tracker" = "https://github.com/opdenkamp/mx-remote/issues"
 
