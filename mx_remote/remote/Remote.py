@@ -409,8 +409,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         if (sent > 0):
             # Only a hello that went out buys the next interval. A send that wrote
             # nothing leaves _hello_due where it was, so the next probe tick tries
-            # again, which is what firmware does - it resets hello_timeout only in
-            # the success branch of mxr_transmit. Arming here on failure instead
+            # again, which is what firmware does - it re-arms its own timer only
+            # after a send succeeds. Arming here on failure instead
             # would silence a client for a full interval every time a write failed,
             # and on an interface that never writes, permanently.
             self._arm_hello()

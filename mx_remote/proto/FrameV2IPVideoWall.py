@@ -23,9 +23,8 @@ from ..Uid import MxrDeviceUid
 #   28..29   u8  op              vw_mesh_op
 #   29..32   padding, zeroed
 #
-# Defined by the v2ipwall module (github.com/opdenkamp/mod-v2ip-videowall,
-# src/v2ip_videowall.h), which MatrixOS does not carry - it reserves only the
-# opcode number. The receiver accepts 32 bytes or more and ignores the rest.
+# Defined by the v2ipwall module, which MatrixOS does not carry - it reserves
+# only the opcode number. The receiver accepts 32 bytes or more and ignores the rest.
 #
 # A wrong offset here is quiet at `op` and loud everywhere else. A shifted
 # window is visibly in the wrong place; a misread op is still a valid op, so a

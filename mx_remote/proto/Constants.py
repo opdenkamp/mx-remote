@@ -113,7 +113,7 @@ MXR_DEVICE_NAME_LEN = 16
 
 The field carries no terminator of its own when the value fills it, so read
 exactly this many bytes and only then cut at a NUL - scanning on runs into the
-neighbouring struct member (firmware V2IP#349)."""
+neighbouring struct member."""
 
 MXR_FW_VERSION_LEN = 128
 """Width of the fixed-size firmware version name field (mxr_fw_version.name)."""
@@ -341,8 +341,8 @@ class BayStatusMask(IntFlag):
 		return "none"
 
 
-# Bay status bit-field accessors (not flag bits). Mirrors MXR_BAY_STATUS_RC_TYPE
-# and MXR_BAY_STATUS_HDCP_STATUS in mx_remote_proto.h.
+# Bay status bit-field accessors (not flag bits), mirroring the firmware's
+# MXR_BAY_STATUS_RC_TYPE and MXR_BAY_STATUS_HDCP_STATUS.
 BAY_STATUS_RC_TYPE_SHIFT = 16
 BAY_STATUS_RC_TYPE_MASK = (0xF << BAY_STATUS_RC_TYPE_SHIFT)
 BAY_STATUS_HDCP_STATUS_SHIFT = 22
@@ -369,7 +369,7 @@ _MXR_SIG_BPP_VALUES: dict[int, int] = {
 def mxr_sig_bpp_get(bpp: int) -> int:
 	'''Map an mxr_signal_type bpp *index* to the bit depth it stands for.
 
-	Mirrors mxr_sig_bpp_get() in mxr_bay.c. The field is an index, not a value:
+	The field is an index, not a value:
 	1=8, 2=10, 3=12, 4=16, 0=unknown and 5 the unset sentinel - reading it as a
 	bit depth is a common trap. Returns 0 for both unknown and unset.'''
 	return _MXR_SIG_BPP_VALUES.get(bpp, MXR_SIG_BPP_UNKNOWN)
@@ -441,8 +441,7 @@ class MxrSignalType:
 class VideoWallOperation(IntEnum):
 	'''What a V2IP_VIDEOWALL frame asks the addressed sink to do with its window.
 
-	Mirrors enum vw_mesh_op in the v2ipwall module
-	(github.com/opdenkamp/mod-v2ip-videowall, src/v2ip_videowall.h).'''
+	Mirrors vw_mesh_op in the v2ipwall module, which owns this opcode.'''
 	PREVIEW = 0
 	'''Show the window without storing it, so it dies on reboot or revert.'''
 

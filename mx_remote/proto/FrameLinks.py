@@ -15,7 +15,7 @@ class FrameLinks(FrameBase):
     '''Configured links for the device that sent this frame.
 
     Paged the same way as the bay config: a device with many bays splits its
-    links across several frames sized against mxr_max_payload_len(), so the
+    links across several frames sized against its own maximum payload, so the
     record count varies per frame and the receiver merges records into its
     cache rather than replacing it.'''
     @cached_property

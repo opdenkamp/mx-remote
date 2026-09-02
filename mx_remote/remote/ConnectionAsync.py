@@ -22,8 +22,8 @@ _LOGGER = logging.getLogger(__name__)
 #
 # Delivery is currently to a group: a device has two endpoints, the multicast
 # group and the interface broadcast address, and nothing resolves a per-device
-# address. Do not build on that. mxr_transmit() threads a device through its
-# endpoint selection so directed sends can be added later.
+# address. Do not build on that: the firmware threads a device through its own
+# endpoint selection, so directed sends can be added later.
 #
 # Two things keep this correct if they are:
 #

@@ -17,7 +17,7 @@ class FrameBayConfig(FrameBase):
     '''Bay configuration for the bays a remote device advertises.
 
     A device pages its bays across several of these frames: firmware sizes each
-    page against mxr_max_payload_len() and shrinks it further on OOM, so the
+    page against its own maximum payload length and shrinks it further on OOM, so the
     record count varies from frame to frame and no single frame holds the whole
     list. Each page is a valid stand-alone frame with the same per-record
     format - the receiver merges records into its cache and must never treat

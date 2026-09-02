@@ -154,9 +154,9 @@ class V2IPRxStats:
         # ONE byte at 40, with three of padding after it: it is a plain enum and
         # Cortex-M builds with -fshort-enums.
         #
-        # This sender does zero that padding - mxr_bsp_v2ip_tx_v2ip_stats()
-        # writes through pointers into an already-zeroed pbuf rather than
-        # copying a stack struct, so unlike 0x45 there is no stack content here.
+        # This sender does zero that padding: it writes through pointers into
+        # an already-zeroed buffer rather than copying a stack struct, so unlike
+        # 0x45 there is no stack content here.
         # Keep the read one byte anyway: that is a property of one sender's
         # implementation, not of the protocol, and the 0x45 sender demonstrates
         # what the other approach puts on the wire. A width that is only correct

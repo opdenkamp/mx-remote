@@ -1,6 +1,5 @@
-# Real 0x45 frames off a live mesh, captured by the MatrixOS session. Every unit
-# on that mesh was CEC-configured, so _v2ip_rc_fill_proto_status() writes
-# status_name[0] = 0 and returns - the string must be empty in all three. That is
+# Real 0x45 frames captured off a live mesh. Every unit on that mesh was
+# CEC-configured, so the sender leaves status_name empty and returns - the string must be empty in all three. That is
 # what makes them a usable fixture: the expected value is known from firmware
 # behaviour rather than from our own decoder.
 import os, sys, time, logging

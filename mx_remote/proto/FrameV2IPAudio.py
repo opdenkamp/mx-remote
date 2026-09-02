@@ -646,7 +646,7 @@ def _pack_audio_entry_route_in(ep_id: int, supported: int, active: int) -> bytes
 def pack_audio_features(dev: AudioDeviceData) -> bytes:
     '''Pack the mxr_v2ip_audio_dev FEATURES body.
 
-    Entry order matches aud_dev_serialise in mod-v2ip-audio/src/device.c:
+    Entry order matches the audio module's own serialiser:
     optional device control address first, then for each endpoint the
     ENDPOINT entry, optional ADDRESS, optional PARENT, optional ROUTE_IN.
     '''

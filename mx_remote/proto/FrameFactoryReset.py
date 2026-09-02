@@ -7,7 +7,7 @@
 '''Protocol frame for SYS_FACTORY_RESET (opcode 0x3A).
 
 A mesh controller or management app broadcasts this to factory-reset peers.
-Payload variants accepted by the firmware (see _mxr_check_mng_payload):
+Payload variants the firmware accepts:
     empty           controller-only target (just the sender)
     1 byte = 0xFF   broadcast to all peers (controller/management only)
     16 bytes        single target uid

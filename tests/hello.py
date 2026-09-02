@@ -53,8 +53,8 @@ print('silent network, 3.5s: %d hellos' % len(hellos))
 assert len(hellos) >= 2, 'a client must keep announcing with no traffic arriving'
 
 # ---- arriving datagrams must not announce, asserted by behaviour rather than by
-# name. Checking that "tx_hello" is absent from on_datagram_received passes the
-# moment the method is renamed, while the receipt-driven path is back in place.
+# name: checking that "tx_hello" is absent from on_datagram_received passes as
+# soon as the announce is called under another name.
 def announces_on_receipt():
     mx = mx_remote.Remote(open_connection=False)
     mx._uid = bytes(range(0x20, 0x30))

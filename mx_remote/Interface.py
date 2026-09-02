@@ -1394,7 +1394,7 @@ def v2ip_stream_valid(stream:'V2IPStreamSource|None') -> bool:
     """
     True when a stream source carries an address a frame actually meant to send.
 
-    Mirrors mxr_v2ip_stream_valid(): a multicast ip and a non-zero port. A
+    Mirrors the firmware's own test: a multicast ip and a non-zero port. A
     controller write that offers no addresses leaves the block zeroed, which
     fails both tests.
     """
@@ -1409,7 +1409,7 @@ def v2ip_av_source_valid(video:'V2IPStreamSource|None', anc:'V2IPStreamSource|No
     """
     True when an av source block carries addresses a frame meant to send.
 
-    Mirrors mxr_v2ip_av_source_valid(): video and anc must both be valid, audio
+    Mirrors the firmware's own test: video and anc must both be valid, audio
     is optional and is carried along with them.
     """
     return v2ip_stream_valid(video) and v2ip_stream_valid(anc)
