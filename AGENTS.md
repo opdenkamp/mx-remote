@@ -83,6 +83,21 @@ reads it via regex, so bump it there only. Release commits follow the convention
 force-includes them in the wheel (they are gitignored). `mx_remote` ships as typed
 (`py.typed`). If stubgen produces nothing the build fails by design.
 
+### Documentation
+`docs/` is both the GitHub-readable guide set and the Sphinx source for
+[the published site](https://opdenkamp.github.io/mx-remote/), which
+`.github/workflows/docs.yml` rebuilds on every push to master. Build it the way
+the workflow does:
+
+```sh
+pip install . -r docs/requirements.txt
+sphinx-build -b html -W --keep-going docs site
+```
+
+Autodoc emits reStructuredText, so a directive belongs in an ```` ```{eval-rst} ````
+block. Outside one it renders as its own source and the build still reports
+success — the workflow greps the output for that.
+
 ## Architecture
 
 Three layers, decoupled by abstract base classes:

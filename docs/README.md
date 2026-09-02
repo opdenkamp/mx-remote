@@ -1,6 +1,6 @@
 # Documentation
 
-The API reference for `mx_remote`. Start at the [project README](../README.md) for installation and a quick start.
+The API reference for `mx_remote`. Start at the [project README](https://github.com/opdenkamp/mx-remote#readme) for installation and a quick start.
 
 | Page | Covers |
 | --- | --- |

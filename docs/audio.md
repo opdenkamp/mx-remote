@@ -33,4 +33,4 @@ await bay.tx_action(RCAction.ACTION_VOLUME_DOWN)
 
 ---
 
-[Documentation index](README.md) | [Project README](../README.md)
+[Documentation index](README.md) | [Project README](https://github.com/opdenkamp/mx-remote#readme)

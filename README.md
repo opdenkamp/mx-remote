@@ -65,18 +65,21 @@ asyncio.run(main())
 
 ## Documentation
 
-The full API reference lives in [docs/](docs/README.md).
+The documentation is published at
+**[opdenkamp.github.io/mx-remote](https://opdenkamp.github.io/mx-remote/)**, where the
+guides below are joined by an API reference generated from the docstrings. The same
+guides are readable here in [docs/](docs/README.md).
 
 | Page | Covers |
 | --- | --- |
-| [Configuration](configuration.md) | Opening a connection and keeping it in step with the mesh. |
-| [Devices and bays](devices-and-bays.md) | Naming, hiding, EDID and the device registry. |
-| [Routing](routing.md) | Selecting video and audio sources for an output. |
-| [Callbacks](callbacks.md) | Reacting to state changes rather than polling for them. |
-| [Audio](audio.md) | Volume, mute and remote-control passthrough. |
-| [OneIP and V2IP](oneip.md) | Streaming endpoints, stream sources and statistics. |
-| [Multiviewer](multiviewer.md) | Layout, sources and output configuration. |
-| [Diagnostics](diagnostics.md) | Network status, the mxr console app and capture replay. |
+| [Configuration](docs/configuration.md) | Opening a connection and keeping it in step with the mesh. |
+| [Devices and bays](docs/devices-and-bays.md) | Naming, hiding, EDID and the device registry. |
+| [Routing](docs/routing.md) | Selecting video and audio sources for an output. |
+| [Callbacks](docs/callbacks.md) | Reacting to state changes rather than polling for them. |
+| [Audio](docs/audio.md) | Volume, mute and remote-control passthrough. |
+| [OneIP and V2IP](docs/oneip.md) | Streaming endpoints, stream sources and statistics. |
+| [Multiviewer](docs/multiviewer.md) | Layout, sources and output configuration. |
+| [Diagnostics](docs/diagnostics.md) | Network status, the mxr console app and capture replay. |
 
 ## Other languages
 

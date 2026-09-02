@@ -44,4 +44,4 @@ await bay.select_edid_profile(EdidProfile.LOWEST_COMMON_DENOMINATOR)
 
 ---
 
-[Documentation index](README.md) | [Project README](../README.md)
+[Documentation index](README.md) | [Project README](https://github.com/opdenkamp/mx-remote#readme)

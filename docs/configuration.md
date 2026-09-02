@@ -130,4 +130,4 @@ await mx.update_config(
 
 ---
 
-[Documentation index](README.md) | [Project README](../README.md)
+[Documentation index](README.md) | [Project README](https://github.com/opdenkamp/mx-remote#readme)
