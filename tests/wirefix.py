@@ -585,4 +585,32 @@ assert len(f.payload) == 4, 'padding past the declared length reached the decode
 assert f.bay is not None and f.bay.port == 1, f.bay
 print('clamp       : trailing padding does not reach the payload')
 
+# ------------------------------------------------ factory reset target forms
+# 0x3A carries three forms and nothing but the length separates them. Each
+# length is a minimum, tested longest first: an update that appends a field
+# leaves the uid at 0 where it is, so an exact 16 would read a grown request as
+# naming no target - which is the sender resetting itself, a different request.
+TARGET = bytes(range(0x50, 0x60))
+def reset(pl):
+    return process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x3A, pl), ADDR)
+
+f = reset(b'')
+assert not f.is_broadcast_all and f.target_uid is None, 'an empty payload names no target'
+f = reset(bytes([0xFF]))
+assert f.is_broadcast_all and f.target_uid is None
+f = reset(TARGET)
+assert not f.is_broadcast_all and f.target_uid == MxrDeviceUid(TARGET), f.target_uid
+f = reset(TARGET + bytes(8))
+assert f.target_uid == MxrDeviceUid(TARGET), 'a grown request still names its target'
+assert not f.is_broadcast_all
+f = reset(bytes([0xFF]) + bytes(3))
+assert f.is_broadcast_all, 'a broadcast that grew a field is still a broadcast'
+assert f.target_uid is None, 'four bytes are short of a uid'
+# the uid form is tested first, so a uid whose first byte is 0xFF is not a broadcast
+FF_FIRST = bytes([0xFF]) + bytes(range(0x51, 0x60))
+f = reset(FF_FIRST)
+assert f.target_uid == MxrDeviceUid(FF_FIRST), f.target_uid
+assert not f.is_broadcast_all, 'a uid starting 0xFF was swallowed by the broadcast form'
+print('reset forms : lengths read as minimums, longest first')
+
 print('ALL OK')
