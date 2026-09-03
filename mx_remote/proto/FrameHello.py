@@ -19,7 +19,20 @@ class FrameHello(FrameBase):
     '''Hello frame, sent by devices to advertise themselves on the network.'''
     @staticmethod
     def construct(mxr:DeviceRegistry) -> FrameBase|None:
-        '''Build a hello frame for transmission to advertise this client.'''
+        '''Build a hello frame for transmission to advertise this client.
+
+        Never append a field to this payload. Receivers read a payload length as
+        a minimum everywhere except the hello, which they check exactly, so a
+        hello that grew is discarded rather than read up to the part they know.
+        That costs more than the field: this is how the client stops being
+        unknown, and a receiver that drops it never registers the sender and
+        ignores everything that follows as coming from a stranger.
+
+        It holds however many receivers are later fixed to accept a longer
+        hello, because the ones already deployed are the ones deciding whether
+        this client is seen at all. Nothing on the receive side needs the rule -
+        FrameHello reads its fields by offset with no length gate, so a peer may
+        grow its own.'''
         payload = [ (MXR_PROTOCOL_VERSION & 0xFF), ((MXR_PROTOCOL_VERSION >> 8) & 0xFF) ]
         payload = append_payload_str(payload=payload, value=mxr.name, sz=16)
         payload = append_payload_str(payload=payload, value="P9SN00000000", sz=16)
