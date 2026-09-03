@@ -10,13 +10,18 @@
 from enum import IntEnum, IntFlag
 from typing import TypeVar
 
-MXR_PROTOCOL_VERSION = 0x28
+MXR_PROTOCOL_VERSION = 0x29
 """Highest mx_remote protocol version this library understands.
 
 Mirrors the firmware's own protocol version. Bump
 when adding RX support for an opcode revision; transmitters stamp the
 per-opcode minimum from MXR_OPCODE_VERSIONS so older peers still parse the
-frame."""
+frame.
+
+This is also a receive ceiling: Remote.process_frame drops any frame stamped
+above it, unparsed. So it has to reach the stamp of every layout revision
+decoded below, or that revision goes silent on the mesh rather than noisy -
+0x29 is what a MatrixOS 10.12.46 unit stamps on V2IP_STATS."""
 
 MXR_OPCODE_VERSIONS: dict[int, int] = {
     0x00: 0x01,  # SYS_HELLO

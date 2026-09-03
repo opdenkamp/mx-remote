@@ -7,7 +7,7 @@ from mx_remote.proto.FrameV2IPDeviceConfiguration import V2IPDeviceOptions
 from mx_remote.Interface import DeviceV2IPDetails, V2IPDscpConfig
 
 print('version', mx_remote.const.VERSION, 'proto', hex(MXR_PROTOCOL_VERSION))
-assert MXR_PROTOCOL_VERSION == 0x28
+assert MXR_PROTOCOL_VERSION == 0x29
 assert MXR_OPCODE_VERSIONS[0x49] == 0x28 and MXR_OPCODE_VERSIONS[0x3C] == 0x11
 assert DeviceFeature.VIDEO_WALL == (1 << 24)
 

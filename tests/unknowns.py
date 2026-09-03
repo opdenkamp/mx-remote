@@ -54,5 +54,30 @@ from mx_remote.proto.Multiviewer import MultiviewerOpcode
 assert f.opcode == MultiviewerOpcode.UNKNOWN
 print('0x42   : unknown sub-opcode ->', f.opcode)
 
+# 0x3F a decoder reason and colour format from a newer firmware. Neither enum
+# has an UNKNOWN member, because 0 is a verdict in both - OK and RGB - so
+# folding an unrecognised value onto a member is a confident wrong answer where
+# None is an honest one.
+from mx_remote.proto.V2IPStats import (V2IPDecoderReason, V2IPColorFormat,
+    V2IP_DECODER_PROTOCOL)
+assert decode_enum(V2IPDecoderReason, 200) is None
+assert decode_enum(V2IPColorFormat, 0x0102) is None
+assert decode_enum(V2IPDecoderReason, 4) == V2IPDecoderReason.FORMAT_MISMATCH
+assert decode_enum(V2IPColorFormat, 255) == V2IPColorFormat.UNNAMED
+
+detail = bytes([1, 200, 0, 0]) + struct.pack('<HHHH', 1920, 1080, 0x0102, 3) \
+       + struct.pack('<II', 0, 0) + bytes(4)
+# stamped as the firmware stamps a report carrying this block; below that the
+# tail is some other growth and no reading is read out of it
+raw = bytearray(create_mxr_frame(UID, 0x3F, bytes(128) + detail))
+raw[2] = V2IP_DECODER_PROTOCOL
+f = process_mxr_frame(mx, time.time(), bytes(raw), ADDR)
+f.process()
+reading = f.decoder.reading
+assert reading.reason is None and reading.reason_value == 200, reading.reason
+assert reading.format is None and reading.format_value == 0x0102, reading.format
+assert reading.width == 1920, 'an unnamed value must not cost the rest of the block'
+print('0x3F   : unknown reason/format ->', reading.reason, '/', reading.format)
+
 print()
 print('ALL OK')
