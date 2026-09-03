@@ -16,13 +16,25 @@ assert len(payload) == 56, len(payload)
 f = process_mxr_frame(mx, time.time(), create_mxr_frame(SINK, 0x43, payload), ADDR)
 sel = f._frame.select_input
 print('0x43 :', sel)
-assert sel.target_uid == MxrDeviceUid(SINK), 'target must be the sink, the frame header target'
+assert sel.target_uid == MxrDeviceUid(SINK), 'target must be the sink, read from the body'
 assert sel.source_uid == MxrDeviceUid(SRC),  'source must be the device supplying audio'
 assert sel.target_id == 7, sel.target_id
 assert sel.source_id == 9, sel.source_id
-# the uid at 4 (header target) and the uid at 20 must be the same device
-assert f.payload_uuid(4) == sel.target_uid, 'header target and target_uid disagree'
-print('0x43 : orientation matches the builder and the header target')
+assert f.payload_uuid(4) == sel.target_uid, 'a single-hop command puts the sink in both'
+print('0x43 : orientation matches the builder')
+
+# --- 0x43 the route comes off the body, not off the command header
+# The uid at 4 names whichever device is addressed for the hop that carried the
+# frame. On a longer route that is not the sink, and the fixture above cannot
+# say so because it puts the same uid in both. This one separates them: reading
+# the sink from 4 would name HOP.
+HOP = bytes(range(0x70, 0x80))
+payload = struct.pack('<H', 3) + bytes(2) + HOP + SINK + SRC + struct.pack('<HH', 7, 9)
+sel = process_mxr_frame(mx, time.time(), create_mxr_frame(SINK, 0x43, payload), ADDR)._frame.select_input
+assert sel.target_uid == MxrDeviceUid(SINK), 'the sink comes from the body at 20, not from 4'
+assert sel.source_uid == MxrDeviceUid(SRC), sel.source_uid
+assert sel.target_uid != MxrDeviceUid(HOP), 'the hop addressee was read as the sink'
+print('0x43 : a multi-hop route is read end to end from the body')
 
 # --- 0x48 mxr_tx_ir_data: timings start at sizeof = 36, not 34
 meta = struct.pack('<HHHHB', 2, 38000, 4, 0, 0x01) + bytes(1)      # 10 bytes

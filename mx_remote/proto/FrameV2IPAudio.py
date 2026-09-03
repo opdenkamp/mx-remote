@@ -434,15 +434,21 @@ class AudioConfig:
 # SELECT_INPUT payload, as construct() below writes it:
 #   0..2     u16 sub-opcode
 #   2..4     padding
-#   4..20    target uid    (the sink; _audio_cmd_header always puts the target here)
-#   20..36   target uid    again
+#   4..20    device uid    (the hop this frame is addressed to)
+#   20..36   target uid    (the sink, whose endpoint changes source)
 #   36..52   source uid
 #   52..54   u16 target endpoint id
 #   54..56   u16 source endpoint id
 #
-# The uid at 4 and the uid at 20 are the same device: the sink is the frame's
-# target. That is what settles the orientation - reading 20 as the source would
-# make one uid both the target and the source of a single frame.
+# Read the route from the body alone. The uid at 4 names whichever device is
+# addressed for the hop that carried this frame, which is the sink only when the
+# route has one hop - so taking the sink from there mislabels every longer
+# route, even though a single-hop command puts the same uid in both.
+#
+# The firmware struct calls the body's first uid the source and its second the
+# target, the reverse of what they hold, so the field names cannot settle the
+# orientation either. Nothing on the wire tells a swapped reading from a correct
+# one; the test vector is what holds it.
 
 class AudioChangeSourceImpl(AudioChangeSource):
     '''Parsed audio source change request with source and target identifiers.'''
@@ -456,7 +462,7 @@ class AudioChangeSourceImpl(AudioChangeSource):
 
     @property
     def target_uid(self) -> MxrDeviceUid|None:
-        '''Device whose endpoint is changing source - the frame's target.'''
+        '''Device whose endpoint is changing source, read from the body.'''
         return self.data.payload_uuid(idx=20)
 
     @property
