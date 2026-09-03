@@ -41,6 +41,7 @@ SUITES = [
     'protogate',    # a frame is not sent to a device that cannot receive it
     'hello',        # a client announces itself on a clock, not on receipt
     'wirefix',      # layouts and sentinels no protocol version signals
+    'lengths',      # no payload length raises out of a handler
 ]
 
 def main() -> int:
