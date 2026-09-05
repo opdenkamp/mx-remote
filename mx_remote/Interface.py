@@ -1627,6 +1627,28 @@ class DeviceV2IPSink:
     when present, each stream may still carry an all-zero ip when that stream is
     inactive. ``audio_fmt`` carries the resolved sink audio format (zero fields
     fall back to firmware defaults of 48kHz / 2 channels).
+
+    **An address that reads as unset means "no route, or the sink could not work
+    one out", never "definitely not subscribed".** This block is the one part of
+    a device configuration with no validity marker of its own, so a sender with
+    nothing to say sends zeros and every receiver stores them. A sender leaves it
+    empty whenever its own stream configuration does not resolve, which covers
+    more than having no route: a selected source whose record has not arrived
+    yet, the state after a restart at either end, missing audio bay
+    configuration, or a stream failing its validity check. ``audio_fmt`` has a
+    second gate of its own, so it can be absent while the addresses are not.
+
+    Expect that reading rather than guarding against it. Any scaling change makes
+    the device rebuild and rebroadcast this block, and a write aimed at a remote
+    bay sends it zeroed however it was requested, so an empty reading turns up
+    most often during exactly the no-signal troubleshooting that prompted the
+    change. A device's periodic report puts a real route back within a minute of
+    it having one, so a reader that needs certainty should wait one out rather
+    than treat the first empty reading as an answer.
+
+    An empty reading is cached rather than dropped on purpose. A sink that has
+    genuinely lost its route sends the same zeros, and so does every report after
+    it, so refusing them would hold a route that nothing later could clear.
     """
     def __init__(self, addresses:V2IPStreamSources|None, audio_fmt:V2IPAudioFormat|None) -> None:
         self._addresses = addresses

@@ -91,6 +91,28 @@ reading from a repeat, and note it cannot see a `TX_BRIDGE_UNLOCKED` flag
 carried forward across a format change: a value held over is a stored reading
 like any other.
 
+## What an empty sink block means
+
+`device.v2ip_sink` addresses that read as unset mean "no route, or the sink
+could not work one out", never "definitely not subscribed". This is the one part
+of a device configuration with no validity marker of its own, so a sender with
+nothing to say sends zeros and every receiver stores them. A sender leaves it
+empty whenever its own stream configuration does not resolve, which covers more
+than having no route: a selected source whose record has not arrived yet, the
+state after a restart at either end, missing audio bay configuration, or a
+stream failing its validity check.
+
+Expect that reading rather than guarding against it. Any scaling change rebuilds
+and rebroadcasts the block, and a write aimed at a remote bay sends it zeroed
+however it was requested, so an empty reading turns up most often during exactly
+the no-signal troubleshooting that prompted the change. A device's periodic
+report puts a real route back within a minute of it having one, so wait one out
+rather than treat the first empty reading as an answer.
+
+The library caches an empty reading rather than dropping it. A sink that has
+genuinely lost its route sends the same zeros, and so does every report after
+it, so refusing them would hold a route that nothing later could clear.
+
 ## Mesh and firmware
 
 ```python
