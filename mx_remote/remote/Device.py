@@ -21,6 +21,9 @@ from ..Interface import (
 	AudioEndpoints,
 	AudioChangeSource,
 	AudioLinks,
+	DeviceV2IPScalingSettings,
+	V2IPOutputMode,
+	V2IPScalingSettings,
 )
 from ..proto.BayConfig import BayConfig
 from ..proto.FrameHello import FrameHello
@@ -57,7 +60,9 @@ import time
 
 from ..Interface import DeviceBase, BayBase, DeviceRegistry
 from ..proto.FrameBase import FrameBase
-from ..proto.Constants import DeviceFeature
+from ..proto.Constants import (DeviceFeature, MxrSignalType, MXR_SCALING_FLAG_AUTO_SCALING,
+                              MXR_SCALING_FLAG_MODE_VALID, MXR_SCALING_FLAG_OPTIONS_VALID)
+from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -323,6 +328,11 @@ class Device(DeviceBase):
 	def is_v2ip(self) -> bool:
 		return (self.features is not None) \
 			and (DeviceFeature.V2IP_SINK in self.features or DeviceFeature.V2IP_SOURCE in self.features)
+
+	@property
+	@override
+	def is_v2ip_sink(self) -> bool:
+		return (self.features is not None) and (DeviceFeature.V2IP_SINK in self.features)
 
 	@property
 	def has_local_source(self) -> bool:
@@ -796,6 +806,126 @@ class Device(DeviceBase):
 				return False
 			return True
 		return False
+
+	async def set_v2ip_auto_scaling(self, enabled:bool) -> bool:
+		'''Turn this sink's automatic scaling on or off.
+
+		Automatic scaling and a configured output mode are separate reasons for
+		a sink to scale, and this moves only the first: a sink with a mode
+		configured goes on scaling to it with automatic scaling off. Turning
+		both off is this call plus clear_v2ip_output_mode().
+
+		Nothing acknowledges the frame. Read v2ip_details.scaling back to learn
+		what the sink did, and trust that block only where config_initialised is
+		set.
+		'''
+		written = MXR_SCALING_FLAG_OPTIONS_VALID
+		if enabled:
+			written |= MXR_SCALING_FLAG_AUTO_SCALING
+		def applied(cached:DeviceV2IPScalingSettings) -> V2IPScalingSettings:
+			flags = (cached.flags & ~MXR_SCALING_FLAG_AUTO_SCALING) | written
+			return V2IPScalingSettings(mode=cached.mode, refresh=cached.refresh, flags=flags)
+		return self._send_v2ip_scaling(mode=MxrSignalType(bytes(2)), refresh=0,
+		                               written=written, applied=applied)
+
+	async def set_v2ip_output_mode(self, mode:V2IPOutputMode) -> bool:
+		'''Set the output format this sink scales to.
+
+		The mode is checked here and nothing is sent if it fails, because every
+		value a sink refuses it refuses in silence. Passing that check is not a
+		guarantee: the sink also weighs the format against the display's EDID and
+		against what its own output stage can produce.
+
+		**Turn automatic scaling off first if it is on.** A sink refuses a mode
+		whose format the attached display does not list while it is scaling
+		automatically, and refuses it silently. Setting the mode and then turning
+		automatic scaling back on is the order that survives, because the mode is
+		checked while automatic scaling is still off.
+
+		Configuring a mode is itself a reason to scale, so a sink with one scales
+		whether or not automatic scaling is on.
+		'''
+		if ((reason := mode.validate()) is not None):
+			_LOGGER.warning(f"not setting the output mode of {self}: {reason}")
+			return False
+		signal = mode.signal_type
+		def applied(cached:DeviceV2IPScalingSettings) -> V2IPScalingSettings:
+			return V2IPScalingSettings(mode=signal.value, refresh=mode.refresh,
+			                           flags=(cached.flags | MXR_SCALING_FLAG_MODE_VALID))
+		return self._send_v2ip_scaling(mode=signal, refresh=mode.refresh,
+		                               written=MXR_SCALING_FLAG_MODE_VALID, applied=applied)
+
+	async def clear_v2ip_output_mode(self) -> bool:
+		'''Clear the output format this sink is configured to scale to.
+
+		The sink stops scaling for that reason and keeps its automatic scaling
+		setting, so a sink scaling for both reasons goes on scaling until
+		set_v2ip_auto_scaling() turns the other one off.
+
+		This is the only way to express "no mode configured", and it is what a
+		caller restoring a sink that had none has to send: a sink reports no mode
+		by leaving MXR_SCALING_FLAG_MODE_VALID clear, which is not something a
+		write can say.
+		'''
+		def applied(cached:DeviceV2IPScalingSettings) -> V2IPScalingSettings:
+			return V2IPScalingSettings(mode=0, refresh=0,
+			                           flags=(cached.flags & ~MXR_SCALING_FLAG_MODE_VALID))
+		# The valid bit with a zero mode is the clear. The receiver takes that
+		# branch ahead of validating anything, and ignores the depth, colour
+		# space and refresh rate beside it.
+		return self._send_v2ip_scaling(mode=MxrSignalType(bytes(2)), refresh=0,
+		                               written=MXR_SCALING_FLAG_MODE_VALID, applied=applied)
+
+	def _send_v2ip_scaling(self, mode:MxrSignalType, refresh:int, written:int,
+	                       applied:Callable[[DeviceV2IPScalingSettings],V2IPScalingSettings]) -> bool:
+		'''The one send behind the scaling commands.
+
+		written is the flag byte that goes out; applied says what the sink will
+		report afterwards. The two differ where the wire spells a write
+		differently from the state it produces - clearing a mode is sent as the
+		valid bit over a zero mode and read back as the valid bit clear - so
+		predicting the cached value from the frame alone would leave a caller
+		reading a state no device ever broadcasts.
+		'''
+		if not self.is_v2ip_sink:
+			_LOGGER.warning(f"not setting scaling on {self}: scaling settings need a V2IP sink")
+			return False
+		frame = FrameV2IPDeviceConfiguration.construct_scaling(
+			mxr=self.registry, target=self, target_uid=self.remote_id,
+			mode=mode, refresh=refresh, flags=written)
+		if (frame is None):
+			return False
+		if self.registry.transmit(frame.frame) != len(frame.frame):
+			return False
+		self._apply_v2ip_scaling(applied(self._cached_scaling))
+		return True
+
+	@property
+	def _cached_scaling(self) -> DeviceV2IPScalingSettings:
+		'''The scaling block as last reported or written, all-zero before either.'''
+		if ((details := self._v2ip_details) is None) or ((scaling := details.scaling) is None):
+			return V2IPScalingSettings(mode=0, refresh=0, flags=0)
+		return scaling
+
+	def _apply_v2ip_scaling(self, scaling:V2IPScalingSettings) -> None:
+		'''Replace the cached scaling block with the state a write leaves on the device.
+
+		Separate from the v2ip_details setter because that merges a received
+		frame on, and merging cannot express a cleared mode: a write clears one
+		by sending the valid bit over a zero mode, while a device with no mode
+		configured reports the valid bit clear. Only the second is a state a
+		device broadcasts, so it is the one to cache.
+		'''
+		previous = self._v2ip_details
+		self._v2ip_details = DeviceV2IPDetails(
+			video=(previous.video if previous is not None else None),
+			audio=(previous.audio if previous is not None else None),
+			anc=(previous.anc if previous is not None else None),
+			arc=(previous.arc if previous is not None else None),
+			tx_rate=(previous.tx_rate if previous is not None else None),
+			scaling=scaling,
+			dscp=(previous.dscp if previous is not None else None))
+		self.call_callbacks()
 
 	def __repr__(self) -> str:
 		return self.serial

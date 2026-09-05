@@ -42,6 +42,7 @@ SUITES = [
     'hello',        # a client announces itself on a clock, not on receipt
     'wirefix',      # layouts and sentinels no protocol version signals
     'lengths',      # no payload length raises out of a handler
+    'v2ipscaling',  # writing a sink's scaling block, and the cache after it
 ]
 
 def main() -> int:

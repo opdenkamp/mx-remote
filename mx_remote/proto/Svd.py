@@ -72,6 +72,10 @@ def _load_svd_csv() -> dict[int, Svd]:
 
 _SVD_DATA: dict[int, Svd] = _load_svd_csv()
 
+def lookup_svd(id:int) -> Svd|None:
+    '''The video descriptor an svd number names, or None when none does.'''
+    return _SVD_DATA.get(id)
+
 class SvdMap:
     '''Lookup map of SVD entries keyed by ID.'''
 

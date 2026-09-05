@@ -28,7 +28,7 @@ from .proto.Multiviewer import (
 	MultiviewerITCMode,
 	MultiviewerHDCPMode,
 )
-from .proto.Svd import SvdMap
+from .proto.Svd import SvdMap, lookup_svd
 from typing import Any, Callable
 from .Uid import MxrDeviceUid, MxrBayUid
 
@@ -1390,6 +1390,28 @@ class DeviceV2IPScalingSettings(ABC):
         is the only option bit with a defined meaning.
         '''
 
+    @property
+    def configured_mode(self) -> 'tuple[MxrSignalType, int]|None':
+        '''The mode and refresh rate this sink scales to, None when it has none.
+
+        The two are distinct on the wire: a sink with no mode configured leaves
+        MXR_SCALING_FLAG_MODE_VALID clear, and never sets it over a zero mode.
+
+        Trust it only from a peer whose hello carries CONFIG_INITIALISED
+        (DeviceBase.config_initialised). Firmware without that builds this block
+        over uninitialised stack, where the valid bit itself is noise.
+        '''
+        if ((self.flags & MXR_SCALING_FLAG_MODE_VALID) == 0):
+            return None
+        return (MxrSignalType(self.mode.to_bytes(2, 'little')), self.refresh)
+
+    @property
+    def auto_scaling(self) -> bool|None:
+        '''Whether the output scales automatically, None when the sender did not say.'''
+        if ((self.flags & MXR_SCALING_FLAG_OPTIONS_VALID) == 0):
+            return None
+        return ((self.flags & MXR_SCALING_FLAG_AUTO_SCALING) != 0)
+
 def v2ip_stream_valid(stream:'V2IPStreamSource|None') -> bool:
     """
     True when a stream source carries an address a frame actually meant to send.
@@ -1417,6 +1439,72 @@ def v2ip_av_source_valid(video:'V2IPStreamSource|None', anc:'V2IPStreamSource|No
 def v2ip_stream_cleared(stream:'V2IPStreamSource|None') -> bool:
     """True when a stream source is zeroed, which is how "no source" is spelled."""
     return (stream is not None) and (stream.ip == '0.0.0.0') and (stream.port == 0)
+
+class V2IPOutputMode:
+    """
+    The output format to scale a V2IP sink to.
+
+    Built from a depth and a colour space rather than from a packed
+    mxr_signal_type word, so the word a caller sends cannot carry the unset bpp
+    index a sink reports while it has no mode configured.
+    """
+    def __init__(self, svd:int, depth:int, colour:VideoColourSpace, refresh:int) -> None:
+        self.svd = svd
+        """CTA-861 short video descriptor to output."""
+        self.depth = depth
+        """Bit depth: 8, 10 or 12."""
+        self.colour = colour
+        """Colour space to output."""
+        self.refresh = refresh
+        """Refresh rate in Hz, V2IP_SCALING_REFRESH_MIN to V2IP_SCALING_REFRESH_MAX."""
+
+    def validate(self) -> str|None:
+        """
+        Why a sink will refuse this mode, or None when it will take it.
+
+        Checked here because a sink checks it and then says nothing: every value
+        this rejects is one the receiver decodes cleanly and drops, leaving a
+        caller with a send that succeeded and a setting that did not move.
+
+        Passing is not a guarantee. A sink also weighs the format against the
+        EDID of the display attached to it and against what its own clock and
+        output stage can produce, and none of that is knowable from here.
+        """
+        if (self.svd == 0):
+            return "svd 0 is how a mode is cleared, not a mode to set"
+        if (lookup_svd(self.svd) is None):
+            return "the svd names no known video descriptor"
+        if (mxr_sig_bpp_index(self.depth) is None):
+            return "a V2IP output stage takes 8, 10 or 12 bits per pixel"
+        if (self.colour not in (VideoColourSpace.RGB, VideoColourSpace.YUV444,
+                                VideoColourSpace.YUV422, VideoColourSpace.YUV420)):
+            return "the colour space names none of RGB, 4:4:4, 4:2:2 or 4:2:0"
+        if not (V2IP_SCALING_REFRESH_MIN <= self.refresh <= V2IP_SCALING_REFRESH_MAX):
+            return f"the refresh rate is outside {V2IP_SCALING_REFRESH_MIN}..{V2IP_SCALING_REFRESH_MAX}Hz"
+        return None
+
+    @property
+    def signal_type(self) -> MxrSignalType:
+        """
+        The packed signal type a scaling write carries for this mode.
+
+        Call validate() first: an unvalidated depth packs as the index for
+        "no depth", which a receiver drops.
+        """
+        return MxrSignalType.from_parts(svd=self.svd, colour=int(self.colour),
+                                        bpp_index=(mxr_sig_bpp_index(self.depth) or 0))
+
+    def __eq__(self, other:Any) -> bool:
+        if not isinstance(other, V2IPOutputMode):
+            return NotImplemented
+        return (self.svd == other.svd) and (self.depth == other.depth) \
+            and (self.colour == other.colour) and (self.refresh == other.refresh)
+
+    def __str__(self) -> str:
+        return f"svd {self.svd}, colour {self.colour}, {self.depth}bpp, {self.refresh}Hz"
+
+    def __repr__(self) -> str:
+        return str(self)
 
 class V2IPScalingSettings(DeviceV2IPScalingSettings):
     """Plain holder for a merged mxr_scaling_config."""
@@ -2002,6 +2090,11 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
+    def is_v2ip_sink(self) -> bool:
+        '''True if this device decodes a V2IP stream, which is what carries the scaling settings'''
+
+    @property
+    @abstractmethod
     def is_mesh_member(self) -> bool:
         '''True if this device is a member of a V2IP mesh'''
 
@@ -2127,6 +2220,18 @@ class DeviceBase(ABC):
     @abstractmethod
     async def read_stats(self, enable:bool) -> bool:
         '''start or stop dumping stats'''
+
+    @abstractmethod
+    async def set_v2ip_auto_scaling(self, enabled:bool) -> bool:
+        '''turn this sink's automatic scaling on or off'''
+
+    @abstractmethod
+    async def set_v2ip_output_mode(self, mode:'V2IPOutputMode') -> bool:
+        '''set the output format this sink scales to'''
+
+    @abstractmethod
+    async def clear_v2ip_output_mode(self) -> bool:
+        '''clear the output format this sink is configured to scale to'''
 
     @abstractmethod
     async def get_log(self) -> str|None:

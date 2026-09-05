@@ -91,6 +91,49 @@ reading from a repeat, and note it cannot see a `TX_BRIDGE_UNLOCKED` flag
 carried forward across a format change: a value held over is a stored reading
 like any other.
 
+## Sink output scaling
+
+A sink scales for two independent reasons: automatic scaling, and a configured
+output mode. Each is written behind its own validity bit, so moving one leaves
+the other where it is.
+
+```python
+# what the sink reports. Trust this block only from a device whose hello carries
+# CONFIG_INITIALISED - firmware without it builds the block over uninitialised
+# stack, where the valid bit itself is noise.
+scaling = device.v2ip_details.scaling
+print(scaling.auto_scaling)        # None when the sender did not say
+print(scaling.configured_mode)     # (signal type, refresh), None when it has none
+
+# a mode is given as a depth and a colour space, never as a packed signal-type
+# word read back off the wire: a sink with no mode reports the word carrying the
+# index for "no depth", which a receiver decodes to zero and drops in silence.
+mode = mx_remote.V2IPOutputMode(svd=16, depth=12,
+                                colour=mx_remote.VideoColourSpace.YUV422, refresh=60)
+
+await device.set_v2ip_auto_scaling(False)   # turn it off before setting a mode
+await device.set_v2ip_output_mode(mode)
+await device.set_v2ip_auto_scaling(True)    # back on, if that is what you want
+
+await device.clear_v2ip_output_mode()       # the only way to say "no mode"
+```
+
+**Set the mode with automatic scaling off.** A sink scaling automatically
+refuses a mode whose format the attached display does not list, and refuses it
+in silence. Setting the mode first and turning automatic scaling back on
+afterwards is the order that survives, because the mode is checked while
+automatic scaling is still off.
+
+Nothing acknowledges any of these. `set_v2ip_output_mode` returns False for a
+mode no sink would take, but a True only says the frame went out: the sink
+weighs the format against the display's EDID and against what its own output
+stage can produce, and refuses silently either way. Read `v2ip_details.scaling`
+back on the device's next report to learn what it did.
+
+A scaling change makes the device rebuild and rebroadcast its sink block, so
+expect `device.v2ip_sink` to read empty for a moment afterwards - see
+[what an empty sink block means](#what-an-empty-sink-block-means).
+
 ## What an empty sink block means
 
 `device.v2ip_sink` addresses that read as unset mean "no route, or the sink

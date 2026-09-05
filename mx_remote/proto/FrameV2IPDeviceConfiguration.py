@@ -7,12 +7,15 @@
 '''Protocol frame for V2IP device configuration (stream addresses, scaling, options).'''
 
 from functools import cached_property
+from typing import Any
 from .FrameBase import FrameBase
 from .FrameHeader import FrameHeader
 from ..Uid import MxrDeviceUid
-from ..Interface import DeviceV2IPDetails, DeviceV2IPScalingSettings, DeviceV2IPSink, V2IPAudioFormat, V2IPDscpConfig, V2IPStreamSource
+from ..Interface import (DeviceRegistry, DeviceV2IPDetails, DeviceV2IPScalingSettings,
+                         DeviceV2IPSink, V2IPAudioFormat, V2IPDscpConfig, V2IPStreamSource)
 from .Constants import (MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
-                        MXR_SCALING_FLAG_OPTIONS_VALID, v2ip_dscp_value, v2ip_rate_valid)
+                        MXR_SCALING_FLAG_OPTIONS_VALID, MxrSignalType, v2ip_dscp_value,
+                        v2ip_rate_valid)
 from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 
 # v2ip_device_config_update wire layout (little-endian, ALIGN(8) per inner struct):
@@ -120,6 +123,15 @@ class V2IPScalingSettingsImpl(DeviceV2IPScalingSettings):
     def flags(self) -> int:
         return self._flags
 
+_OPCODE = 0x3C
+
+_RATE_UNSET = 0xFF
+'''The tx_rate a frame that is not setting a rate carries.
+
+The field's valid range ends at V2IP_SOURCE_RATE_MAX, and a receiver drops an
+out-of-range rate and keeps the one it had. A plain zero would ask for a rate of
+zero.'''
+
 class FrameV2IPDeviceConfiguration(FrameBase):
     '''V2IP device configuration with stream addresses and scaling settings.'''
     def __init__(self, header:FrameHeader, timestamp:float):
@@ -132,6 +144,57 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         self.options = V2IPDeviceOptions(self.payload[40:44])
         self.arc = V2IPStreamSourceImpl("arc", self.payload[48:54])
         self.scaling = V2IPScalingSettingsImpl(self.payload[56:61])
+
+    @staticmethod
+    def construct_scaling(mxr:DeviceRegistry, target:Any, target_uid:MxrDeviceUid,
+                          mode:MxrSignalType, refresh:int, flags:int) -> FrameBase|None:
+        '''Build the 0x3C write that moves one sink's scaling block and nothing else.
+
+        88 bytes, which is both the receiver's minimum and the whole of
+        v2ip_device_config_update: uid 0..16, source 16..40, the options word at
+        40, audio return 48..56, scaling 56..64, tiling 64..88.
+
+        **88 rather than the 120-byte form.** The longer form appends a sink
+        block, and a receiver copies that block into its record for the target
+        with no validity test of its own - unlike the source, rate, marking,
+        scaling and tiling fields, which each sit behind one. This frame is a
+        broadcast, so every device on the network runs that copy, not just the
+        addressee: sending the long form with the block zeroed would replace the
+        whole network's idea of where the target's sink is subscribed, as a side
+        effect of setting one scaling flag. At 88 the block is absent rather
+        than zeroed and nothing reads it.
+
+        **The source block at 16..40 must stay zeroed**, and does. A receiver
+        hands this frame's addresses to its encoder unconditionally, on every
+        frame it applies rather than only on the ones that carry addresses; what
+        stops a scaling write from repointing the encoder is that the call
+        refuses a video address which is not multicast. Zero is not multicast.
+        Anything that is, written here, would move a transceiver's stream.
+
+        Which halves of the scaling block a receiver reads is chosen by the
+        validity bits in flags, not by this layout: the mode and refresh are
+        read behind MXR_SCALING_FLAG_MODE_VALID and the options behind
+        MXR_SCALING_FLAG_OPTIONS_VALID, so a write that carries neither bit
+        lands as a no-op rather than as a request to zero the settings.
+        '''
+        payload = bytearray(target_uid.byte_value)
+        if (len(payload) != 16):
+            raise ValueError(f"invalid uid length: {len(payload)}")
+        # source: three stream slots, left zeroed so the encoder keeps its own.
+        payload += bytes(40 - len(payload))
+        payload.append(_RATE_UNSET)
+        # Three dscp bytes with no MXR_V2IP_DSCP_SET bit, so no marking is
+        # applied, then the padding that aligns the audio-return slot, then the
+        # audio return itself, zeroed, which reads as carrying no address.
+        payload += bytes(56 - len(payload))
+        payload += mode.byte_value
+        payload += refresh.to_bytes(2, 'little')
+        payload.append(flags & 0xFF)
+        # The scaling struct is 8-aligned, so its five bytes of fields are
+        # followed by three of padding; then the tiling window, whose zero uid
+        # is what says no window is carried.
+        payload += bytes(_BASE_SIZE - len(payload))
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=_OPCODE, payload=bytes(payload))
 
     @property
     def target_uid(self) -> MxrDeviceUid|None:

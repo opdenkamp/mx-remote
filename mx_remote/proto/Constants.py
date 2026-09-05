@@ -146,6 +146,12 @@ MXR_SCALING_FLAG_AUTO_SCALING  = (1 << 7)
 """mxr_scaling_config.flags. The mode/refresh pair and the options nibble are
 separately valid: a sender carrying neither flag is offering no scaling at all."""
 
+V2IP_SCALING_REFRESH_MIN = 24
+V2IP_SCALING_REFRESH_MAX = 120
+"""Refresh rate range a V2IP output stage accepts, in Hz. A receiver replaces
+anything outside it with 50 rather than refusing the write, so a 0 here asks
+for 50Hz instead of asking for nothing."""
+
 MXR_V2IP_DSCP_SET = 0x80
 """DSCP 0 (CS0) is a legal marking, so a zero byte cannot mean "absent": each
 dscp byte in a V2IP_DEVICE_CFG options word carries this bit alongside its
@@ -379,6 +385,23 @@ def mxr_sig_bpp_get(bpp: int) -> int:
 	bit depth is a common trap. Returns 0 for both unknown and unset.'''
 	return _MXR_SIG_BPP_VALUES.get(bpp, MXR_SIG_BPP_UNKNOWN)
 
+_MXR_SIG_BPP_WRITABLE_INDICES: dict[int, int] = {
+	8:  1,
+	10: 2,
+	12: 3,
+}
+
+def mxr_sig_bpp_index(depth: int) -> int|None:
+	'''Map a bit depth to the mxr_signal_type bpp *index* that stands for it.
+
+	Only the three depths a V2IP output stage accepts are here. Index 4 names
+	16bpp, which mxr_sig_bpp_get() reads back from a device, but the output
+	stage refuses it - offering it as something to write would build a frame
+	that is decoded cleanly and then dropped in silence.
+
+	Returns None for a depth no index names.'''
+	return _MXR_SIG_BPP_WRITABLE_INDICES.get(depth)
+
 class MxrSignalType:
 	'''The 2-byte mxr_signal_type carried in scaling configs and bay signal reports.
 
@@ -390,6 +413,26 @@ class MxrSignalType:
 			raise ValueError(f"invalid mxr_signal_type size: {len(data)}")
 		self._svd = int(data[0])
 		self._flags = int(data[1])
+
+	@staticmethod
+	def from_parts(svd: int, colour: int, bpp_index: int) -> 'MxrSignalType':
+		'''Build the word a scaling write carries, from the fields it consumes.
+
+		non_int is left clear: the receiving struct carries the bit and the
+		apply path does not read it.
+
+		Building rather than editing is the point. A sink with no mode
+		configured reports the word with the unset bpp index in it, so a caller
+		that read that word back and filled in an svd would send an index no
+		depth uses, which the receiver decodes to zero and rejects without
+		answering.'''
+		flags = (colour & 0xF) | ((bpp_index & 0x7) << 5)
+		return MxrSignalType(bytes([svd & 0xFF, flags]))
+
+	@property
+	def byte_value(self) -> bytes:
+		'''The two bytes as they sit on the wire.'''
+		return bytes([self._svd, self._flags])
 
 	@property
 	def value(self) -> int:
