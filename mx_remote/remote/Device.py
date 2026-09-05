@@ -335,6 +335,15 @@ class Device(DeviceBase):
 		return (self.features is not None) and (DeviceFeature.V2IP_SINK in self.features)
 
 	@property
+	@override
+	def is_management(self) -> bool:
+		'''True when a receiver would let this device write another device's configuration.
+
+		See DeviceBase.is_management for why both bits are tested.'''
+		return (self.features is not None) \
+			and (DeviceFeature.MANAGER in self.features or DeviceFeature.MESH_MASTER in self.features)
+
+	@property
 	def has_local_source(self) -> bool:
 		'''True if this device has at least 1 local source'''
 		return self.first_input.is_local if self.first_input is not None else False
@@ -480,6 +489,12 @@ class Device(DeviceBase):
 		if (self._mesh_master_uid is None) or (self._mesh_master_uid != master):
 			self._mesh_master_uid = master
 			self.call_callbacks()
+
+	@property
+	@override
+	def mesh_master_uid(self) -> MxrDeviceUid|None:
+		'''UID of the mesh controller this device reports, None while it has named none.'''
+		return self._mesh_master_uid
 
 	@property
 	@override

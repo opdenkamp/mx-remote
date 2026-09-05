@@ -11,7 +11,7 @@ from typing import Any
 from .FrameBase import FrameBase
 from .FrameHeader import FrameHeader
 from ..Uid import MxrDeviceUid
-from ..Interface import (DeviceRegistry, DeviceV2IPDetails, DeviceV2IPScalingSettings,
+from ..Interface import (DeviceBase, DeviceRegistry, DeviceV2IPDetails, DeviceV2IPScalingSettings,
                          DeviceV2IPSink, V2IPAudioFormat, V2IPDscpConfig, V2IPStreamSource)
 from .Constants import (MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                         MXR_SCALING_FLAG_OPTIONS_VALID, MxrSignalType, v2ip_dscp_value,
@@ -205,6 +205,43 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         return (self.remote_id == self.target_uid)
 
     @cached_property
+    def subject_device(self) -> DeviceBase|None:
+        '''The device this configuration is about, None when nothing would act on it.
+
+        The payload names its subject in the first sixteen bytes, and that is
+        what decides whose configuration this is - not who sent it. Equal to the
+        sender it is a device describing itself, which is what almost every one
+        of these frames is. Different, it is a write for the device it names,
+        and a receiver takes one only from a sender it treats as management.
+        Anything else is dropped rather than filed against the sender, because a
+        frame the network ignores must not move a record here.
+        '''
+        if ((subject := self.target_uid) is None):
+            return None
+        if (subject == self.remote_id):
+            return self.remote_device
+        # An unknown subject is dropped, as it is on a device: there is no
+        # record to move, and inventing one from a third party's description
+        # would create a device nothing has been heard from.
+        if ((device := self.mxr.get_by_uid(subject)) is None):
+            return None
+        sender = self.remote_device
+        if ((sender is not None) and sender.is_management):
+            return device
+        # Or the subject naming this sender as its mesh controller. Asked of the
+        # subject rather than the sender because it closes the window where a
+        # controller has been promoted but has no bays mapped yet, and so
+        # announces neither bit while still being the controller its mesh obeys.
+        #
+        # A subject that has named no controller contributes nothing here rather
+        # than refusing: not knowing who a device follows is not knowing that it
+        # follows nobody, and a client that has just started knows nothing about
+        # anyone for as long as a broadcast period.
+        if (device.mesh_master_uid == self.remote_id):
+            return device
+        return None
+
+    @cached_property
     def details(self) -> DeviceV2IPDetails:
         return DeviceV2IPDetails(video=self.video, audio=self.audio, anc=self.anc, arc=self.arc, tx_rate=self.options.tx_rate, scaling=self.scaling, dscp=self.options.dscp)
 
@@ -219,8 +256,8 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         )
 
     def process(self) -> None:
-        '''Update the local device cache with V2IP configuration details.'''
-        if ((dev := self.remote_device) is None):
+        '''Update the cache of the device this configuration names, not of its sender.'''
+        if ((dev := self.subject_device) is None):
             return
         dev.on_mxr_update(self.details)
         if ((sink := self.sink) is not None):

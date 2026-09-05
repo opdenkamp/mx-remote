@@ -14,6 +14,9 @@ if device.is_v2ip and device.v2ip_sources:
         print(f"Audio: {source.audio.ip}:{source.audio.port}")
 
 # stream details (encoder/decoder config)
+# A configuration frame names its subject in the payload, so a controller's
+# write for a transceiver reaches the transceiver's record - the controller's
+# own stays empty, which is what the device always meant.
 if device.v2ip_details:
     details = device.v2ip_details
     print(f"Video: {details.video}")

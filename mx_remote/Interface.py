@@ -2068,6 +2068,17 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
+    def mesh_master_uid(self) -> MxrDeviceUid|None:
+        '''UID of the mesh controller this device reports, None while it has named none.
+
+        Distinct from mesh_master, which falls back to the device itself. A
+        device that has named no controller is not a device that follows nobody:
+        a client that has just started knows nothing about anyone for as long as
+        a broadcast period.
+        '''
+
+    @property
+    @abstractmethod
     def protocol(self) -> int:
         """Highest protocol version this device advertises, or 0 if none has been seen."""
 
@@ -2087,6 +2098,26 @@ class DeviceBase(ABC):
     @abstractmethod
     def is_mesh_master(self) -> bool:
         '''True if this device is the master device of a V2IP mesh'''
+
+    @property
+    @abstractmethod
+    def is_management(self) -> bool:
+        '''True when a receiver would let this device write another device's configuration.
+
+        Two bits, because the two kinds of writer announce themselves
+        differently and neither implies the other. MANAGER belongs to external
+        management applications - anything driving these devices that is not one
+        of them, this library included - and no device firmware ever sets it on
+        itself, so testing it alone would refuse every write a controller makes.
+        A device that is controlling its mesh announces MESH_MASTER instead.
+
+        The bits have a hole a caller has to close elsewhere: a device sets
+        MESH_MASTER only while it is both the controller and has bays mapped, so
+        one promoted before it has any carries neither bit while still being its
+        mesh's controller. What covers that window is the controller uid the
+        devices in that mesh report, which is their question rather than this
+        device's - see mesh_master_uid.
+        '''
 
     @property
     @abstractmethod
