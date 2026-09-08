@@ -85,6 +85,21 @@ Version is single-sourced in `mx_remote/const.py` (`VERSION = '...'`); `pyprojec
 reads it via regex, so bump it there only. Release commits follow the convention
 `bump to X.Y.Z`.
 
+### Releases
+`.github/workflows/release.yml` builds and uploads, so a release needs no local
+build and no PyPI credentials:
+
+```sh
+# after the `bump to X.Y.Z` commit is pushed
+git tag -a vX.Y.Z -m 'mx-remote X.Y.Z' && git push origin vX.Y.Z
+gh release create vX.Y.Z --title 'mx-remote X.Y.Z' --verify-tag --notes '...'
+```
+
+Publishing the release runs the suites against the tag, builds the wheel and
+sdist, uploads them to PyPI over Trusted Publishing, and attaches them to the
+release page. Notes stay hand-written: a one-line summary, `##` sections, and a
+closing `**Full Changelog**:` compare link.
+
 ### Build hook
 `hatch_build.py` generates `.pyi` type stubs via `mypy stubgen` at build time and
 force-includes them in the wheel (they are gitignored). `mx_remote` ships as typed

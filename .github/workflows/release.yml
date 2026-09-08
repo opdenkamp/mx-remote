@@ -1,0 +1,123 @@
+name: Release
+
+# Publishes a release to PyPI from GitHub, so the artifacts are built by a
+# public runner from the tagged tree rather than from one developer's machine.
+#
+# The trigger is a *published* GitHub release, not a tag push: the release
+# notes stay hand-written, and this workflow only fills in the parts a machine
+# does better - build, verify, upload, attach.
+#
+# Cutting a release:
+#   1. bump VERSION in mx_remote/const.py, commit, push
+#   2. git tag -a vX.Y.Z -m 'mx-remote X.Y.Z' && git push origin vX.Y.Z
+#   3. gh release create vX.Y.Z --title 'mx-remote X.Y.Z' --verify-tag --notes ...
+#
+# Uploading uses PyPI Trusted Publishing, so no API token is stored here. It
+# requires a publisher registered for this project on pypi.org, pointing at
+# this repository, this workflow file and the `pypi` environment below.
+
+on:
+  release:
+    types: [ published ]
+
+permissions:
+  contents: read
+
+jobs:
+  # The tag skips the push trigger on tests.yml, so run the suites against it
+  # explicitly. An upload cannot be replaced once made.
+  tests:
+    uses: ./.github/workflows/tests.yml
+
+  build:
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the tagged tree
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build wheel and sdist
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Check the artifacts against the release
+        # Three ways a release goes out wrong that the build itself reports as
+        # success, all cheap to rule out here:
+        run: |
+          version=$(python -c "import re,pathlib; print(re.search(r\"VERSION = '([^']+)'\", pathlib.Path('mx_remote/const.py').read_text()).group(1))")
+          wheel=dist/mx_remote-$version-py3-none-any.whl
+
+          # a tag cut before the version bump landed
+          if [ "${{ github.event.release.tag_name }}" != "v$version" ]; then
+            echo "::error::tag ${{ github.event.release.tag_name }} does not match VERSION $version"
+            exit 1
+          fi
+
+          # a wheel built from a tree whose version is not the one just tagged
+          if [ ! -f "$wheel" ]; then
+            echo "::error::no $wheel in dist/"
+            ls -l dist
+            exit 1
+          fi
+
+          # a wheel that installs but declares itself untyped, because the
+          # stub-generating build hook produced nothing usable
+          unzip -l "$wheel" > /tmp/wheel.txt
+          for want in 'mx_remote/py.typed' 'mx_remote/const.pyi'; do
+            if ! grep -q "$want" /tmp/wheel.txt; then
+              echo "::error::$wheel is missing $want"
+              cat /tmp/wheel.txt
+              exit 1
+            fi
+          done
+
+      - name: Upload the artifacts to the workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/mx-remote/
+    permissions:
+      # Mints the OIDC token PyPI trades for an upload; nothing else needs it.
+      id-token: write
+    steps:
+      - name: Download the artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  attach:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      # Attaches the same files that went to PyPI to the release page.
+      contents: write
+    steps:
+      - name: Download the artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Attach the artifacts to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload '${{ github.event.release.tag_name }}' dist/* --clobber --repo '${{ github.repository }}'
