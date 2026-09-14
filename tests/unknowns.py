@@ -3,7 +3,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logging.disable(logging.CRITICAL)
 import mx_remote
 from mx_remote.proto.Factory import create_mxr_frame, process_mxr_frame
-from mx_remote.proto.Constants import decode_enum, FirmwareType, RCKey, RCAction, UtpLinkSpeed
+from mx_remote.proto.Constants import (decode_enum, FirmwareType, RCKey, RCAction, UtpLinkSpeed,
+    MXR_OPCODE_VERSIONS)
 
 UID = bytes(range(1, 17)); ADDR = ('192.0.2.9', 8812)
 mx = mx_remote.Remote(open_connection=False); mx._uid = bytes(range(100, 116))
@@ -58,8 +59,7 @@ print('0x42   : unknown sub-opcode ->', f.opcode)
 # has an UNKNOWN member, because 0 is a verdict in both - OK and RGB - so
 # folding an unrecognised value onto a member is a confident wrong answer where
 # None is an honest one.
-from mx_remote.proto.V2IPStats import (V2IPDecoderReason, V2IPColorFormat,
-    V2IP_DECODER_PROTOCOL)
+from mx_remote.proto.V2IPStats import V2IPDecoderReason, V2IPColorFormat
 assert decode_enum(V2IPDecoderReason, 200) is None
 assert decode_enum(V2IPColorFormat, 0x0102) is None
 assert decode_enum(V2IPDecoderReason, 4) == V2IPDecoderReason.FORMAT_MISMATCH
@@ -67,10 +67,9 @@ assert decode_enum(V2IPColorFormat, 255) == V2IPColorFormat.UNNAMED
 
 detail = bytes([1, 200, 0, 0]) + struct.pack('<HHHH', 1920, 1080, 0x0102, 3) \
        + struct.pack('<II', 0, 0) + bytes(4)
-# stamped as the firmware stamps a report carrying this block; below that the
-# tail is some other growth and no reading is read out of it
+# stamped as a device stamps this opcode, which is the opcode's row
 raw = bytearray(create_mxr_frame(UID, 0x3F, bytes(128) + detail))
-raw[2] = V2IP_DECODER_PROTOCOL
+raw[2] = MXR_OPCODE_VERSIONS[0x3F]
 f = process_mxr_frame(mx, time.time(), bytes(raw), ADDR)
 f.process()
 reading = f.decoder.reading

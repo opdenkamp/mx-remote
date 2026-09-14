@@ -10,8 +10,7 @@ from functools import cached_property
 import warnings
 from .FrameBase import FrameBase
 from .V2IPStats import (V2IPRxStats, V2IPTxStats, V2IPDeviceStats, V2IPDecoderDetail,
-    V2IP_DECODER_DETAIL_OFFSET, V2IP_DECODER_PROTOCOL, V2IP_STATS_COUNTERS_LEN,
-    V2IP_STATS_FULL_LEN)
+    V2IP_DECODER_DETAIL_OFFSET, V2IP_STATS_COUNTERS_LEN, V2IP_STATS_FULL_LEN)
 from ..Interface import DeviceBase, DeviceRegistry
 
 class FrameV2IPStats(FrameBase):
@@ -88,18 +87,14 @@ class FrameV2IPStats(FrameBase):
     def decoder(self) -> V2IPDecoderDetail|None:
         '''What the sink's decoder recovered, None from a sender that predates it.
 
-        Recognised by the frame's stamp and its length together. The length
-        says the payload is long enough to hold the block; the stamp says those
-        bytes are that block rather than some later growth this client has no
-        name for. A sender below V2IP_DECODER_PROTOCOL appended no such block,
-        so reading its tail would invent a reason, a geometry and a fault word.
-        Its counters are still read.
+        Found by length alone. The block was appended behind the counters and
+        left every offset ahead of it where it was, so a sender that predates it
+        stops at the counters and nothing in the stamp separates the two forms.
+        Its counters are read either way.
 
-        Neither answers whether a reserved field has been spent: a firmware that
-        gives the block's reserved byte a meaning still stamps this version and
-        still sends 152 bytes.'''
-        if (self.protocol < V2IP_DECODER_PROTOCOL):
-            return None
+        The length does not answer whether a reserved field has been spent: a
+        firmware that gives the block's reserved byte a meaning still sends 152
+        bytes.'''
         pl = self.payload_idx(start=V2IP_DECODER_DETAIL_OFFSET, end=V2IP_STATS_FULL_LEN)
         if (pl is None) or (len(pl) < (V2IP_STATS_FULL_LEN - V2IP_DECODER_DETAIL_OFFSET)):
             return None

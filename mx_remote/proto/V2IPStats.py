@@ -80,15 +80,6 @@ reserved byte at +3 it is where the next expansion lands.'''
 V2IP_STATS_FULL_LEN:int = V2IP_DECODER_DETAIL_OFFSET + V2IP_DECODER_DETAIL_LEN
 '''Payload length of a report that carries the decoder detail block.'''
 
-V2IP_DECODER_PROTOCOL = 0x29
-'''Protocol version the decoder detail block appeared at.
-
-Read with the payload length rather than instead of it: the length says a
-payload is long enough to hold the block, and the stamp says those bytes are
-that block rather than some later growth this client has no name for. A sender
-below this stamps a report of the shape it always had, so its counters are read
-and its tail, if any, is not.'''
-
 class V2IPDecoderState(IntEnum):
     '''Health state of the V2IP decoder.
 

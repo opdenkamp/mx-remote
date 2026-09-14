@@ -5,8 +5,10 @@ import mx_remote
 from mx_remote.proto.Factory import create_mxr_frame, process_mxr_frame
 from mx_remote.proto.Constants import MXR_PROTOCOL_VERSION, MXR_OPCODE_VERSIONS
 from mx_remote.proto.V2IPStats import (V2IPDecoderState, V2IPDecoderReason,
-    V2IPColorFormat, V2IP_DECODER_PROTOCOL, V2IP_STATS_COUNTERS_LEN,
-    V2IP_STATS_FULL_LEN)
+    V2IPColorFormat, V2IP_STATS_COUNTERS_LEN, V2IP_STATS_FULL_LEN)
+
+# What a device stamps on this opcode, which is the opcode's row.
+STATS_STAMP = MXR_OPCODE_VERSIONS[0x3F]
 
 UID = bytes(range(1, 17)); ADDR = ('192.0.2.9', 8812)
 mx = mx_remote.Remote(open_connection=False); mx._uid = bytes(range(100, 116))
@@ -106,10 +108,10 @@ def detail(valid=1, reason=0, blocking=0, width=0, height=0, fmt=0, updates=0,
     assert len(b) == DETAIL_SIZE, len(b)
     return bytes(b)
 
-def rx3f(payload, proto=V2IP_DECODER_PROTOCOL):
-    # Stamped like the firmware stamps it, not like create_mxr_frame does: the
-    # decoder block is recognised by the stamp as well as the length, so a
-    # fixture left at the builder's default 1 reads as a sender that predates it.
+def rx3f(payload, proto=STATS_STAMP):
+    # Stamped like a device stamps it, not like create_mxr_frame does: the
+    # builder's default 1 is a version nothing sends, and a fixture on one is a
+    # frame no assertion here can be read as being about.
     raw = bytearray(create_mxr_frame(UID, 0x3F, payload))
     raw[2] = proto
     f = process_mxr_frame(mx, time.time(), bytes(raw), ADDR)
@@ -165,23 +167,19 @@ assert f.decoder.valid and f.decoder.reading is not None
 assert (f.decoder.reading.width, f.decoder.reading.height) == (1920, 1080)
 print('0x3F : absent / never answered / a reading are three answers')
 
-# ------------------------------------ the stamp and the length, both required
-# The length says a payload is long enough to hold the block; the stamp says
-# those 24 bytes are that block. A sender below V2IP_DECODER_PROTOCOL appended
-# no such thing, so its tail is some other growth and reading it would invent a
-# reading out of it. Its counters are read either way.
-below = rx3f(stats(1) + VECTOR, proto=V2IP_DECODER_PROTOCOL - 1)
-assert len(below.payload) == V2IP_STATS_FULL_LEN
-assert below.decoder is None, 'a tail below the block stamp is not the block'
-assert below.tx.video == TX_BASE, 'the counters ahead of the tail are still read'
-assert rx3f(stats(1) + VECTOR).decoder is not None, 'the same bytes at the stamp are the block'
-print('0x3F : the block needs the stamp and the length; the counters need neither')
-
-# The opcode floor is what a sender stamps at minimum, not where the layout
-# changed, so it does not move when a payload grows a block.
-assert MXR_OPCODE_VERSIONS[0x3F] == 0x13
-assert V2IP_DECODER_PROTOCOL > MXR_OPCODE_VERSIONS[0x3F]
-print('0x3F : the block stamp is a layout version, not the opcode floor')
+# --------------------------------------- the length alone, at any stamp sent
+# The block was appended behind the counters and left every offset ahead of it
+# where it was, so a sender that predates it stops at 128 and nothing in the
+# stamp separates the two forms. A stamp test costs the block from every report
+# the moment the opcode's row sits below the one it names, and rows move: this
+# one was raised when the block landed and lowered again afterwards.
+at_row = rx3f(stats(1) + VECTOR)
+assert len(at_row.payload) == V2IP_STATS_FULL_LEN
+assert at_row.decoder is not None, 'the row devices stamp must carry the block'
+assert at_row.tx.video == TX_BASE, 'the counters ahead of the block are read too'
+for proto in (1, STATS_STAMP - 1, 0x29, MXR_PROTOCOL_VERSION):
+    assert rx3f(stats(1) + VECTOR, proto=proto).decoder is not None, hex(proto)
+print('0x3F : the block is found by its length, whatever the sender stamps')
 
 # a longer payload is a newer sender with another block appended; parse the
 # prefix understood and ignore the tail
@@ -392,7 +390,7 @@ print('0x3F : a 17-byte request is not decoded as a report')
 seen_short = []
 for n in list(range(0, 40)) + [126, 127, 128, 151, 152, 153, 200]:
     raw = bytearray(create_mxr_frame(UID, 0x3F, poison(n, 0x11) if n else b''))
-    raw[2] = V2IP_DECODER_PROTOCOL
+    raw[2] = STATS_STAMP
     try:
         f = process_mxr_frame(mx, time.time(), bytes(raw), ADDR)
         str(f)
