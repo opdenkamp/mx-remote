@@ -268,11 +268,15 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         tx_discover = False
         if (not self.has_completed_devices()):
             tx_discover = True
-        else:
-            for _, device in self.remotes.items():
-                device.check_online()
-                if not device.check_configuration_complete_timeout():
-                    tx_discover = True
+        # Every registered device, whatever any of them has finished. A device
+        # stops pinging whether or not it ever described itself, and this is the
+        # only thing that notices: nothing arrives to mark a device gone, so a
+        # pass skipped is a device that stays online in the registry for as long
+        # as the client runs.
+        for _, device in self.remotes.items():
+            device.check_online()
+            if not device.check_configuration_complete_timeout():
+                tx_discover = True
         if tx_discover and ((time.time() - self._discover_timeout) >= 5):
             self.tx_discover()
 
