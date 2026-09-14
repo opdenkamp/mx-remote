@@ -213,6 +213,24 @@ selector. A payload can widen without its floor moving, and then the stamp says
 nothing about which layout arrived — dispatch on payload length instead.
 `tests/wirefix.py` covers the cases where the two come apart.
 
+A row can also go down, which turns a version test into a silent drop. Rows are
+not monotonic: one is lowered to bring a family back under a product's receive
+cap, with no layout changing. A test added while a row was high then rejects
+every frame on that opcode from every sender at once, and what it guards simply
+stops being reported. So prefer the length, which no stamp change can
+invalidate.
+
+Two decoders read the stamp, and each says in place what it rests on. The mesh
+operation gate: that struct is fixed size and what changed is what its bytes
+mean, so no length distinguishes the forms. The network status layout selector:
+the forms are the same length, so the stamp chooses between them rather than
+admitting one, and getting it wrong yields a complete, plausible, wrong port
+status rather than a lost frame.
+
+A fixture stamped at a version no device sends is a frame that exists nowhere
+else, and every assertion about it says nothing about the network. Stamp what a
+device stamps, which for a report is the opcode's own row.
+
 ## Writing down a deliberate divergence
 
 A note recording *what the firmware does* reads as *what this library should

@@ -933,6 +933,10 @@ class Device(DeviceBase):
 		Nothing acknowledges the frame. Read v2ip_details.scaling back to learn
 		what the sink did, and trust that block only where config_initialised is
 		set.
+
+		**Read any route you still need before writing.** The sink rebuilds and
+		rebroadcasts its subscription in response, and that report can arrive
+		empty for up to a minute; DeviceV2IPSink says when and why.
 		'''
 		written = MXR_SCALING_FLAG_OPTIONS_VALID
 		if enabled:
@@ -959,6 +963,26 @@ class Device(DeviceBase):
 
 		Configuring a mode is itself a reason to scale, so a sink with one scales
 		whether or not automatic scaling is on.
+
+		**Pass a descriptor and a refresh rate that agree.** A sink stores both
+		halves and, with its match-source setting on as it ships, reports back
+		the descriptor matching the refresh it holds: a 60Hz descriptor written
+		with a refresh of 50 reads back as that descriptor's 50Hz sibling, once,
+		and stays there. A sink with match-source off reports the descriptor it
+		was given. Either way a pair that agrees reads back unchanged, and the
+		format driven is the same, so this costs a caller nothing except a
+		descriptor it did not write. The substitution shows up on the sink's next
+		report rather than immediately, because the cached block holds what was
+		written until then.
+
+		A mode read from the sink's own web interface is not interchangeable with
+		this pair. That interface reports the descriptor's 60Hz sibling and
+		carries the refresh in a field of its own, so writing back what it shows
+		as the mode, on its own, changes the setting rather than restoring it.
+
+		**Read any route you still need before writing.** The sink rebuilds and
+		rebroadcasts its subscription in response, and that report can arrive
+		empty for up to a minute; DeviceV2IPSink says when and why.
 		'''
 		if ((reason := mode.validate()) is not None):
 			_LOGGER.warning(f"not setting the output mode of {self}: {reason}")
@@ -981,6 +1005,10 @@ class Device(DeviceBase):
 		caller restoring a sink that had none has to send: a sink reports no mode
 		by leaving MXR_SCALING_FLAG_MODE_VALID clear, which is not something a
 		write can say.
+
+		**Read any route you still need before writing.** The sink rebuilds and
+		rebroadcasts its subscription in response, and that report can arrive
+		empty for up to a minute; DeviceV2IPSink says when and why.
 		'''
 		def applied(cached:DeviceV2IPScalingSettings) -> V2IPScalingSettings:
 			return V2IPScalingSettings(mode=0, refresh=0,

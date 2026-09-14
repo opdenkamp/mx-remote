@@ -163,7 +163,25 @@ class FrameSignalStatusNew(FrameBase):
     attributed to a bay and is dropped.
 
     An empty payload requests a report from every device; a 16-byte payload
-    requests one from the unit it addresses. '''
+    requests one from the unit it addresses.
+
+    **On a decoder's output bay the signal description is a snapshot of the
+    routed source, taken when that stream last started.** Nothing refreshes it
+    while the route holds, so a source that changes format in place leaves
+    video, audio, infoframe and vsync all reading the format from before the
+    change - worse than an unfilled field, because the value stays plausible.
+    Re-routing the bay resamples them, unless the newly selected source's record
+    has not arrived yet, which leaves the previous values standing rather than
+    clearing them.
+
+    bay_status and scaling are re-stamped on every scaling change as well, so
+    they can be newer than the description beside them. clock_rate sits with
+    them but is computed from the snapshot and carries its age.
+
+    **For a decoder's current input format, read the input bay it is routed
+    to.** That record is refreshed by the source's own reports, and it is the
+    reason a decoder's own output bay can disagree with the picture on the
+    cable. '''
     @cached_property
     def signal_header_version(self) -> int:
         if ((pl := self.payload_u16(0)) is not None):
@@ -236,7 +254,8 @@ class FrameSignalStatusNew(FrameBase):
 
     @cached_property
     def scaling(self) -> MxrSignalType|None:
-        '''Signal type the bay is scaling to, or None on a short report.'''
+        '''Format the bay is scaling to, unset while it is not scaling, or None
+        on a short report.'''
         details = self.bay_details
         if len(details) < 8:
             return None
@@ -244,7 +263,11 @@ class FrameSignalStatusNew(FrameBase):
 
     @cached_property
     def clock_rate(self) -> int|None:
-        '''Video clock rate in Hz, or None on a short report.'''
+        '''Video clock rate in Hz, or None on a short report.
+
+        Computed rather than measured: the pixel clock of scaling while the bay
+        scales, and otherwise the signal description's own, halved for 4:2:0 and
+        scaled by colour depth.'''
         details = self.bay_details
         if len(details) < 12:
             return None
