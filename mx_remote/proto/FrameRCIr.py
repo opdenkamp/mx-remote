@@ -27,15 +27,48 @@ _LOGGER = logging.getLogger(__name__)
 _META_OFFSET = 12
 _TIMINGS_OFFSET = 24
 
-# A receiver requires one timing beyond the struct, not just the struct, and it
-# requires this protocol version. Both are the firmware's own gates. The length
-# one reads like an off-by-one and is not: a capture with no timing is a burst
-# nothing blasted, with nothing in it to replay, and it decodes perfectly.
+# A receiver requires one timing beyond the struct, not just the struct, which
+# is the firmware's own gate. It reads like an off-by-one and is not: a capture
+# with no timing is a burst nothing blasted, with nothing in it to replay, and
+# it decodes perfectly.
 _MIN_SIZE = _TIMINGS_OFFSET + 2
-_ACCEPT_PROTOCOL = 0x19
+
+# Two timing widths exist on the wire, and the header counts timings rather than
+# bytes, so what follows the header is what says which arrived: the same count
+# takes twice the room in the wider form, and a narrow list is exactly as long
+# as its count, so it can never be mistaken for a wide one.
+_TIMING_WIDE = 2
+_TIMING_NARROW = 1
 
 class FrameRCIr(FrameBase):
     '''IR key press event received by a bay.'''
+    @cached_property
+    def timing_width(self) -> int|None:
+        '''Bytes per timing as this sender wrote them, None when the frame is
+        not a capture this library will read.
+
+        Tested widest first, which is what separates the two forms: a narrow
+        list is exactly as long as its count, so a wide one is never read as a
+        narrow one carrying twice as many.
+
+        The count is a declaration, not a measurement: nothing on the wire ties
+        it to the number of timings that arrived. A frame short of its own count
+        at either width is refused rather than handed to a caller that would
+        index the timings by it.
+        '''
+        pl = self.payload
+        if (pl is None) or (len(pl) < _MIN_SIZE):
+            return None
+        nb = self.payload_u16(idx=_META_OFFSET + 4)
+        if (nb is None):
+            return None
+        tail = len(pl) - _TIMINGS_OFFSET
+        if (tail >= (nb * _TIMING_WIDE)):
+            return _TIMING_WIDE
+        if (tail >= (nb * _TIMING_NARROW)):
+            return _TIMING_NARROW
+        return None
+
     @cached_property
     def acceptable(self) -> bool:
         '''Whether a receiver would act on this frame at all.
@@ -43,16 +76,7 @@ class FrameRCIr(FrameBase):
         Every field below reads None or empty when this is False, so a frame no
         device blasted cannot be mistaken for a capture with nothing in it.
         '''
-        pl = self.payload
-        if (pl is None) or (len(pl) < _MIN_SIZE):
-            return False
-        # The count is a declaration, not a measurement: nothing on the wire
-        # ties it to the number of timings that arrived. A frame claiming more
-        # than it carries is refused rather than handed to a caller that would
-        # index the timings by it.
-        nb = self.payload_u16(idx=_META_OFFSET + 4)
-        return (nb is not None) and (nb <= ((len(pl) - _TIMINGS_OFFSET) // 2)) \
-            and (self.protocol >= _ACCEPT_PROTOCOL)
+        return (self.timing_width is not None)
 
     @cached_property
     def bay(self) -> BayBase|None:
@@ -112,14 +136,19 @@ class FrameRCIr(FrameBase):
 
     @cached_property
     def timings(self) -> bytes:
-        '''Raw on/off timings appended after the struct.
+        '''On/off timings appended after the struct, two bytes each.
+
+        Always that width, whichever the sender used: the narrower form older
+        devices send is widened here, so the values are the device's and only
+        the encoding is this library's. nb_timings counts the timings, so this
+        is twice that long.
 
         A receiver drops the first timing and blasts from the second, so this
         list is one longer than what is emitted. The first is discarded
         outright, not treated as a leading gap: the interval before the burst
         comes from the sender's timestamp instead.
 
-        The targeted transmit request (0x48) carries its timings the same way,
+        The targeted transmit request (0x48) carries its timings at this width,
         so a capture replays by passing this across byte for byte, with the
         declared count unchanged and the discarded first slot included. Its
         header is a different struct and must be rebuilt, and its timestamp has
@@ -130,11 +159,18 @@ class FrameRCIr(FrameBase):
         receiver applies its own tick length rather than the resolution
         reported beside them.
         '''
-        if not self.acceptable:
+        width = self.timing_width
+        nb = self.nb_timings
+        if (width is None) or (nb is None):
             return bytes()
-        if ((pl := self.payload_idx(_TIMINGS_OFFSET)) is None):
+        # Bounded by the timings the header counts, so a field appended behind
+        # the list does not arrive as extra timings.
+        pl = self.payload_idx(start=_TIMINGS_OFFSET, end=(_TIMINGS_OFFSET + (nb * width)))
+        if (pl is None):
             return bytes()
-        return pl
+        if (width == _TIMING_WIDE):
+            return pl
+        return bytes([b for timing in pl for b in (timing, 0)])
 
     def __str__(self) -> str:
         return f"IR key press bay {self.bay} at {self.ir_timestamp} freq {self.frequency} timings {self.nb_timings}"

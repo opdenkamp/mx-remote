@@ -290,7 +290,8 @@ print('0x3B mesh   : only an admitted frame names the mesh master')
 # A receiver requires one timing beyond the struct, not just the struct. The
 # extra two bytes read like an off-by-one and are not: a capture carrying no
 # timing decodes perfectly as a burst nothing blasted, with nothing to replay.
-from mx_remote.proto.FrameRCIr import _MIN_SIZE as IR_MIN, _ACCEPT_PROTOCOL as IR_ACCEPT
+from mx_remote.proto.FrameRCIr import (_MIN_SIZE as IR_MIN, _TIMING_WIDE as IR_WIDE,
+    _TIMING_NARROW as IR_NARROW)
 
 def ir_struct(nb_timings=4):
     '''mxr_ir_data with a declared timing count.
@@ -304,37 +305,65 @@ def ir_struct(nb_timings=4):
     return p
 
 IR_STRUCT = ir_struct(nb_timings=2)
-assert IR_MIN == 26 and IR_ACCEPT == MXR_OPCODE_VERSIONS[0x0A]
+IR_ROW = MXR_OPCODE_VERSIONS[0x0A]
+assert IR_MIN == 26
 
-f = stamped(0x0A, IR_STRUCT + struct.pack('<2H', 100, 200), IR_ACCEPT)
+f = stamped(0x0A, IR_STRUCT + struct.pack('<2H', 100, 200), IR_ROW)
 assert f.acceptable and f.bay is not None and f.bay.port == 1, f.bay
 assert f.frequency == 38000, f.frequency
 
 # the struct alone: every field still reads, and the capture holds nothing
-f = stamped(0x0A, ir_struct(nb_timings=0), IR_ACCEPT)
+f = stamped(0x0A, ir_struct(nb_timings=0), IR_ROW)
 assert not f.acceptable, 'a capture with no timing was accepted'
 assert f.frequency is None and f.timings == bytes(), f.frequency
 
-f = stamped(0x0A, IR_STRUCT + struct.pack('<2H', 100, 200), IR_ACCEPT - 1)
-assert not f.acceptable, 'a frame below the admission gate was accepted'
-print('0x0A ir     : needs a timing past the struct and protocol 0x%02X' % IR_ACCEPT)
+# The stamp says nothing about a capture: the timings are appended behind a
+# struct whose every offset stays where it is, so the length is the whole test.
+# Rows move, and a stamp test here costs the captures of the devices that have
+# no newer firmware to move to.
+f = stamped(0x0A, IR_STRUCT + struct.pack('<2H', 100, 200), IR_ROW - 1)
+assert f.acceptable, 'a capture stamped below the opcode row was refused'
+assert f.timings == struct.pack('<2H', 100, 200)
+print('0x0A ir     : needs a timing past the struct, and nothing of the stamp')
 
 # Admission and replay are two thresholds, not one: one timing gets the frame
 # read, more than one gets something blasted, because the first is dropped.
-f = stamped(0x0A, ir_struct(nb_timings=1) + struct.pack('<H', 100), IR_ACCEPT)
+f = stamped(0x0A, ir_struct(nb_timings=1) + struct.pack('<H', 100), IR_ROW)
 assert f.acceptable and not f.replayable, 'one timing is not enough to blast'
-f = stamped(0x0A, ir_struct(nb_timings=2) + struct.pack('<2H', 100, 200), IR_ACCEPT)
+f = stamped(0x0A, ir_struct(nb_timings=2) + struct.pack('<2H', 100, 200), IR_ROW)
 assert f.replayable, f.nb_timings
 print('0x0A ir     : one timing is read, two are replayed')
 
 # The count is a declaration. Nothing ties it to what arrived, and a receiver
 # reads that many entries from the payload without checking, so a frame
 # claiming more than it carries would walk a device off the end of its buffer.
-f = stamped(0x0A, ir_struct(nb_timings=64) + struct.pack('<2H', 100, 200), IR_ACCEPT)
+f = stamped(0x0A, ir_struct(nb_timings=64) + struct.pack('<2H', 100, 200), IR_ROW)
 assert not f.acceptable, 'a capture claiming 64 timings while carrying 2 was accepted'
-f = stamped(0x0A, ir_struct(nb_timings=2) + struct.pack('<2H', 100, 200), IR_ACCEPT)
+f = stamped(0x0A, ir_struct(nb_timings=2) + struct.pack('<2H', 100, 200), IR_ROW)
 assert f.acceptable, 'a capture whose count matches its payload was refused'
 print('0x0A ir     : a declared count larger than the payload is refused')
+
+# ------------------------------------------------------- 0x0A timing widths
+# The header counts timings rather than bytes, so the room behind it is what
+# says which width arrived: the same count takes twice as much in the wider
+# form. A narrow list is exactly as long as its count and so can never be
+# mistaken for a wide one, which is why the wide form is tested first.
+wide = stamped(0x0A, ir_struct(nb_timings=4) + struct.pack('<4H', 100, 200, 300, 400), IR_ROW)
+assert wide.timing_width == IR_WIDE, wide.timing_width
+assert wide.timings == struct.pack('<4H', 100, 200, 300, 400)
+
+narrow = stamped(0x0A, ir_struct(nb_timings=4) + bytes([10, 20, 30, 40]), IR_ROW)
+assert narrow.timing_width == IR_NARROW, narrow.timing_width
+assert narrow.nb_timings == 4, narrow.nb_timings
+assert narrow.timings == struct.pack('<4H', 10, 20, 30, 40), \
+    'a narrow list must reach a caller widened, not raw and not refused'
+print('0x0A ir     : either width is read, and both reach a caller as one')
+
+# The list ends where the count says, so a field appended behind it is not two
+# more timings.
+f = stamped(0x0A, ir_struct(nb_timings=2) + struct.pack('<2H', 100, 200) + b'\x99\x99', IR_ROW)
+assert f.timings == struct.pack('<2H', 100, 200), 'bytes behind the list arrived as timings'
+print('0x0A ir     : the list is bounded by its count, not by the payload')
 
 # ---------------------------------------------------- 0x48 targeted IR request
 # The same "+one timing" floor, and no protocol gate at all - the handler
