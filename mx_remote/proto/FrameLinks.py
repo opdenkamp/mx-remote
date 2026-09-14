@@ -44,11 +44,7 @@ class FrameLinks(FrameBase):
             return
         for link in self.links:
             link.process()
-            # Only a record that landed on a known bay counts. One naming a bay
-            # this client has not seen is dropped rather than held, which is
-            # what a device does with the same frame, and the device re-sends.
-            if (link.remote_bay is not None):
-                dev.note_link_record(link.remote_port)
+        dev.note_link_config()
 
     def __str__(self) -> str:
         return f"{self.remote_device} links config page: {len(self.links)} links"

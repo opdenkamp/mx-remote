@@ -76,7 +76,7 @@ class Device(DeviceBase):
 		self._registry = registry
 		self._hello = hello
 		self._temperatures:SystemTemperature = SystemTemperature([])
-		self._link_records:set[int] = set()
+		self._link_config_received = False
 		self._bay_config_received = False
 		self._last_ping = datetime.now()
 		self._online = True
@@ -200,17 +200,11 @@ class Device(DeviceBase):
 			self.call_callbacks()
 
 	@override
-	def note_link_record(self, port:int) -> None:
-		'''Note that a bay has reported its link record.
-
-		A set of ports rather than a count, because a device re-sends its
-		configuration: counting records would let one page repeated stand in for
-		the pages behind it, completing a list with bays in it that have never
-		reported a link.
-		'''
-		if (port in self._link_records):
+	def note_link_config(self) -> None:
+		'''Note that the device has reported its link configuration.'''
+		if self._link_config_received:
 			return
-		self._link_records.add(port)
+		self._link_config_received = True
 		self._check_config_complete()
 
 	@override
@@ -630,15 +624,23 @@ class Device(DeviceBase):
 
 	@property
 	def need_link_config(self) -> bool:
-		'''Whether the device owes link records that have not arrived.
+		'''Whether the device has yet to report its link configuration.
 
-		One record per bay, so a record for every input and output is the whole
-		list. The frame carries no count and no end marker, and a short page is
-		not the last one: a sender shrinks a page under memory pressure, and an
-		evenly divided list ends on a full one.
+		That it reported at all is the whole of what can be established, and no
+		count of bays stands in for it. Two reasons, either enough on its own:
+
+		A link record describes one of the sender's own ports. Most of a V2IP
+		device's bays are proxies for streams that live on other devices, and
+		those own no record - a 14-bay transceiver reports two, for its local
+		input and its local output.
+
+		A list longer than one payload is cut to what fits rather than continued.
+		An 18-bay amplifier reports 17 records in one page and sends no second
+		one, so even a device whose bays are all its own never accounts for the
+		last of them.
 		'''
 		if (self.is_amp or self.is_video_matrix or self.is_audio_matrix or self.is_v2ip):
-			return len(self._link_records) < (self.nb_inputs + self.nb_outputs)
+			return not self._link_config_received
 		return False
 
 	@override

@@ -2275,8 +2275,8 @@ class DeviceBase(ABC):
         '''merge one frame of this device's V2IP source list into the cached list'''
 
     @abstractmethod
-    def note_link_record(self, port:int) -> None:
-        '''internal callback: the bay on this port reported its link record'''
+    def note_link_config(self) -> None:
+        '''internal callback: a page of the link configuration was received'''
 
     @abstractmethod
     def note_bay_config(self) -> None:
