@@ -83,6 +83,11 @@ class Device(DeviceBase):
 		self._dolby_settings:AmpDolbySettings|None = None
 		self._network:dict[int, NetworkPortStatus] = {}
 		self._v2ip_sources:V2IPStreamSourcesList|None = None
+		# Source records by their position in the sender's list. A paged list
+		# arrives as windows that can be reordered or lost, so the records are
+		# held by position and _v2ip_sources is the run of them that has
+		# arrived from the start.
+		self._v2ip_source_pages:dict[int, V2IPStreamSources] = {}
 		self._v2ip_stats:V2IPDeviceStats|None = None
 		self._v2ip_details:DeviceV2IPDetails|None = None
 		self._v2ip_sink:DeviceV2IPSink|None = None
@@ -223,6 +228,41 @@ class Device(DeviceBase):
 		if (self._v2ip_sources is None) or (self._v2ip_sources != sources):
 			self._v2ip_sources = sources
 			self.call_callbacks()
+
+	@override
+	def merge_v2ip_sources(self, first:int, total:int, page:V2IPStreamSourcesList) -> None:
+		'''Merge one frame of this device's source list into the list it belongs to.
+
+		A list that fits one frame is the whole list and replaces what was held.
+		A longer one arrives as pages, and a page is a window rather than the
+		list: its records belong at first + index whatever order the pages arrive
+		in, and it says nothing about the records it leaves out. Only a frame
+		covering the whole list may shorten it.
+
+		total is the sender's count at the moment that page was built rather than
+		a promise about the set, so it decides only whether this frame is the
+		whole list - it never sizes the result.
+		'''
+		whole = (first == 0) and (len(page) == total)
+		if whole:
+			self._v2ip_source_pages.clear()
+		for idx, source in enumerate(page):
+			self._v2ip_source_pages[first + idx] = source
+		if whole:
+			self.v2ip_sources = page
+			return
+		# A record's position is what maps it to a bay, so the list reported is
+		# the run that has arrived from the start. A gap is where it stops, never
+		# something to fill: a placeholder in the middle would report a bay as
+		# advertising no streams, which is a reading rather than an absence.
+		merged = V2IPStreamSourcesList()
+		for at in sorted(self._v2ip_source_pages):
+			if (at != len(merged)):
+				break
+			merged.append(self._v2ip_source_pages[at])
+		if (len(merged) == 0):
+			return
+		self.v2ip_sources = merged
 
 	def v2ip_source(self, bay:BayBase) -> V2IPStreamSources|None:
 		if not bay.is_input or not bay.device.is_v2ip:
@@ -697,7 +737,7 @@ class Device(DeviceBase):
 		elif isinstance(data, DeviceV2IPSink):
 			self.v2ip_sink = data
 		elif isinstance(data, V2IPStreamSourcesList):
-			self.v2ip_sources = data
+			self.merge_v2ip_sources(first=0, total=len(data), page=data)
 		elif isinstance(data, V2IPDeviceStats):
 			self.v2ip_stats = data
 		elif isinstance(data, V2IPStreamSources):

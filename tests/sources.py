@@ -70,5 +70,52 @@ malformed = f.sources[0]
 assert malformed.valid is False and malformed.cleared is False
 print('malformed entry     : neither valid nor cleared')
 
+# ------------------------------------------------- a list too long for a frame
+# A list that fits one frame is sent as bare records from the first byte. A
+# longer one is split into pages, each behind a header saying where in the
+# sender's list its records begin, so what is left past the records is what
+# tells the two forms apart.
+def page(first, total, records):
+    return struct.pack('<HH', first, total) + bytes(4) + records
+def rec(n):
+    return entry(UID, [(f'239.9.9.{n}', 50020), ('239.1.1.2', 50022), ('239.1.1.3', 50021)])
+def rx26(payload):
+    process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x26, payload), ADDR).process()
+def cached_ips():
+    srcs = mx.get_by_uid(mx_remote.MxrDeviceUid(UID)).v2ip_sources
+    return [s.video.ip for s in srcs]
+
+# A page is a window on the list, not the list: it says nothing about the
+# records it leaves out, and the count in its header is the sender's list
+# length rather than a promise about the set.
+rx26(page(0, 4, rec(1) + rec(2)))
+assert cached_ips() == ['239.9.9.1', '239.9.9.2'], cached_ips()
+
+# Positions are what map a record to a bay, so a gap is where the list stops
+# rather than something to fill: a placeholder in the middle would report a bay
+# as advertising no streams, which is a reading rather than an absence.
+rx26(page(3, 4, rec(4)))
+assert cached_ips() == ['239.9.9.1', '239.9.9.2'], 'a page past a gap extended the list'
+rx26(page(2, 4, rec(3)))
+assert cached_ips() == ['239.9.9.1', '239.9.9.2', '239.9.9.3', '239.9.9.4'], cached_ips()
+print('paged list          : records land at the position their page states')
+
+# Only a frame covering the whole list may shorten one. Each page is its own
+# datagram, and reordering and loss are both ordinary.
+rx26(page(0, 4, rec(5)))
+assert cached_ips() == ['239.9.9.5', '239.9.9.2', '239.9.9.3', '239.9.9.4'], cached_ips()
+rx26(rec(6) + rec(7))
+assert cached_ips() == ['239.9.9.6', '239.9.9.7'], 'the whole list did not replace the pages'
+print('paged list          : a page updates in place, the whole list replaces')
+
+# A payload that is neither form is refused rather than read from byte zero,
+# which would shift every record by the header width and report a full set of
+# plausible addresses belonging to no bay.
+f = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x26, bytes(4) + rec(8)), ADDR)
+assert f.page is None and len(f.sources) == 0, f.sources
+f.process()
+assert cached_ips() == ['239.9.9.6', '239.9.9.7'], 'a payload of neither form reached the cache'
+print('paged list          : a payload of neither form is read as neither')
+
 print()
 print('ALL OK')

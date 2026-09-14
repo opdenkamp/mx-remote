@@ -2221,6 +2221,10 @@ class DeviceBase(ABC):
         '''system health status'''
 
     @abstractmethod
+    def merge_v2ip_sources(self, first:int, total:int, page:'V2IPStreamSourcesList') -> None:
+        '''merge one frame of this device's V2IP source list into the cached list'''
+
+    @abstractmethod
     def note_link_record(self, port:int) -> None:
         '''internal callback: the bay on this port reported its link record'''
 
