@@ -14,7 +14,8 @@ from ..Uid import MxrDeviceUid
 from ..Interface import (DeviceBase, DeviceRegistry, DeviceV2IPDetails, DeviceV2IPScalingSettings,
                          DeviceV2IPSink, V2IPAudioFormat, V2IPDscpConfig, V2IPStreamSource)
 from .Constants import (MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
-                        MXR_SCALING_FLAG_OPTIONS_VALID, MxrSignalType, v2ip_dscp_value,
+                        MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_OPTIONS2_VALID,
+                        MXR_SCALING_OPTIONS2_SETTINGS, MxrSignalType, v2ip_dscp_value,
                         v2ip_rate_valid)
 from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 
@@ -37,7 +38,8 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #   tx_rate     inside 5..100
 #   dscp        per byte, MXR_V2IP_DSCP_SET
 #   scaling     MXR_SCALING_FLAG_MODE_VALID covers mode and refresh,
-#               MXR_SCALING_FLAG_OPTIONS_VALID the options nibble
+#               MXR_SCALING_FLAG_OPTIONS_VALID auto-scaling, and
+#               MXR_SCALING_FLAG_OPTIONS2_VALID match-source and skip-420
 #   tiling      a non-zero uid; every real window carries one, so an all-zero
 #               block means 'not carried' while a stamped uid with zero
 #               geometry is a real clear
@@ -98,18 +100,35 @@ class V2IPDeviceOptions:
 
 class V2IPScalingSettingsImpl(DeviceV2IPScalingSettings):
     '''Concrete implementation of V2IP output scaling settings.'''
-    # Only these three bits are defined. A sender without
+    # Bits 2 and 3 have no meaning. A sender without
     # MXR_FEATURE_CONFIG_INITIALISED builds this byte on uninitialised stack, so
     # mask at decode rather than where the value is used: a first frame has
     # nothing to merge against and would otherwise cache the noise whole.
     _DEFINED_FLAGS = (MXR_SCALING_FLAG_MODE_VALID
                       | MXR_SCALING_FLAG_OPTIONS_VALID
+                      | MXR_SCALING_FLAG_OPTIONS2_VALID
+                      | MXR_SCALING_OPTIONS2_SETTINGS
                       | MXR_SCALING_FLAG_AUTO_SCALING)
 
-    def __init__(self, data:bytes) -> None:
+    def __init__(self, data:bytes, initialised:bool) -> None:
+        '''Read the block, keeping the bits this sender can be believed about.
+
+        The second options group is dropped from a sender that does not announce
+        MXR_FEATURE_CONFIG_INITIALISED. No firmware carries those options without
+        also making that announcement, so masking them can discard nothing real,
+        while reading them would invent a capability out of whatever the stack
+        held.
+
+        The older bits are not that case and are kept: a sender without the
+        announcement can still have a genuine mode configured, and dropping
+        those would discard the only reading of such a device anyone has.
+        '''
         self._mode = int.from_bytes(data[0:2], 'little')
         self._refresh = (int(data[3]) << 8) | int(data[2])
-        self._flags = (data[4] & V2IPScalingSettingsImpl._DEFINED_FLAGS)
+        believable = V2IPScalingSettingsImpl._DEFINED_FLAGS
+        if not initialised:
+            believable &= ~(MXR_SCALING_FLAG_OPTIONS2_VALID | MXR_SCALING_OPTIONS2_SETTINGS)
+        self._flags = (data[4] & believable)
 
     @property
     def mode(self) -> int:
@@ -143,7 +162,12 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         self.anc = V2IPStreamSourceImpl("anc", self.payload[32:38])
         self.options = V2IPDeviceOptions(self.payload[40:44])
         self.arc = V2IPStreamSourceImpl("arc", self.payload[48:54])
-        self.scaling = V2IPScalingSettingsImpl(self.payload[56:61])
+        # The mask is the sender's own standing, not the subject's: it says
+        # whether the bytes in front of us were built over an initialised block.
+        sender = self.remote_device
+        self.scaling = V2IPScalingSettingsImpl(self.payload[56:61],
+                                               initialised=((sender is not None)
+                                                            and sender.config_initialised))
 
     @staticmethod
     def construct_scaling(mxr:DeviceRegistry, target:Any, target_uid:MxrDeviceUid,

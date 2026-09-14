@@ -4,13 +4,19 @@ logging.disable(logging.CRITICAL)
 import mx_remote
 from mx_remote.proto.Factory import create_mxr_frame, process_mxr_frame
 from mx_remote.proto.Constants import (MXR_V2IP_DSCP_SET, MXR_SCALING_FLAG_MODE_VALID,
-    MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_AUTO_SCALING)
+    MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_AUTO_SCALING,
+    MXR_SCALING_FLAG_OPTIONS2_VALID, MXR_SCALING_FLAG_MATCH_SOURCE,
+    MXR_SCALING_FLAG_SKIP_420, DeviceFeature)
 
 UID = bytes(range(1, 17)); ADDR = ('192.0.2.9', 8812)
 mx = mx_remote.Remote(open_connection=False)
 def nm(s, sz=16):
     b = s.encode('ascii')[:sz]; return b + bytes(sz - len(b))
-hello = struct.pack('<H', 0x28) + nm('MX-1') + nm('P8SN12345678') + nm('4.7.9') + struct.pack('<I', 1 << 5)
+# CONFIG_INITIALISED, because the second options group is read only from a
+# sender that announces it: without that announcement those bits are whatever
+# the stack held, which the last case in this suite pins.
+FEAT = (1 << 5) | int(DeviceFeature.CONFIG_INITIALISED)
+hello = struct.pack('<H', 0x28) + nm('MX-1') + nm('P8SN12345678') + nm('4.7.9') + struct.pack('<I', FEAT)
 mx.process_frame(time.time(), create_mxr_frame(UID, 0x00, hello), ADDR)
 dev = mx.get_by_uid(mx_remote.MxrDeviceUid(UID))
 
@@ -96,17 +102,55 @@ d = rx(cfg(dscp=(0, MXR_V2IP_DSCP_SET | 20, MXR_V2IP_DSCP_SET | 20)))
 print('dscp no-video:', d.dscp)
 assert (d.dscp.video, d.dscp.audio, d.dscp.anc) == (8, 12, None), 'cache not kept'
 
-# a first frame has nothing to merge against, so undefined scaling bits must be
-# masked at decode or they are cached whole
-mx2 = mx_remote.Remote(open_connection=False); mx2._uid = bytes(range(100, 116))
-mx2.process_frame(time.time(), create_mxr_frame(UID, 0x00, hello), ADDR)
-noisy = cfg(scaling=(0x1050, 60, 0xDF))
-f = process_mxr_frame(mx2, time.time(), create_mxr_frame(UID, 0x3C, noisy), ADDR)
-f.process()
-flags = mx2.get_by_uid(mx_remote.MxrDeviceUid(UID)).v2ip_details.scaling.flags
-print('first frame : wire flags 0xDF -> cached 0x%02X' % flags)
-assert (flags & 0x7C) == 0, 'undefined bits 2..6 must not reach the cache: 0x%02X' % flags
-assert flags == 0x83, hex(flags)
+# 9. the second options group is announced and read as a pair, and a write
+#    carrying another group does not unsay it - the marker is also the report
+#    that the device has these options at all.
+d = rx(cfg(scaling=(0, 0, MXR_SCALING_FLAG_OPTIONS2_VALID | MXR_SCALING_FLAG_MATCH_SOURCE)))
+print('options2   : scaling', sc(d), '| match', d.scaling.match_source,
+      '| skip420', d.scaling.skip_420)
+assert d.scaling.match_source is True and d.scaling.skip_420 is False
+assert d.scaling.mode == 0x2060, 'mode lost on an options2 write'
+
+d = rx(cfg(scaling=(0, 0, MXR_SCALING_FLAG_OPTIONS_VALID | MXR_SCALING_FLAG_AUTO_SCALING)))
+print('opts1 after: scaling', sc(d), '| match', d.scaling.match_source)
+assert d.scaling.auto_scaling is True
+assert d.scaling.match_source is True, 'a first-group write unsaid the second group'
+
+d = rx(cfg(scaling=(0, 0, MXR_SCALING_FLAG_OPTIONS2_VALID | MXR_SCALING_FLAG_SKIP_420)))
+print('options2   : scaling', sc(d), '| match', d.scaling.match_source,
+      '| skip420', d.scaling.skip_420)
+assert (d.scaling.match_source, d.scaling.skip_420) == (False, True), \
+    'one marker carries both settings, so both are replaced behind it'
+assert d.scaling.auto_scaling is True, 'a second-group write unsaid the first group'
+
+# a first frame has nothing to merge against, so bits a sender cannot be
+# believed about must be masked at decode or they are cached whole
+def first_frame(features, flags):
+    m = mx_remote.Remote(open_connection=False); m._uid = bytes(range(100, 116))
+    hi = struct.pack('<H', 0x28) + nm('MX-1') + nm('P8SN12345678') + nm('4.7.9') \
+       + struct.pack('<I', features)
+    m.process_frame(time.time(), create_mxr_frame(UID, 0x00, hi), ADDR)
+    f = process_mxr_frame(m, time.time(), create_mxr_frame(UID, 0x3C, cfg(scaling=(0x1050, 60, flags))), ADDR)
+    f.process()
+    return m.get_by_uid(mx_remote.MxrDeviceUid(UID)).v2ip_details.scaling
+
+# Bits 2 and 3 have no meaning at all, and the second options group has none on
+# a sender that does not announce an initialised configuration: no firmware
+# carries those options without also making that announcement, so what is in
+# those bits is whatever the stack held.
+uninit = first_frame(1 << 5, 0xFF)
+print('first frame : wire flags 0xFF, no announcement -> cached 0x%02X' % uninit.flags)
+assert uninit.flags == 0x83, hex(uninit.flags)
+assert uninit.match_source is None and uninit.skip_420 is None
+
+# The same bits from a sender that announces it are the settings they name. The
+# mode is read from both, because a mode can be genuine without the
+# announcement while these options cannot.
+init = first_frame((1 << 5) | int(DeviceFeature.CONFIG_INITIALISED), 0xFF)
+print('first frame : wire flags 0xFF, announced     -> cached 0x%02X' % init.flags)
+assert init.flags == 0xF3, hex(init.flags)
+assert (init.match_source, init.skip_420) == (True, True)
+assert (uninit.mode, init.mode) == (0x1050, 0x1050), 'the mode is read from either'
 
 print()
 print('ALL OK')

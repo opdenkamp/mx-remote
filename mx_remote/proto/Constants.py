@@ -140,11 +140,22 @@ def v2ip_rate_valid(rate:int|None) -> bool:
     '''True when a tx_rate carries an actual rate (firmware v2ip_source_rate_valid()).'''
     return (rate is not None) and (V2IP_SOURCE_RATE_MIN <= rate <= V2IP_SOURCE_RATE_MAX)
 
-MXR_SCALING_FLAG_MODE_VALID    = (1 << 0)
-MXR_SCALING_FLAG_OPTIONS_VALID = (1 << 1)
-MXR_SCALING_FLAG_AUTO_SCALING  = (1 << 7)
-"""mxr_scaling_config.flags. The mode/refresh pair and the options nibble are
-separately valid: a sender carrying neither flag is offering no scaling at all."""
+MXR_SCALING_FLAG_MODE_VALID     = (1 << 0)
+MXR_SCALING_FLAG_OPTIONS_VALID  = (1 << 1)
+MXR_SCALING_FLAG_OPTIONS2_VALID = (1 << 4)
+MXR_SCALING_FLAG_MATCH_SOURCE   = (1 << 5)
+MXR_SCALING_FLAG_SKIP_420       = (1 << 6)
+MXR_SCALING_FLAG_AUTO_SCALING   = (1 << 7)
+"""mxr_scaling_config.flags. The mode/refresh pair and each options group are
+separately valid: a sender carrying none of the three markers is offering no
+scaling at all.
+
+Firmware that has the second group sets its marker on every configuration it
+sends about itself, so that bit doubles as the report that the device has those
+options at all. Bits 2 and 3 have no meaning."""
+
+MXR_SCALING_OPTIONS2_SETTINGS = (MXR_SCALING_FLAG_MATCH_SOURCE | MXR_SCALING_FLAG_SKIP_420)
+"""The settings behind MXR_SCALING_FLAG_OPTIONS2_VALID, which carries both."""
 
 V2IP_SCALING_REFRESH_MIN = 24
 V2IP_SCALING_REFRESH_MAX = 120

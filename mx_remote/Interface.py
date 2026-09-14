@@ -1384,10 +1384,12 @@ class DeviceV2IPScalingSettings(ABC):
     def flags(self) -> int:
         '''mxr_scaling_config.flags.
 
-        MXR_SCALING_FLAG_MODE_VALID and MXR_SCALING_FLAG_OPTIONS_VALID mark
-        which half a sender meant to send, and are separately valid; a sender
-        setting neither is offering no scaling at all. MXR_SCALING_FLAG_AUTO_SCALING
-        is the only option bit with a defined meaning.
+        MXR_SCALING_FLAG_MODE_VALID, MXR_SCALING_FLAG_OPTIONS_VALID and
+        MXR_SCALING_FLAG_OPTIONS2_VALID mark which part a sender meant to send,
+        and are separately valid; a sender setting none of them is offering no
+        scaling at all. MXR_SCALING_FLAG_AUTO_SCALING sits behind the first
+        marker, MXR_SCALING_FLAG_MATCH_SOURCE and MXR_SCALING_FLAG_SKIP_420
+        behind the second.
         '''
 
     @property
@@ -1411,6 +1413,37 @@ class DeviceV2IPScalingSettings(ABC):
         if ((self.flags & MXR_SCALING_FLAG_OPTIONS_VALID) == 0):
             return None
         return ((self.flags & MXR_SCALING_FLAG_AUTO_SCALING) != 0)
+
+    @property
+    def match_source(self) -> bool|None:
+        '''Whether the output follows its source's format, None when the device
+        has never said.
+
+        Firmware with this option announces it on every configuration it sends
+        about itself, so a device that has reported it once is known to have it.
+        The cached block accumulates its validity bit, so a later write carrying
+        only the first options group does not take that back.
+
+        Reported only from a sender announcing DeviceBase.config_initialised,
+        which is why this needs no caveat of its own: no firmware has these
+        options without that announcement, and one that lacks it would be
+        reporting uninitialised stack. That is the difference from
+        configured_mode, which is reported from any sender because a mode can be
+        genuine on one of those.
+        '''
+        if ((self.flags & MXR_SCALING_FLAG_OPTIONS2_VALID) == 0):
+            return None
+        return ((self.flags & MXR_SCALING_FLAG_MATCH_SOURCE) != 0)
+
+    @property
+    def skip_420(self) -> bool|None:
+        '''Whether the output declines 4:2:0 rather than scaling it, None when
+        the device has never said. Reported on the same terms as match_source,
+        which shares its validity bit.
+        '''
+        if ((self.flags & MXR_SCALING_FLAG_OPTIONS2_VALID) == 0):
+            return None
+        return ((self.flags & MXR_SCALING_FLAG_SKIP_420) != 0)
 
 def v2ip_stream_valid(stream:'V2IPStreamSource|None') -> bool:
     """
@@ -1677,33 +1710,39 @@ class DeviceV2IPDetails:
         """
         Merge a scaling config field by field, the way firmware applies it.
 
-        The mode/refresh pair and the options nibble are separately valid, so a
-        write carrying only one of them must leave the other as it was.
+        The mode/refresh pair and the two options groups are separately valid,
+        so a write carrying one of them must leave the others as they were. Each
+        group is replaced whole behind its own marker, which is what keeps the
+        marker itself - and so the knowledge that the device has those options -
+        from being taken back by a later write that carries another group.
         """
         incoming = self._scaling
         if (incoming is None) or (previous is None):
             return incoming if (incoming is not None) else previous
         mode_valid = ((incoming.flags & MXR_SCALING_FLAG_MODE_VALID) != 0)
         options_valid = ((incoming.flags & MXR_SCALING_FLAG_OPTIONS_VALID) != 0)
-        if not mode_valid and not options_valid:
+        options2_valid = ((incoming.flags & MXR_SCALING_FLAG_OPTIONS2_VALID) != 0)
+        if not mode_valid and not options_valid and not options2_valid:
             # carries no scaling at all
             return previous
-        if mode_valid and options_valid:
-            return incoming
         mode = incoming.mode if mode_valid else previous.mode
         refresh = incoming.refresh if mode_valid else previous.refresh
         flags = previous.flags
         if mode_valid:
             flags |= MXR_SCALING_FLAG_MODE_VALID
-        else:
-            # Options only. Carry AUTO_SCALING alone rather than the whole upper
-            # nibble: bits 4..6 have no defined meaning, and on a receiver-capable
-            # unit running firmware before the scaling-config initialisation fix
-            # they are stack noise - the sender declares mxr_scaling_config
-            # uninitialised and only ever |= flags onto it. Masking to the bit we
-            # mean cannot lose information even on fixed firmware, and stops the
-            # noise at this boundary instead of caching it as a peer's config.
-            flags = (flags & 0x0F) | MXR_SCALING_FLAG_OPTIONS_VALID                     | (incoming.flags & MXR_SCALING_FLAG_AUTO_SCALING)
+        if options_valid:
+            # Replace AUTO_SCALING alone rather than the whole upper nibble: on a
+            # receiver-capable unit running firmware that leaves mxr_scaling_config
+            # uninitialised, every other bit up there is stack noise the sender
+            # only ever |= its flags onto, and the settings behind the second
+            # marker are a group of their own that this write does not speak for.
+            flags = (flags & ~MXR_SCALING_FLAG_AUTO_SCALING) | MXR_SCALING_FLAG_OPTIONS_VALID \
+                    | (incoming.flags & MXR_SCALING_FLAG_AUTO_SCALING)
+        if options2_valid:
+            flags = (flags & ~MXR_SCALING_OPTIONS2_SETTINGS) | MXR_SCALING_FLAG_OPTIONS2_VALID \
+                    | (incoming.flags & MXR_SCALING_OPTIONS2_SETTINGS)
+        if (mode == incoming.mode) and (refresh == incoming.refresh) and (flags == incoming.flags):
+            return incoming
         return V2IPScalingSettings(mode=mode, refresh=refresh, flags=flags)
 
 class DeviceV2IPSink:
