@@ -33,6 +33,7 @@ SUITES = [
     'structs',      # alignment padding, u16 bays, packed records
     'roundtrip',    # our builders replayed through our decoders
     'entry',        # the layer the runtime enters at
+    'complete',     # when a device counts as fully described
     'handlers_cover',  # the handlers no other suite reaches
     'idempotent',   # the same frame applied twice changes nothing the second time
     'handlers',     # which frame handlers the suites above execute

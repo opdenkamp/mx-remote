@@ -49,6 +49,7 @@ class FrameBayConfig(FrameBase):
         for bayconfig in self.bays:
             _LOGGER.debug(f"process {bayconfig}")
             dev.on_mxr_update(bayconfig)
+        dev.note_bay_config()
 
     def __str__(self) -> str:
         return f"{self.remote_device} bay config page: {len(self.bays)} bays"

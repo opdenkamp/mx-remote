@@ -2221,8 +2221,12 @@ class DeviceBase(ABC):
         '''system health status'''
 
     @abstractmethod
-    def on_link_config_received(self) -> None:
-        '''internal callback'''
+    def note_link_record(self, port:int) -> None:
+        '''internal callback: the bay on this port reported its link record'''
+
+    @abstractmethod
+    def note_bay_config(self) -> None:
+        '''internal callback: the primary bay configuration was received'''
 
     @abstractmethod
     async def get_api(self, uri:str) -> dict[str, Any]|None:

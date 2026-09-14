@@ -75,7 +75,8 @@ class Device(DeviceBase):
 		self._registry = registry
 		self._hello = hello
 		self._temperatures:SystemTemperature = SystemTemperature([])
-		self._link_config_received = False
+		self._link_records:set[int] = set()
+		self._bay_config_received = False
 		self._last_ping = datetime.now()
 		self._online = True
 		self._have_config = False
@@ -191,8 +192,26 @@ class Device(DeviceBase):
 			self.callbacks.on_device_online_status_changed(self, self._online)
 			self.call_callbacks()
 
-	def on_link_config_received(self) -> None:
-		self._link_config_received = True
+	@override
+	def note_link_record(self, port:int) -> None:
+		'''Note that a bay has reported its link record.
+
+		A set of ports rather than a count, because a device re-sends its
+		configuration: counting records would let one page repeated stand in for
+		the pages behind it, completing a list with bays in it that have never
+		reported a link.
+		'''
+		if (port in self._link_records):
+			return
+		self._link_records.add(port)
+		self._check_config_complete()
+
+	@override
+	def note_bay_config(self) -> None:
+		'''Note that the device has sent its primary bay configuration.'''
+		if self._bay_config_received:
+			return
+		self._bay_config_received = True
 		self._check_config_complete()
 
 	@property
@@ -394,8 +413,21 @@ class Device(DeviceBase):
 
 	@property
 	def has_bays(self) -> bool:
-		'''Check whether the configuration for all bays has been received.'''
-		return len(self.bays) >= (self.nb_inputs + self.nb_outputs)
+		'''Whether the device has sent its primary bay configuration.
+
+		That it was sent at all is the whole of what can be established. A device
+		pages its bays and nothing on the wire marks the last page - no count, no
+		index, no terminating frame - and nothing it says about itself gives the
+		number to expect, so counting what arrived could only be compared against
+		a guess about the model. Every unit sends that list whatever else it
+		sends, which is what makes requiring it safe for all of them; the
+		secondary list does not stand in for it.
+
+		For a V2IP device this is half the answer on its own: its bays include
+		ones that live on other devices, which arrive on a frame of their own
+		that configuration_complete requires separately.
+		'''
+		return self._bay_config_received
 
 	@property
 	def inputs(self) -> dict[str, BayBase]:
@@ -538,9 +570,15 @@ class Device(DeviceBase):
 
 	@property
 	def need_link_config(self) -> bool:
-		'''Check whether the link configuration has been received.'''
+		'''Whether the device owes link records that have not arrived.
+
+		One record per bay, so a record for every input and output is the whole
+		list. The frame carries no count and no end marker, and a short page is
+		not the last one: a sender shrinks a page under memory pressure, and an
+		evenly divided list ends on a full one.
+		'''
 		if (self.is_amp or self.is_video_matrix or self.is_audio_matrix or self.is_v2ip):
-			return not self._link_config_received
+			return len(self._link_records) < (self.nb_inputs + self.nb_outputs)
 		return False
 
 	@override
