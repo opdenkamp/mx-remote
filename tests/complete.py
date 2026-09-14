@@ -14,6 +14,13 @@ been sent at all.
 The bays additionally need the primary list specifically, which every unit sends
 whatever else it sends; the secondary one does not stand in for it.
 
+Only the links stop being waited for. What a device withholds is reported the
+same way as what it does not have, so a wait with no end hides a fault rather
+than reporting one - but a bay is what a caller names things after, and a name
+assigned to a placeholder outlives the frame that would have corrected it. So
+the window below releases the links, and is checked against the two halves it
+must not release.
+
 The two device shapes below are the geometry of real units, and each shows why a
 count of bays is not the number of link records to expect. Both are built here
 from frames rather than from mock bays, because the bay a record names is looked
@@ -25,16 +32,19 @@ import logging, os, struct, sys, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logging.disable(logging.CRITICAL)
 import mx_remote
+from mx_remote.const import MXR_CONFIG_TIMEOUT
 from mx_remote.Uid import MxrDeviceUid
 from mx_remote.proto.Factory import create_mxr_frame
 
-completed = []
 class Watching(mx_remote.MxrCallbacks):
+    def __init__(self, sink):
+        self.sink = sink
     def on_device_config_complete(self, dev):
-        completed.append(dev)
+        self.sink.append(dev)
 
+completed = []
 ADDR = ('192.0.2.9', 8812)
-mx = mx_remote.Remote(open_connection=False, callbacks=Watching())
+mx = mx_remote.Remote(open_connection=False, callbacks=Watching(completed))
 mx._uid = bytes(range(100, 116))
 
 # device features
@@ -140,6 +150,69 @@ assert not amp.need_link_config, 'the page the device sent is the list it has'
 assert amp.configuration_complete, 'a bay left out of a cut list must not gate completion'
 assert completed == [dev, tz, amp], completed
 print('complete    : a cut list is the whole of what a device reports')
+
+# ---- waiting for the links ends, and for nothing else
+# Wind the clock back rather than sleeping, and drive it through the call the
+# probe loop makes: no frame arrives when a window expires, so that call is the
+# only thing that can announce it.
+LATE = bytes(range(49, 65))
+late = hello(LATE, 'MX-2', 'P8SN22222222', VIDEO_ROUTING | AUDIO_ROUTING)
+assert late.need_link_config, 'inside the window the links are still awaited'
+late._hello_received -= (MXR_CONFIG_TIMEOUT + 1)
+assert not late.need_link_config, 'past it they are not'
+
+rx(LATE, 0x23, bay(0, 0, 0, 'In 1'))
+assert not late.has_bays and not late.configuration_complete, \
+    'the window must not stand in for the primary bay list'
+assert not late.check_configuration_complete_timeout(), 'a device still owing bays is still asked'
+assert late not in completed, 'and nothing may name a bay it has not described'
+
+rx(LATE, 0x02, bay(0, 0, 0, 'In 1'))
+assert late.configuration_complete, 'the bays arrived, and the links are no longer awaited'
+assert late.check_configuration_complete_timeout()
+assert completed == [dev, tz, amp, late], completed
+print('complete    : the links stop being waited for, the bays never do')
+
+# A V2IP device owes its source list in its own right, which the window does not
+# release either.
+LATEV2IP = bytes(range(65, 81))
+vl = hello(LATEV2IP, 'OneIP-2', 'P9SN66662905', V2IP_SOURCE | V2IP_SINK)
+vl._hello_received -= (MXR_CONFIG_TIMEOUT + 1)
+rx(LATEV2IP, 0x02, bay(0, 0, 0, 'Input 1') + bay(16, 1, 0, 'Output 1'))
+assert vl.has_bays and not vl.need_link_config
+assert not vl.configuration_complete, 'the window must not stand in for the V2IP source list'
+assert not vl.check_configuration_complete_timeout()
+assert vl not in completed
+
+rx(LATEV2IP, 0x26, bytes(40 * 2))
+assert vl.configuration_complete and vl.check_configuration_complete_timeout()
+assert completed == [dev, tz, amp, late, vl], completed
+print('complete    : nor does it stand in for a V2IP source list')
+
+# Announced by the expiry alone, driven the way the runtime drives it. No frame
+# arrives when a window closes, so the probe loop is the only thing that can
+# notice, and the call it makes there is the whole of the announcement path.
+stuck_seen = []
+runtime = mx_remote.Remote(open_connection=False, callbacks=Watching(stuck_seen))
+runtime._uid = bytes(range(100, 116))
+runtime.transmit = lambda data: len(data)  # no socket; the loop's sends are not the subject
+
+STUCK = bytes(range(81, 97))
+def rx_runtime(op, pl):
+    runtime.process_frame(time.time(), create_mxr_frame(STUCK, op, pl), ADDR)
+rx_runtime(0x00, struct.pack('<H', 0x28) + nm('MX-3') + nm('P8SN33333333') + nm('4.7.9')
+                + struct.pack('<I', VIDEO_ROUTING | AUDIO_ROUTING))
+stuck = runtime.get_by_uid(MxrDeviceUid(STUCK))
+rx_runtime(0x02, bay(0, 0, 0, 'In 1'))
+
+runtime._probe_once()
+assert not stuck.configuration_complete
+assert stuck_seen == [], 'inside the window the loop announces nothing'
+
+stuck._hello_received -= (MXR_CONFIG_TIMEOUT + 1)
+runtime._probe_once()
+assert stuck_seen == [stuck], 'the loop announces a device no further frame will complete'
+print('complete    : announced from the probe loop, on the expiry alone')
 
 print()
 print('ALL OK')

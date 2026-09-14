@@ -51,6 +51,7 @@ from ..proto.Multiviewer import (
 	MultiviewerITCMode,
 	MultiviewerHDCPMode,
 )
+from ..const import MXR_CONFIG_TIMEOUT
 from ..Uid import MxrDeviceUid
 from typing import Any, Callable
 from ..compat import override
@@ -340,14 +341,21 @@ class Device(DeviceBase):
 		return not self.need_link_config
 
 	def check_configuration_complete_timeout(self) -> bool:
+		'''Whether this device's configuration is still on course.
+
+		Called on every pass of the probe loop, which is what gives the window
+		in need_link_config a moment to expire in: a device that stops waiting
+		for its links is announced from here, since no frame need arrive for
+		that to become true.
+
+		False asks for another discover - something the device owes has not
+		arrived and waiting has not produced it.
+		'''
+		self._check_config_complete()
 		if self.configuration_complete:
 			# info received
 			return True
-		if ((time.time() - self._hello_received) > 15):
-			# configuration incomplete after 15 seconds
-			return False
-		# waiting for the timeout to pass
-		return True
+		return ((time.time() - self._hello_received) <= MXR_CONFIG_TIMEOUT)
 
 	@property
 	def protocol(self) -> int:
@@ -480,6 +488,13 @@ class Device(DeviceBase):
 		For a V2IP device this is half the answer on its own: its bays include
 		ones that live on other devices, which arrive on a frame of their own
 		that configuration_complete requires separately.
+
+		Unlike the link configuration, waiting for this never times out. A bay
+		is what a caller names things after, and a name it assigns before this
+		frame arrives is one it assigned to a placeholder - persisted, reused
+		from then on, and undone only by editing whatever holds it. So a device
+		that has not sent its bays is reported as undescribed for as long as
+		that lasts.
 		'''
 		return self._bay_config_received
 
@@ -638,9 +653,19 @@ class Device(DeviceBase):
 		An 18-bay amplifier reports 17 records in one page and sends no second
 		one, so even a device whose bays are all its own never accounts for the
 		last of them.
+
+		Waiting for it ends after MXR_CONFIG_TIMEOUT, and the device is still
+		asked for the rest. Nothing a caller has already built needs revising
+		when the records do arrive - a link is reported per bay and read on
+		access, so an unreported one reads as no link, which is what a link
+		coming up later looks like anyway. A withheld frame therefore costs a
+		consumer that window rather than leaving the device permanently
+		undescribed, which is a state nothing on the wire distinguishes from a
+		device that has no bays to offer.
 		'''
 		if (self.is_amp or self.is_video_matrix or self.is_audio_matrix or self.is_v2ip):
-			return not self._link_config_received
+			return (not self._link_config_received) \
+				and ((time.time() - self._hello_received) <= MXR_CONFIG_TIMEOUT)
 		return False
 
 	@override

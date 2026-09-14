@@ -37,6 +37,14 @@ re-drawn after every hello that is sent, so devices announcing on the same mesh 
 not converge into synchronised bursts.
 """
 
+MXR_CONFIG_TIMEOUT = 15
+"""How long a device is given to finish describing itself, in seconds.
+
+Past this a device is reported as fully described without its link
+configuration, and keeps being asked for the rest. It never stands in for the
+bay configuration - see ``Device.has_bays``.
+"""
+
 V2IP_UDP_PORT_VIDEO = 50020
 """Default destination UDP port for a V2IP video stream (firmware ``V2IP_UDP_PORT_VIDEO``)."""
 
