@@ -232,6 +232,32 @@ class DeviceFeature(IntFlag):
 	CONFIG_INITIALISED = (1 << 25)
 	BOOT_BIT           = (1 << 31)
 
+class V2IPFpgaFeature(IntFlag):
+	'''What a V2IP device's video processor supports, as the device reports it in
+	its configuration.
+
+	Read-only, and a device's own: it fills the field in only on the frame
+	describing itself, and leaves it zero on one it sends to configure another
+	device. There is no write path.
+
+	Bits are assigned by the video processor and only ever appended, so a bit
+	this library has no name for is a later capability rather than an error. A
+	device reports no features at all until its processor answers, and an older
+	processor answers with none of the optional commands, so an empty mask is
+	never a capability set.'''
+	SOURCE_DSCP        = (1 << 0)
+	'''Applies a DSCP marking to the streams it sources.'''
+	SINK_AUDIO_FORMAT  = (1 << 1)
+	'''Reports the audio format arriving at its sink.'''
+	SINK_TILING_WINDOW = (1 << 2)
+	'''Places a tiling window on its sink.'''
+	SINK_OVERLAY_STATE = (1 << 3)
+	'''Reports the state of its sink's overlay.'''
+	SINK_STATE         = (1 << 4)
+	'''Reports its sink's state.'''
+	SINK_STREAM_INFO   = (1 << 5)
+	'''Reports information about the stream its sink receives.'''
+
 BAY_FEATURE_DOLBY_IN_POS = 24
 
 class BayFeaturesMask(IntFlag):

@@ -2072,6 +2072,17 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
+    def v2ip_features(self) -> 'V2IPFpgaFeature|None':
+        '''What this device's video processor supports, None until it has said.
+
+        A device reports the mask only on a configuration it sends about itself,
+        and reports nothing at all until its processor has answered - which
+        looks the same on the wire as a processor without any of the optional
+        commands, so neither is read as a capability set.
+        '''
+
+    @property
+    @abstractmethod
     def v2ip_sources(self) -> V2IPStreamSourcesList|None:
         '''V2IP stream source addresses'''
 

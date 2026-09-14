@@ -60,8 +60,9 @@ import time
 
 from ..Interface import DeviceBase, BayBase, DeviceRegistry
 from ..proto.FrameBase import FrameBase
-from ..proto.Constants import (DeviceFeature, MxrSignalType, MXR_SCALING_FLAG_AUTO_SCALING,
-                              MXR_SCALING_FLAG_MODE_VALID, MXR_SCALING_FLAG_OPTIONS_VALID)
+from ..proto.Constants import (DeviceFeature, MxrSignalType, V2IPFpgaFeature,
+                              MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
+                              MXR_SCALING_FLAG_OPTIONS_VALID)
 from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
 
 _LOGGER = logging.getLogger(__name__)
@@ -91,6 +92,7 @@ class Device(DeviceBase):
 		self._v2ip_stats:V2IPDeviceStats|None = None
 		self._v2ip_details:DeviceV2IPDetails|None = None
 		self._v2ip_sink:DeviceV2IPSink|None = None
+		self._v2ip_features:V2IPFpgaFeature|None = None
 		self._mesh_master_uid:MxrDeviceUid|None = None
 		self._v2ip_in_mapping:list[MxrDeviceUid]|None = None
 		self._v2ip_out_mapping:list[MxrDeviceUid]|None = None
@@ -307,6 +309,24 @@ class Device(DeviceBase):
 	@v2ip_sink.setter
 	def v2ip_sink(self, sink:DeviceV2IPSink) -> None:
 		self._v2ip_sink = sink
+		self.call_callbacks()
+
+	@property
+	@override
+	def v2ip_features(self) -> V2IPFpgaFeature|None:
+		return self._v2ip_features
+
+	@v2ip_features.setter
+	def v2ip_features(self, features:V2IPFpgaFeature) -> None:
+		'''Record what this device's video processor supports.
+
+		The mask only ever gains bits, and the caller passes a non-empty one
+		from a frame the device sent about itself: every other frame says
+		nothing about the subject's processor and leaves this alone.
+		'''
+		if (self._v2ip_features == features):
+			return
+		self._v2ip_features = features
 		self.call_callbacks()
 
 	@property
@@ -736,6 +756,8 @@ class Device(DeviceBase):
 			self.v2ip_details = data
 		elif isinstance(data, DeviceV2IPSink):
 			self.v2ip_sink = data
+		elif isinstance(data, V2IPFpgaFeature):
+			self.v2ip_features = data
 		elif isinstance(data, V2IPStreamSourcesList):
 			self.merge_v2ip_sources(first=0, total=len(data), page=data)
 		elif isinstance(data, V2IPDeviceStats):

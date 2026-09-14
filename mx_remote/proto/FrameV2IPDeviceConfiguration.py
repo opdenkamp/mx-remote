@@ -13,7 +13,7 @@ from .FrameHeader import FrameHeader
 from ..Uid import MxrDeviceUid
 from ..Interface import (DeviceBase, DeviceRegistry, DeviceV2IPDetails, DeviceV2IPScalingSettings,
                          DeviceV2IPSink, V2IPAudioFormat, V2IPDscpConfig, V2IPStreamSource)
-from .Constants import (MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
+from .Constants import (V2IPFpgaFeature, MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                         MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_OPTIONS2_VALID,
                         MXR_SCALING_OPTIONS2_SETTINGS, MxrSignalType, v2ip_dscp_value,
                         v2ip_rate_valid)
@@ -26,9 +26,14 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #    48..56   v2ip_stream_source audio_return (arc)
 #    56..64   mxr_scaling_config: u16 mode, u16 refresh, u8 flags, 3 pad
 #    64..88   mxr_v2ip_tiling_config: mxr_uid, 4 x u16
-# v2ip_device_config_update_options trailer, present from MXR protocol 0x26:
+# v2ip_device_config_update_options trailer:
 #    88..112  v2ip_av_source sink, zero when no route is active
 #   112..120  v2ip_audio_format sink_audio_fmt
+#   120..128  u64 video processor feature mask
+#
+# Each of those blocks was appended behind what came before it, leaving every
+# offset ahead of it where it was, so the length is what says whether one is
+# there and no stamp separates the forms.
 #
 # Every field carries its own validity marker and is applied only behind it,
 # because a controller writing one field leaves the rest zeroed:
@@ -59,11 +64,22 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #
 # Nothing here caches tiling. Test the uid if that changes, or a controller
 # write will wipe every sink's cached wall window.
+_CONFIG_BASE_SIZE   = 64
+'''The configuration as it was before the tiling window was appended to it,
+which is the shortest whole one any sender emits. Every field ahead of the
+window sits at the same offset in both forms, so a sender of this one is decoded
+in full rather than refused: it is a complete configuration, just an older one.
+
+Shorter than this is a frame no device acts on, and the fields it does carry are
+not worth holding a configuration nothing else believes in.'''
+
 _BASE_SIZE          = 88
 _OPTIONS_SIZE       = 32
 _WITH_OPTIONS_SIZE  = _BASE_SIZE + _OPTIONS_SIZE
 _SINK_OFFSET        = _BASE_SIZE
 _SINK_AUDIO_OFFSET  = _BASE_SIZE + 24
+_CODEC_OFFSET       = _WITH_OPTIONS_SIZE
+_CODEC_SIZE         = 8
 
 class V2IPDeviceOptions:
     '''Parsed V2IP device options (TX rate and per-stream DSCP marking).'''
@@ -155,7 +171,7 @@ class FrameV2IPDeviceConfiguration(FrameBase):
     '''V2IP device configuration with stream addresses and scaling settings.'''
     def __init__(self, header:FrameHeader, timestamp:float):
         super().__init__(header=header, timestamp=timestamp)
-        if (self.payload is None) or (len(self.payload) < 61):
+        if (self.payload is None) or (len(self.payload) < _CONFIG_BASE_SIZE):
             raise Exception("invalid v2ip configuration")
         self.video = V2IPStreamSourceImpl("video", self.payload[16:22])
         self.audio = V2IPStreamSourceImpl("audio", self.payload[24:30])
@@ -270,8 +286,33 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         return DeviceV2IPDetails(video=self.video, audio=self.audio, anc=self.anc, arc=self.arc, tx_rate=self.options.tx_rate, scaling=self.scaling, dscp=self.options.dscp)
 
     @cached_property
+    def video_processor_features(self) -> V2IPFpgaFeature|None:
+        '''What the subject's video processor supports, None when nothing is known.
+
+        Read only from a frame a device sent about itself. A device leaves the
+        word zero on one it sends to configure someone else, so a third party's
+        frame says nothing about the subject's processor - and a client that did
+        fill the field in could otherwise redefine a device's capabilities from
+        across the network.
+
+        An empty mask is nothing known rather than a device that supports
+        nothing. The word is zero until the processor answers after boot, and an
+        older processor answers with none of the optional commands; the two are
+        identical on the wire, so neither can be a capability set.
+        '''
+        if (self.payload is None) or (len(self.payload) < (_CODEC_OFFSET + _CODEC_SIZE)):
+            return None
+        if not self.target_self:
+            return None
+        mask = int.from_bytes(self.payload[_CODEC_OFFSET:(_CODEC_OFFSET + _CODEC_SIZE)], 'little')
+        if (mask == 0):
+            return None
+        return V2IPFpgaFeature(mask)
+
+    @cached_property
     def sink(self) -> DeviceV2IPSink|None:
-        '''Sink-side state appended by peers running MXR protocol >= 0x26; None on older senders.'''
+        '''Sink-side state a longer frame appends to the configuration; None when
+        the frame stops in front of it.'''
         if (self.payload is None) or (len(self.payload) < _WITH_OPTIONS_SIZE):
             return None
         return DeviceV2IPSink(
@@ -286,7 +327,10 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         dev.on_mxr_update(self.details)
         if ((sink := self.sink) is not None):
             dev.on_mxr_update(sink)
+        if ((features := self.video_processor_features) is not None):
+            dev.on_mxr_update(features)
 
     def __str__(self) -> str:
         sink_str = f" sink=[{self.sink}]" if (self.sink is not None) else ""
-        return f"V2IP device configuration self={self.target_self} {self.video} {self.audio} {self.anc} {self.arc} options={self.options}{sink_str}"
+        fpga_str = f" fpga={self.video_processor_features}" if (self.video_processor_features is not None) else ""
+        return f"V2IP device configuration self={self.target_self} {self.video} {self.audio} {self.anc} {self.arc} options={self.options}{sink_str}{fpga_str}"
