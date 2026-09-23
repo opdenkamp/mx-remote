@@ -57,3 +57,20 @@ The key and action codes a bay reports, and the target a key was aimed at.
 
 .. autodata:: mx_remote.proto.Constants.MXR_PROTOCOL_VERSION
 ```
+
+## V2IP device settings
+
+The settings a V2IP device reports and a controller writes, each behind its own
+bit, and the range of the infrared profiles.
+
+```{eval-rst}
+.. autoclass:: mx_remote.proto.Constants.V2IPDeviceSetting
+   :members:
+   :undoc-members:
+
+.. autodata:: mx_remote.proto.Constants.V2IP_DEVICE_SETTING_SWITCHES
+
+.. autodata:: mx_remote.proto.Constants.V2IP_IR_PROFILE_NOT_SET
+
+.. autodata:: mx_remote.proto.Constants.V2IP_IR_PROFILE_MAX
+```

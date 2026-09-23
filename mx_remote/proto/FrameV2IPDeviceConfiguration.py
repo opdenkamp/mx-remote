@@ -12,8 +12,10 @@ from .FrameBase import FrameBase
 from .FrameHeader import FrameHeader
 from ..Uid import MxrDeviceUid
 from ..Interface import (DeviceBase, DeviceRegistry, DeviceV2IPDetails, DeviceV2IPScalingSettings,
-                         DeviceV2IPSink, V2IPAudioFormat, V2IPDscpConfig, V2IPStreamSource)
-from .Constants import (V2IPFpgaFeature, MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
+                         DeviceV2IPSink, V2IPAudioFormat, V2IPDeviceSettings, V2IPDscpConfig,
+                         V2IPStreamSource)
+from .Constants import (V2IPDeviceSetting, V2IPFpgaFeature, MXR_SCALING_FLAG_AUTO_SCALING,
+                        MXR_SCALING_FLAG_MODE_VALID,
                         MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_OPTIONS2_VALID,
                         MXR_SCALING_OPTIONS2_SETTINGS, MxrSignalType, v2ip_dscp_value,
                         v2ip_rate_valid)
@@ -30,6 +32,8 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #    88..112  v2ip_av_source sink, zero when no route is active
 #   112..120  v2ip_audio_format sink_audio_fmt
 #   120..128  u64 video processor feature mask
+#   128..144  device settings: u32 valid, u32 flags, u32 stored ir profiles,
+#             s8 ir_profile, s8 ir_profile_sink, 2 reserved
 #
 # Each of those blocks was appended behind what came before it, leaving every
 # offset ahead of it where it was, so the length is what says whether one is
@@ -53,6 +57,7 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 # cache wholesale reports a peer's addresses as 0.0.0.0 the moment a controller
 # writes anything else. The sink trailer is the exception: present or absent by
 # length, with no marker, and taken only from a device describing itself.
+# The settings block marks each setting with its own bit in valid.
 #
 # Trust the scaling block only from a peer whose hello carries
 # MXR_FEATURE_CONFIG_INITIALISED. Without it the sender may have built those
@@ -80,6 +85,9 @@ _SINK_OFFSET        = _BASE_SIZE
 _SINK_AUDIO_OFFSET  = _BASE_SIZE + 24
 _CODEC_OFFSET       = _WITH_OPTIONS_SIZE
 _CODEC_SIZE         = 8
+_SETTINGS_OFFSET    = _CODEC_OFFSET + _CODEC_SIZE
+_SETTINGS_SIZE      = 16
+_WITH_SETTINGS_SIZE = _SETTINGS_OFFSET + _SETTINGS_SIZE
 
 class V2IPDeviceOptions:
     '''Parsed V2IP device options (TX rate and per-stream DSCP marking).'''
@@ -236,6 +244,46 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         payload += bytes(_BASE_SIZE - len(payload))
         return FrameBase.construct_base(target=target, mxr=mxr, opcode=_OPCODE, payload=bytes(payload))
 
+    @staticmethod
+    def construct_settings(mxr:DeviceRegistry, target:Any, target_uid:MxrDeviceUid,
+                           settings:V2IPDeviceSettings) -> FrameBase|None:
+        '''Build the 0x3C write that changes a device's settings and nothing else.
+
+        144 bytes: the configuration as construct_scaling() lays it out but with
+        no scaling validity bit, then the options trailer - the sink block at
+        88..120, the processor's feature word at 120..128 and the settings at
+        128..144. The settings are the last block, so a frame that carries them
+        carries the two before them too.
+
+        **Both of those go out zeroed.** A device leaves the feature word zero on
+        a frame about another device, and a receiver takes the sink block only
+        from a device describing itself - except on a receiver that predates the
+        settings block, which copies it into its record of the target until the
+        target next reports. That is the frame a controlling device sends for
+        the same change.
+
+        Only the settings named in settings.valid are carried; the device keeps
+        the rest.
+        '''
+        payload = bytearray(target_uid.byte_value)
+        if (len(payload) != 16):
+            raise ValueError(f"invalid uid length: {len(payload)}")
+        # source: three stream slots, left zeroed so the encoder keeps its own.
+        payload += bytes(40 - len(payload))
+        payload.append(_RATE_UNSET)
+        # No dscp, no audio return, a scaling block without a validity bit and a
+        # tiling window whose zero uid says none is carried; then the zeroed
+        # sink block and feature word.
+        payload += bytes(_SETTINGS_OFFSET - len(payload))
+        payload += int(settings.valid).to_bytes(4, 'little')
+        payload += int(settings.flags).to_bytes(4, 'little')
+        # A value not named in valid is not read, so it goes out as zero.
+        payload += (settings.stored_ir_profiles or 0).to_bytes(4, 'little')
+        payload += (settings.ir_profile or 0).to_bytes(1, 'little', signed=True)
+        payload += (settings.ir_profile_sink or 0).to_bytes(1, 'little', signed=True)
+        payload += bytes(_WITH_SETTINGS_SIZE - len(payload))
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=_OPCODE, payload=bytes(payload))
+
     @property
     def target_uid(self) -> MxrDeviceUid|None:
         return self.payload_uuid(idx=0)
@@ -328,6 +376,31 @@ class FrameV2IPDeviceConfiguration(FrameBase):
             audio_fmt=V2IPAudioFormat.from_bytes(self.payload[_SINK_AUDIO_OFFSET:_SINK_AUDIO_OFFSET + 8]),
         )
 
+    @cached_property
+    def settings(self) -> V2IPDeviceSettings|None:
+        '''The device settings block, as the subject will hold it; None when the
+        frame stops in front of it or nothing would act on it.
+
+        A device reports every setting it has. A controller sends only the ones
+        it changes, and the device applies only those it has, so a write is
+        limited here to what the device will take from it and no further.
+        '''
+        if (self.payload is None) or (len(self.payload) < _WITH_SETTINGS_SIZE):
+            return None
+        if ((dev := self.subject_device) is None):
+            return None
+        block = self.payload[_SETTINGS_OFFSET:_WITH_SETTINGS_SIZE]
+        frame = V2IPDeviceSettings(
+            valid=V2IPDeviceSetting(int.from_bytes(block[0:4], 'little')),
+            flags=V2IPDeviceSetting(int.from_bytes(block[4:8], 'little')),
+            ir_profiles=int.from_bytes(block[8:12], 'little'),
+            ir_profile=int.from_bytes(block[12:13], 'little', signed=True),
+            ir_profile_sink=int.from_bytes(block[13:14], 'little', signed=True))
+        if self.target_self:
+            return frame
+        reported = dev.v2ip_settings
+        return frame.as_applied_to(reported.valid if (reported is not None) else V2IPDeviceSetting(0))
+
     def process(self) -> None:
         '''Update the cache of the device this configuration names, not of its sender.'''
         if ((dev := self.subject_device) is None):
@@ -337,8 +410,11 @@ class FrameV2IPDeviceConfiguration(FrameBase):
             dev.on_mxr_update(sink)
         if ((features := self.video_processor_features) is not None):
             dev.on_mxr_update(features)
+        if ((settings := self.settings) is not None):
+            dev.on_mxr_update(settings)
 
     def __str__(self) -> str:
         sink_str = f" sink=[{self.sink}]" if (self.sink is not None) else ""
         fpga_str = f" fpga={self.video_processor_features}" if (self.video_processor_features is not None) else ""
-        return f"V2IP device configuration self={self.target_self} {self.video} {self.audio} {self.anc} {self.arc} options={self.options}{sink_str}{fpga_str}"
+        settings_str = f" settings=[{self.settings}]" if (self.settings is not None) else ""
+        return f"V2IP device configuration self={self.target_self} {self.video} {self.audio} {self.anc} {self.arc} options={self.options}{sink_str}{fpga_str}{settings_str}"

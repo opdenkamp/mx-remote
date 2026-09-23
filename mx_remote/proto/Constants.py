@@ -258,6 +258,50 @@ class V2IPFpgaFeature(IntFlag):
 	SINK_STREAM_INFO   = (1 << 5)
 	'''Reports information about the stream its sink receives.'''
 
+class V2IPDeviceSetting(IntFlag):
+	'''The device settings a V2IP configuration can carry, each on its own bit.
+
+	The same bits serve as the settings a frame carries and as the values of the
+	on/off ones among them. The last three carry a value elsewhere in the block
+	and have no on/off value of their own.
+
+	A device reports every setting it has, so one it never reports is one it
+	does not have.'''
+	SINK_CHECK_POWER   = (1 << 0)
+	'''Disables the decoder while the display is off.'''
+	SINK_OFF_NO_SIGNAL = (1 << 1)
+	'''Disables the HDMI output while there is no signal.'''
+	IR_TX_MODULATED    = (1 << 2)
+	'''Sends infrared modulated.'''
+	STATUS_LED         = (1 << 3)
+	'''Lights the status LED.'''
+	NETWORK_LED        = (1 << 4)
+	'''Lights the network port LEDs.'''
+	FAN_QUIET          = (1 << 5)
+	'''Runs the fan in quiet mode.'''
+	CEC_COMBO_KEYS     = (1 << 6)
+	'''Accepts CEC combo keys.'''
+	CEC_COMBO_INPUT    = (1 << 7)
+	'''Accepts CEC combo keys for the device's own input.'''
+	IR_PROFILE         = (1 << 8)
+	'''The infrared profile of the device's global infrared port.'''
+	IR_PROFILE_SINK    = (1 << 9)
+	'''The infrared profile of the output's infrared port.'''
+	IR_PROFILES        = (1 << 10)
+	'''The infrared profiles stored on the device. Reported by the device
+	itself and never written.'''
+
+V2IP_DEVICE_SETTING_SWITCHES = V2IPDeviceSetting(0xFF)
+"""The settings that are on or off, as opposed to carrying a value."""
+
+V2IP_IR_PROFILE_NOT_SET = -1
+"""The infrared profile an output's port reports when it follows the device's
+global one."""
+
+V2IP_IR_PROFILE_MAX = 18
+"""One past the highest infrared profile: the default profile is 0, the Atlona
+profile 1, and user-defined profiles 1 to 16 are 2 to 17."""
+
 BAY_FEATURE_DOLBY_IN_POS = 24
 
 class BayFeaturesMask(IntFlag):

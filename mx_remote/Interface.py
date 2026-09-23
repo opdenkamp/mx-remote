@@ -1794,6 +1794,122 @@ class DeviceV2IPSink:
     def __str__(self) -> str:
         return f"addresses=[{self._addresses}] audio_fmt={self._audio_fmt}"
 
+class V2IPDeviceSettings:
+    """
+    The device settings of a V2IP unit, as it reports them and as its controller
+    changes them.
+
+    Each setting is carried only behind its bit in ``valid``, so a frame changes
+    one setting without restating the others, and a device reports only the
+    settings it has. Read a setting through ``get()`` and the profile
+    properties, which answer None for one the device has not reported.
+    """
+    def __init__(self, valid:V2IPDeviceSetting=V2IPDeviceSetting(0),
+                 flags:V2IPDeviceSetting=V2IPDeviceSetting(0), ir_profiles:int=0,
+                 ir_profile:int=0, ir_profile_sink:int=0) -> None:
+        self._valid = V2IPDeviceSetting(valid)
+        self._flags = V2IPDeviceSetting(flags)
+        self._ir_profiles = ir_profiles
+        self._ir_profile = ir_profile
+        self._ir_profile_sink = ir_profile_sink
+
+    @property
+    def valid(self) -> V2IPDeviceSetting:
+        """The settings reported so far."""
+        return self._valid
+
+    @property
+    def flags(self) -> V2IPDeviceSetting:
+        """The values of the on/off settings among ``valid``."""
+        return self._flags
+
+    def get(self, setting:V2IPDeviceSetting) -> bool|None:
+        """Whether an on/off setting is on, None while the device has not reported it."""
+        if ((self._valid & setting) != setting):
+            return None
+        return ((self._flags & setting) == setting)
+
+    @property
+    def ir_profile(self) -> int|None:
+        """The global infrared port's profile, None while it is not reported."""
+        if (V2IPDeviceSetting.IR_PROFILE not in self._valid):
+            return None
+        return self._ir_profile
+
+    @property
+    def ir_profile_sink(self) -> int|None:
+        """The output infrared port's profile, None while it is not reported.
+        V2IP_IR_PROFILE_NOT_SET means the port follows the global one."""
+        if (V2IPDeviceSetting.IR_PROFILE_SINK not in self._valid):
+            return None
+        return self._ir_profile_sink
+
+    @property
+    def stored_ir_profiles(self) -> int|None:
+        """The infrared profiles stored on the device, bit n for profile n, None
+        while it is not reported."""
+        if (V2IPDeviceSetting.IR_PROFILES not in self._valid):
+            return None
+        return self._ir_profiles
+
+    def merge(self, previous:'V2IPDeviceSettings|None') -> 'V2IPDeviceSettings':
+        """
+        Fold this received block onto the cached one.
+
+        Each bit in this block's ``valid`` replaces its own setting and leaves
+        the others alone, so a write about one setting does not clear what was
+        known about the rest.
+        """
+        if (previous is None):
+            previous = V2IPDeviceSettings()
+        valid = self._valid
+        return V2IPDeviceSettings(
+            valid=(previous._valid | valid),
+            flags=((previous._flags & ~valid) | (self._flags & valid)),
+            ir_profiles=(self._ir_profiles if (V2IPDeviceSetting.IR_PROFILES in valid)
+                         else previous._ir_profiles),
+            ir_profile=(self._ir_profile if (V2IPDeviceSetting.IR_PROFILE in valid)
+                        else previous._ir_profile),
+            ir_profile_sink=(self._ir_profile_sink if (V2IPDeviceSetting.IR_PROFILE_SINK in valid)
+                             else previous._ir_profile_sink))
+
+    def as_applied_to(self, reported:V2IPDeviceSetting) -> 'V2IPDeviceSettings':
+        """
+        This block limited to what a device takes from a write about it.
+
+        A device applies a setting only if it has it, a profile only within its
+        range, and never the list of stored profiles, which only it knows.
+        """
+        valid = (self._valid & reported) & ~V2IPDeviceSetting.IR_PROFILES
+        if not (0 <= self._ir_profile < V2IP_IR_PROFILE_MAX):
+            valid &= ~V2IPDeviceSetting.IR_PROFILE
+        if not (V2IP_IR_PROFILE_NOT_SET <= self._ir_profile_sink < V2IP_IR_PROFILE_MAX):
+            valid &= ~V2IPDeviceSetting.IR_PROFILE_SINK
+        return V2IPDeviceSettings(valid=valid, flags=self._flags, ir_profiles=self._ir_profiles,
+                                  ir_profile=self._ir_profile, ir_profile_sink=self._ir_profile_sink)
+
+    def __eq__(self, other:Any) -> bool:
+        if not isinstance(other, V2IPDeviceSettings):
+            return NotImplemented
+        return ((self._valid, self._flags, self._ir_profiles, self._ir_profile, self._ir_profile_sink)
+                == (other._valid, other._flags, other._ir_profiles, other._ir_profile, other._ir_profile_sink))
+
+    def __ne__(self, other:Any) -> bool:
+        result = self.__eq__(other)
+        return result if (result is NotImplemented) else (not result)
+
+    def __str__(self) -> str:
+        parts = [f"{setting.name}={'on' if self.get(setting) else 'off'}"
+                 for setting in V2IPDeviceSetting
+                 if (setting in V2IP_DEVICE_SETTING_SWITCHES) and (self.get(setting) is not None)]
+        if (self.ir_profile is not None):
+            parts.append(f"ir_profile={self.ir_profile}")
+        if (self.ir_profile_sink is not None):
+            parts.append(f"ir_profile_sink={self.ir_profile_sink}")
+        if (self.stored_ir_profiles is not None):
+            parts.append(f"ir_profiles={self.stored_ir_profiles:#x}")
+        return " ".join(parts)
+
     def __repr__(self) -> str:
         return str(self)
 
@@ -2105,6 +2221,15 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
+    def v2ip_settings(self) -> V2IPDeviceSettings|None:
+        '''The V2IP device settings, None until the device has reported any.
+
+        A device reports only the settings it has, so one missing from valid
+        once the rest have arrived is one the device does not have.
+        '''
+
+    @property
+    @abstractmethod
     def v2ip_source_local(self) -> V2IPStreamSources|None:
          ''' local v2ip source addresses '''
 
@@ -2323,6 +2448,18 @@ class DeviceBase(ABC):
     @abstractmethod
     async def clear_v2ip_output_mode(self) -> bool:
         '''clear the output format this sink is configured to scale to'''
+
+    @abstractmethod
+    async def set_v2ip_setting(self, setting:V2IPDeviceSetting, enabled:bool) -> bool:
+        '''switch on/off V2IP device settings, all to the same value'''
+
+    @abstractmethod
+    async def set_v2ip_ir_profile(self, profile:int) -> bool:
+        '''set the infrared profile of the device's global infrared port'''
+
+    @abstractmethod
+    async def set_v2ip_sink_ir_profile(self, profile:int) -> bool:
+        '''set the infrared profile of the device's output infrared port'''
 
     @abstractmethod
     async def get_log(self) -> str|None:

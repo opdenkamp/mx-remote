@@ -161,6 +161,37 @@ it, so refusing them would hold a route that nothing later could clear.
 Only the device's own report sets the block. A controller writing another
 device's configuration sends it zeroed, and the library ignores that copy.
 
+## Device settings
+
+A V2IP device reports its settings in its configuration: decoder auto-disable,
+HDMI off without signal, IR modulation, the status and network LEDs, quiet fan,
+CEC combo keys, and the infrared profiles. Each sits behind its own bit, so a
+device reports only the settings it has, and a write changes one without
+restating the rest.
+
+```python
+from mx_remote import V2IPDeviceSetting
+
+settings = device.v2ip_settings             # None until the device has reported
+print(settings.get(V2IPDeviceSetting.FAN_QUIET))   # None: the device lacks it
+print(settings.ir_profile, settings.ir_profile_sink)
+
+await device.set_v2ip_setting(V2IPDeviceSetting.STATUS_LED, False)
+await device.set_v2ip_ir_profile(2)
+await device.set_v2ip_sink_ir_profile(mx_remote.V2IP_IR_PROFILE_NOT_SET)  # follow the global port
+```
+
+A write returns False, without sending anything, for whatever the device would
+ignore in silence: a setting it has not reported, a profile out of range, or a
+device that has reported no settings at all. So a True is never a change that
+does not happen, though nothing acknowledges it either: the device answers by
+reporting its settings, and until then `v2ip_settings` reads back what was
+written.
+
+A write from another controller is cached only as far as the device takes it.
+The list of stored infrared profiles is the device's own and is never taken
+from a write.
+
 ## Mesh and firmware
 
 ```python

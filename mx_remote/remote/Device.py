@@ -22,6 +22,7 @@ from ..Interface import (
 	AudioChangeSource,
 	AudioLinks,
 	DeviceV2IPScalingSettings,
+	V2IPDeviceSettings,
 	V2IPOutputMode,
 	V2IPScalingSettings,
 )
@@ -61,9 +62,10 @@ import time
 
 from ..Interface import DeviceBase, BayBase, DeviceRegistry
 from ..proto.FrameBase import FrameBase
-from ..proto.Constants import (DeviceFeature, MxrSignalType, V2IPFpgaFeature,
+from ..proto.Constants import (DeviceFeature, MxrSignalType, V2IPDeviceSetting, V2IPFpgaFeature,
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
-                              MXR_SCALING_FLAG_OPTIONS_VALID)
+                              MXR_SCALING_FLAG_OPTIONS_VALID, V2IP_DEVICE_SETTING_SWITCHES,
+                              V2IP_IR_PROFILE_MAX, V2IP_IR_PROFILE_NOT_SET)
 from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
 
 _LOGGER = logging.getLogger(__name__)
@@ -94,6 +96,7 @@ class Device(DeviceBase):
 		self._v2ip_details:DeviceV2IPDetails|None = None
 		self._v2ip_sink:DeviceV2IPSink|None = None
 		self._v2ip_features:V2IPFpgaFeature|None = None
+		self._v2ip_settings:V2IPDeviceSettings|None = None
 		self._mesh_master_uid:MxrDeviceUid|None = None
 		# The source device behind each V2IP bay, by bay mode and number. Held
 		# here as well as on the bays because a device may send its mappings
@@ -325,6 +328,26 @@ class Device(DeviceBase):
 		if (self._v2ip_features == features):
 			return
 		self._v2ip_features = features
+		self.call_callbacks()
+
+	@property
+	@override
+	def v2ip_settings(self) -> V2IPDeviceSettings|None:
+		return self._v2ip_settings
+
+	def _merge_v2ip_settings(self, frame:V2IPDeviceSettings) -> None:
+		'''Fold a settings block onto the cached one.
+
+		The caller has already limited a write about this device to what the
+		device takes from one; a block that carries no setting leaves the cache
+		as it was.
+		'''
+		if (int(frame.valid) == 0):
+			return
+		merged = frame.merge(self._v2ip_settings)
+		if (merged == self._v2ip_settings):
+			return
+		self._v2ip_settings = merged
 		self.call_callbacks()
 
 	@property
@@ -790,6 +813,8 @@ class Device(DeviceBase):
 			self.v2ip_sink = data
 		elif isinstance(data, V2IPFpgaFeature):
 			self.v2ip_features = data
+		elif isinstance(data, V2IPDeviceSettings):
+			self._merge_v2ip_settings(data)
 		elif isinstance(data, V2IPStreamSourcesList):
 			self.merge_v2ip_sources(first=0, total=len(data), page=data)
 		elif isinstance(data, V2IPDeviceStats):
@@ -1079,6 +1104,65 @@ class Device(DeviceBase):
 		if self.registry.transmit(frame.frame) != len(frame.frame):
 			return False
 		self._apply_v2ip_scaling(applied(self._cached_scaling))
+		return True
+
+	async def set_v2ip_setting(self, setting:V2IPDeviceSetting, enabled:bool) -> bool:
+		'''Switch on/off settings of this V2IP device, all to the same value.
+
+		setting names one or more of V2IP_DEVICE_SETTING_SWITCHES, and each must
+		be one the device has reported: a device ignores a setting it does not
+		have, so a write for one would read back as applied here and change
+		nothing there.
+
+		Nothing acknowledges the frame. The device answers by reporting its
+		settings, and until then v2ip_settings reads back what was written.
+		'''
+		setting = V2IPDeviceSetting(setting)
+		if (int(setting) == 0) or ((setting & ~V2IP_DEVICE_SETTING_SWITCHES) != 0):
+			_LOGGER.warning(f"not setting {setting!r} on {self}: only on/off device settings are switched")
+			return False
+		return self._send_v2ip_settings(V2IPDeviceSettings(
+			valid=setting, flags=(setting if enabled else V2IPDeviceSetting(0))))
+
+	async def set_v2ip_ir_profile(self, profile:int) -> bool:
+		'''Set the infrared profile of this V2IP device's global infrared port.
+
+		profile is below V2IP_IR_PROFILE_MAX, and is checked here because a
+		device ignores one out of range. The terms of set_v2ip_setting() apply.
+		'''
+		if not (0 <= profile < V2IP_IR_PROFILE_MAX):
+			_LOGGER.warning(f"not setting infrared profile {profile} on {self}: no such profile")
+			return False
+		return self._send_v2ip_settings(V2IPDeviceSettings(
+			valid=V2IPDeviceSetting.IR_PROFILE, ir_profile=profile))
+
+	async def set_v2ip_sink_ir_profile(self, profile:int) -> bool:
+		'''Set the infrared profile of this V2IP device's output infrared port.
+
+		V2IP_IR_PROFILE_NOT_SET makes the port follow the global one. Otherwise
+		as set_v2ip_ir_profile().
+		'''
+		if not (V2IP_IR_PROFILE_NOT_SET <= profile < V2IP_IR_PROFILE_MAX):
+			_LOGGER.warning(f"not setting output infrared profile {profile} on {self}: no such profile")
+			return False
+		return self._send_v2ip_settings(V2IPDeviceSettings(
+			valid=V2IPDeviceSetting.IR_PROFILE_SINK, ir_profile_sink=profile))
+
+	def _send_v2ip_settings(self, settings:V2IPDeviceSettings) -> bool:
+		'''The one send behind the device settings commands.'''
+		if ((reported := self._v2ip_settings) is None):
+			_LOGGER.warning(f"not changing the settings of {self}: it has not reported any")
+			return False
+		if ((settings.valid & reported.valid) != settings.valid):
+			_LOGGER.warning(f"not changing the settings of {self}: it does not have {settings.valid!r}")
+			return False
+		frame = FrameV2IPDeviceConfiguration.construct_settings(
+			mxr=self.registry, target=self, target_uid=self.remote_id, settings=settings)
+		if (frame is None):
+			return False
+		if self.registry.transmit(frame.frame) != len(frame.frame):
+			return False
+		self._merge_v2ip_settings(settings)
 		return True
 
 	@property
