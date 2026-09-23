@@ -82,5 +82,14 @@ mx._probe_once()
 assert changes == [(dev, False), (dev, True)], changes
 print('offline     : and back again, through the same pass')
 
+# A management client sends no bays or links, so waiting for them never ends:
+# it has to count as described, or every client that sees one discovers forever.
+MANAGER = bytes(range(33, 49))
+mx.process_frame(time.time(), create_mxr_frame(
+    MANAGER, 0x00, struct.pack('<H', 0x29) + nm('MXR Python') + nm('P9SN00000000') + nm('5.9.1')
+             + struct.pack('<I', (1 << 19))), ADDR)
+assert mx.get_by_uid(MxrDeviceUid(MANAGER)).configuration_complete, 'a manager has nothing more to send'
+print('offline     : a management client counts as described')
+
 print()
 print('ALL OK')

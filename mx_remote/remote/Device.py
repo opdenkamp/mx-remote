@@ -360,6 +360,9 @@ class Device(DeviceBase):
 	@property
 	def configuration_complete(self) -> bool:
 		'''check whether all configuration info for this device has been received'''
+		if (self.features is not None) and (DeviceFeature.MANAGER in self.features):
+			# a management client has no bays or links to send
+			return True
 		if not self.has_bays:
 			return False
 		if self.is_v2ip and (self.v2ip_sources is None):
