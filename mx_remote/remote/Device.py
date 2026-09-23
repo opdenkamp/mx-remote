@@ -62,7 +62,7 @@ import time
 
 from ..Interface import DeviceBase, BayBase, DeviceRegistry
 from ..proto.FrameBase import FrameBase
-from ..proto.Constants import (DeviceFeature, MxrSignalType, V2IPDeviceSetting, V2IPFpgaFeature,
+from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, DeviceFeature, MxrSignalType, V2IPDeviceSetting, V2IPFpgaFeature,
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                               MXR_SCALING_FLAG_OPTIONS_VALID, V2IP_DEVICE_SETTING_SWITCHES,
                               V2IP_IR_PROFILE_MAX, V2IP_IR_PROFILE_NOT_SET)
@@ -151,6 +151,8 @@ class Device(DeviceBase):
 	@property
 	def online(self) -> bool:
 		'''Check whether this device has pinged recently.'''
+		if (self.protocol >= MXR_PROTOCOL_VERSION_SLOW_HELLO):
+			return ((datetime.now() - self._last_ping).total_seconds() < 60)
 		if (self.protocol >= 0x20):
 			return ((datetime.now() - self._last_ping).total_seconds() < 15)
 		return ((datetime.now() - self._last_ping).total_seconds() < 120)

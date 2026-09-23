@@ -82,11 +82,23 @@ mx._probe_once()
 assert changes == [(dev, False), (dev, True)], changes
 print('offline     : and back again, through the same pass')
 
+# A device on 0x2A may hello only every 20-30s, so it gets 60s rather than 15s.
+SLOW = bytes(range(17, 33))
+mx.process_frame(time.time(), create_mxr_frame(
+    SLOW, 0x00, struct.pack('<H', 0x2A) + nm('MX-2') + nm('P8SN12345679') + nm('4.7.9')
+             + struct.pack('<I', (1 << 5) | (1 << 6))), ADDR)
+slow = mx.get_by_uid(MxrDeviceUid(SLOW))
+slow._last_ping -= timedelta(seconds=45)
+assert slow.online, 'a 0x2A device is still inside its 60s window'
+slow._last_ping -= timedelta(seconds=16)
+assert not slow.online, 'and gone once it has passed'
+print('offline     : a 0x2A device is given 60s')
+
 # A management client sends no bays or links, so waiting for them never ends:
 # it has to count as described, or every client that sees one discovers forever.
 MANAGER = bytes(range(33, 49))
 mx.process_frame(time.time(), create_mxr_frame(
-    MANAGER, 0x00, struct.pack('<H', 0x29) + nm('MXR Python') + nm('P9SN00000000') + nm('5.9.1')
+    MANAGER, 0x00, struct.pack('<H', 0x2A) + nm('MXR Python') + nm('P9SN00000000') + nm('5.9.1')
              + struct.pack('<I', (1 << 19))), ADDR)
 assert mx.get_by_uid(MxrDeviceUid(MANAGER)).configuration_complete, 'a manager has nothing more to send'
 print('offline     : a management client counts as described')

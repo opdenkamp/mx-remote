@@ -10,7 +10,7 @@
 from enum import IntEnum, IntFlag
 from typing import TypeVar
 
-MXR_PROTOCOL_VERSION = 0x29
+MXR_PROTOCOL_VERSION = 0x2A
 """Highest mx_remote protocol version this library understands.
 
 Mirrors the firmware's own protocol version. Bump
@@ -21,7 +21,14 @@ frame.
 This is also a receive ceiling: Remote.process_frame drops any frame stamped
 above it, unparsed. So it has to reach the stamp of every layout revision
 decoded below, or that revision goes silent on the mesh rather than noisy -
-0x29 is what a MatrixOS 10.12.46 unit stamps on V2IP_STATS."""
+0x29 is what a MatrixOS 10.12.46 unit stamps on V2IP_STATS.
+
+0x2A is also what MatrixOS reads a hello by: a device on 0x2A or later is given
+60s to hello again rather than 15s, and a unit only slows its own hello to one
+every 20-30s once every device it knows is on 0x2A."""
+
+MXR_PROTOCOL_VERSION_SLOW_HELLO = 0x2A
+"""First protocol version whose devices may hello only every 20-30s."""
 
 MXR_OPCODE_VERSIONS: dict[int, int] = {
     0x00: 0x01,  # SYS_HELLO
