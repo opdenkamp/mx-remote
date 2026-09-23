@@ -141,16 +141,15 @@ expect `device.v2ip_sink` to read empty for a moment afterwards - see
 
 `device.v2ip_sink` addresses that read as unset mean "no route, or the sink
 could not work one out", never "definitely not subscribed". This is the one part
-of a device configuration with no validity marker of its own, so a sender with
-nothing to say sends zeros and every receiver stores them. A sender leaves it
+of a device configuration with no validity marker of its own, so a sink with
+nothing to say sends zeros and the library stores them. A sender leaves it
 empty whenever its own stream configuration does not resolve, which covers more
 than having no route: a selected source whose record has not arrived yet, the
 state after a restart at either end, missing audio bay configuration, or a
 stream failing its validity check.
 
 Expect that reading rather than guarding against it. Any scaling change rebuilds
-and rebroadcasts the block, and a write aimed at a remote bay sends it zeroed
-however it was requested, so an empty reading turns up most often during exactly
+and rebroadcasts the block, so an empty reading turns up most often during exactly
 the no-signal troubleshooting that prompted the change. A device's periodic
 report puts a real route back within a minute of it having one, so wait one out
 rather than treat the first empty reading as an answer.
@@ -158,6 +157,9 @@ rather than treat the first empty reading as an answer.
 The library caches an empty reading rather than dropping it. A sink that has
 genuinely lost its route sends the same zeros, and so does every report after
 it, so refusing them would hold a route that nothing later could clear.
+
+Only the device's own report sets the block. A controller writing another
+device's configuration sends it zeroed, and the library ignores that copy.
 
 ## Mesh and firmware
 

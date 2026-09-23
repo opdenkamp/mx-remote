@@ -52,7 +52,7 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 # DeviceV2IPDetails.merge() carries the unmarked fields forward. Replacing the
 # cache wholesale reports a peer's addresses as 0.0.0.0 the moment a controller
 # writes anything else. The sink trailer is the exception: present or absent by
-# length, with no marker.
+# length, with no marker, and taken only from a device describing itself.
 #
 # Trust the scaling block only from a peer whose hello carries
 # MXR_FEATURE_CONFIG_INITIALISED. Without it the sender may have built those
@@ -312,8 +312,16 @@ class FrameV2IPDeviceConfiguration(FrameBase):
     @cached_property
     def sink(self) -> DeviceV2IPSink|None:
         '''Sink-side state a longer frame appends to the configuration; None when
-        the frame stops in front of it.'''
+        the frame stops in front of it.
+
+        Read only from a frame a device sent about itself. A controller writing
+        another device's configuration sends the block zeroed, because it has
+        nothing to say about that sink's subscription, and caching those zeros
+        would clear the route on every unrelated write.
+        '''
         if (self.payload is None) or (len(self.payload) < _WITH_OPTIONS_SIZE):
+            return None
+        if not self.target_self:
             return None
         return DeviceV2IPSink(
             addresses=parse_v2ip_av_source(self.payload, _SINK_OFFSET),

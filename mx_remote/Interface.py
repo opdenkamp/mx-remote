@@ -1757,8 +1757,8 @@ class DeviceV2IPSink:
 
     **An address that reads as unset means "no route, or the sink could not work
     one out", never "definitely not subscribed".** This block is the one part of
-    a device configuration with no validity marker of its own, so a sender with
-    nothing to say sends zeros and every receiver stores them. A sender leaves it
+    a device configuration with no validity marker of its own, so a sink with
+    nothing to say sends zeros and they are stored. A sender leaves it
     empty whenever its own stream configuration does not resolve, which covers
     more than having no route: a selected source whose record has not arrived
     yet, the state after a restart at either end, missing audio bay
@@ -1766,8 +1766,7 @@ class DeviceV2IPSink:
     second gate of its own, so it can be absent while the addresses are not.
 
     Expect that reading rather than guarding against it. Any scaling change makes
-    the device rebuild and rebroadcast this block, and a write aimed at a remote
-    bay sends it zeroed however it was requested, so an empty reading turns up
+    the device rebuild and rebroadcast this block, so an empty reading turns up
     most often during exactly the no-signal troubleshooting that prompted the
     change. A device's periodic report puts a real route back within a minute of
     it having one, so a reader that needs certainty should wait one out rather
@@ -1776,6 +1775,9 @@ class DeviceV2IPSink:
     An empty reading is cached rather than dropped on purpose. A sink that has
     genuinely lost its route sends the same zeros, and so does every report after
     it, so refusing them would hold a route that nothing later could clear.
+
+    Only the device's own report sets this. A controller writing another
+    device's configuration sends the block zeroed, and that frame is ignored.
     """
     def __init__(self, addresses:V2IPStreamSources|None, audio_fmt:V2IPAudioFormat|None) -> None:
         self._addresses = addresses

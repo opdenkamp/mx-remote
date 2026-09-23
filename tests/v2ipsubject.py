@@ -191,4 +191,34 @@ rx(uid(0x0D), 0x3C, cfg(uid(0x0D), rate=50))
 assert third.v2ip_features is None, 'a frame without the word reported a processor'
 print('processor   : a device\'s own frame, or nothing')
 
+# ------------------------------------------------------------ the sink block
+# A controller writing another device's configuration has nothing to say about
+# that sink's subscription and sends the block zeroed. Caching those zeros would
+# clear every reader's record of the route on each unrelated write, such as
+# turning the sink's automatic scaling off.
+from mx_remote.proto.Constants import MXR_SCALING_FLAG_OPTIONS_VALID
+
+def cfg_sink(subject, video, port, flags=0):
+    '''The configuration with the options trailer, the sink's video stream set.'''
+    out = (cfg(subject, flags=flags) + bytes(video) + struct.pack('<I', port)
+           + bytes(16) + bytes(8))
+    assert len(out) == 120, len(out)
+    return out
+
+routed = hello(uid(0x0F), SINK)
+rx(uid(0x0F), 0x3C, cfg_sink(uid(0x0F), [239, 7, 8, 9], 50020))
+assert routed.v2ip_sink is not None, 'a device did not report its own sink'
+assert routed.v2ip_sink.addresses.video.ip == '239.7.8.9', routed.v2ip_sink
+
+rx(uid(0x03), 0x3C, cfg_sink(uid(0x0F), [0, 0, 0, 0], 0, flags=MXR_SCALING_FLAG_OPTIONS_VALID))
+assert routed.v2ip_details.scaling.auto_scaling is False, 'the write itself did not land'
+assert routed.v2ip_sink.addresses.video.ip == '239.7.8.9', \
+    'a controller\'s zeroed sink block replaced the device\'s own report'
+
+# while the device's own empty report still clears it: a sink that has lost its
+# route sends exactly these zeros
+rx(uid(0x0F), 0x3C, cfg_sink(uid(0x0F), [0, 0, 0, 0], 0))
+assert routed.v2ip_sink.addresses.video.ip == '0.0.0.0', routed.v2ip_sink
+print('sink block  : a device\'s own report, or nothing')
+
 print('ALL OK')
