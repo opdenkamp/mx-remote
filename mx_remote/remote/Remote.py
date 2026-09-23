@@ -400,6 +400,10 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         MatrixOS re-draws min 2.5s + random(0..2.5s) after each hello it sends,
         so a mesh of devices does not synchronise into bursts. The interval is
         re-drawn per send rather than fixed for the same reason.
+
+        MatrixOS stretches that to 20-30s once every device it knows is on 0x2A.
+        This client keeps the short interval: a peer below 0x2A takes it offline
+        15s after its last hello.
         '''
         self._hello_due = time.time() + MXR_HELLO_INTERVAL_MIN \
             + (random.random() * MXR_HELLO_INTERVAL_RAND)

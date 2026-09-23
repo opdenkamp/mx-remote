@@ -537,9 +537,10 @@ assert (hello_frame.frame[22] | (hello_frame.frame[23] << 8)) == 54, 'declared l
 assert hello_frame.frame[2] == MXR_OPCODE_VERSIONS[0x00] == 0x01, hello_frame.frame[2]
 
 # Peers read that payload version to decide how long to hold this client online:
-# at 0x20 and above the timeout is 15s, below it three minutes. Reporting the
-# higher one is only safe while this client re-announces well inside 15s, which
-# is what the probe loop's 2.5s + jitter does.
+# below 0x20 three minutes, from 0x20 15s, and from 0x2A 60s on a peer that is
+# itself on 0x2A. A peer below 0x2A still gives it 15s, so reporting 0x20 or
+# above is only safe while this client re-announces well inside 15s, which is
+# what the probe loop's 2.5s + jitter does.
 reported = hello_frame.frame[24] | (hello_frame.frame[25] << 8)
 assert reported == MXR_PROTOCOL_VERSION, (reported, MXR_PROTOCOL_VERSION)
 assert reported >= 0x20, 'the short offline timeout is what the announce interval is paced for'
