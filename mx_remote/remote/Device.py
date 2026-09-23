@@ -95,8 +95,11 @@ class Device(DeviceBase):
 		self._v2ip_sink:DeviceV2IPSink|None = None
 		self._v2ip_features:V2IPFpgaFeature|None = None
 		self._mesh_master_uid:MxrDeviceUid|None = None
-		self._v2ip_in_mapping:list[MxrDeviceUid]|None = None
-		self._v2ip_out_mapping:list[MxrDeviceUid]|None = None
+		# The source device behind each V2IP bay, by bay mode and number. Held
+		# here as well as on the bays because a device may send its mappings
+		# before the bay configuration that creates those bays, and a bay that
+		# arrives later picks its mapping up from here.
+		self._v2ip_bay_mappings:dict[tuple[str, int], MxrDeviceUid] = {}
 		self._v2ip_versions:dict[FirmwareType,FirmwareVersion] = {}
 		self._audio_endpoints:AudioEndpoints|None = None
 		self._sys_status:int|None = None
@@ -743,6 +746,8 @@ class Device(DeviceBase):
 			bay = Bay(dev=self, data=data)
 			self.bays[data.port] = bay
 		bay.on_mxr_update(data)
+		if ((mapped := self._v2ip_bay_mappings.get((bay.mode, bay.bay))) is not None):
+			bay.v2ip_uid = mapped # pyright: ignore[reportAttributeAccessIssue]
 		if isnew:
 			self.callbacks.on_bay_registered(bay)
 			self._check_config_complete()
@@ -806,9 +811,15 @@ class Device(DeviceBase):
 			# bay 0 (pure RX) emit first_bay_id=1 and skip the bay-0 slot.
 			mode = 'Input' if data.is_input else 'Output'
 			for idx in range(data.nb_bays):
-				bay = self.get_by_mode_bay(mode=mode, bay=data.first_bay_id + idx)
+				if ((uid := data.bay(idx=idx)) is None):
+					break
+				number = data.first_bay_id + idx
+				# Kept for a bay not configured yet as well: a device may send its
+				# mappings ahead of the bay configuration that creates the bays.
+				self._v2ip_bay_mappings[(mode, number)] = uid
+				bay = self.get_by_mode_bay(mode=mode, bay=number)
 				if (bay is not None):
-					bay.v2ip_uid = data.bay(idx=idx) # pyright: ignore[reportAttributeAccessIssue]
+					bay.v2ip_uid = uid # pyright: ignore[reportAttributeAccessIssue]
 		elif isinstance(data, FrameSystemStatus):
 			if (self._sys_message is None) or (self._sys_status is None) or (self._sys_status != data.status) or (self._sys_message != data.message):
 				self._sys_status = data.status

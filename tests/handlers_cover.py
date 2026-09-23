@@ -265,4 +265,22 @@ print('0x24 manual : dispatched and processed')
 rx(0x44, struct.pack('<HH', 1, 0) + bytes(4) + V2, uid=V2)
 print('0x44 mapping: dispatched and processed')
 
+# A device may send its mappings ahead of the bay configuration that creates the
+# bays. A mapping dropped then stays lost until the device's next full broadcast,
+# so it is kept and applied when the bay arrives.
+RX = bytes(range(0xA0, 0xB0))
+MAPPED = bytes(range(0xB0, 0xC0))
+rx(0x00, struct.pack('<H', 0x28) + nm('ONEIP-RX') + nm('P8SN77777777') + nm('5.2.0')
+        + struct.pack('<I', int(mx_remote.DeviceFeature.V2IP_SINK)), uid=RX)
+rxdev = mx.get_by_uid(MxrDeviceUid(RX))
+# count<<1 | is_input, first bay, then a uid per bay from 8
+rx(0x44, struct.pack('<HH', (1 << 1) | 1, 0) + bytes([0xA5] * 4) + MAPPED, uid=RX)
+assert rxdev.get_by_portnum(1) is None, 'fixture: the bay must not exist before its mapping'
+SRC_REMOTE = int(mx_remote.BayFeaturesMask.V2IP_SOURCE_REMOTE)
+rx(0x02, bay_rec(1, 0, 0, 'Input 1', feat=SRC_REMOTE), uid=RX)
+early = rxdev.get_by_portnum(1)
+assert early is not None and early.mode == 'Input', early
+assert early.v2ip_uid == MxrDeviceUid(MAPPED), 'the mapping sent ahead of its bay was lost'
+print('0x44 early  : applied when the bay arrived')
+
 print('ALL OK')
