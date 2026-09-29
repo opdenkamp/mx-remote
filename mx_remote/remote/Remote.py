@@ -26,6 +26,7 @@ from ..proto.Constants import MXR_PROTOCOL_VERSION
 from ..proto.FrameDiscover import constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
 from ..proto.FrameHello import FrameHello, constructFrameHello
+from ..proto.FramePing import FramePing
 from ..proto.Svd import SvdMap
 from ..Uid import MxrDeviceUid
 from .State import State
@@ -37,8 +38,9 @@ from ..const import MX_BCAST_UDP_PORT, MX_MCAST_UDP_IP, MX_MCAST_UDP_PORT
 _LOGGER = logging.getLogger(__name__)
 
 # The opcodes a device accepts from a sender it has no record of: the
-# announcement itself, and the request for one.
-_ACCEPT_UNANNOUNCED = (0x00, 0x01)
+# announcement itself, and the requests for one - discover asks everyone, ping
+# asks one device.
+_ACCEPT_UNANNOUNCED = (0x00, 0x01, 0x4A)
 
 class Remote(DeviceRegistry, ConnectionCallbacks):
     ''' Main component that handles the network connections and registration of remote devices '''
@@ -454,8 +456,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 # Decode and report it - this library is also used to watch the
                 # bus - but keep it out of the cache and the callbacks.
                 #
-                # Hello and discover are exempt: the hello is what makes a
-                # sender known, so gating it leaves it unknown forever.
+                # Hello, discover and ping are exempt: the hello is what makes
+                # a sender known, so gating it leaves it unknown forever, and a
+                # discover or a ping is how a stranger asks to be told.
                 proc = (frame.remote_device is not None) \
                     or (frame.header.opcode in _ACCEPT_UNANNOUNCED)
                 if (self._addr_filter is None) or (addr[0] == self._addr_filter):
@@ -481,6 +484,12 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
     def on_mxr_update(self, data:Any) -> None:
         if isinstance(data, FrameHello):
             self._on_mxr_hello(data)
+        elif isinstance(data, FramePing):
+            # Announcing is driven by a clock, and this is the one frame that
+            # adds a hello to it: a device that hears nothing back within about
+            # 1.5s takes this client offline, and the next scheduled hello can
+            # be seconds away.
+            self.tx_hello()
 
     def _on_mxr_hello(self, hello_frame:FrameHello) -> None:
         '''Hello frame received. Register or update the local device cache.'''

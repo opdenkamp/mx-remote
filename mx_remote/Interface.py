@@ -2426,6 +2426,10 @@ class DeviceBase(ABC):
         '''reboot this device'''
 
     @abstractmethod
+    async def ping(self) -> bool:
+        '''ask this device to announce itself now'''
+
+    @abstractmethod
     async def mesh_promote(self) -> bool:
         '''promote to mesh master'''
 

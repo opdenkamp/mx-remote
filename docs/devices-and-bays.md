@@ -8,12 +8,19 @@ Naming, hiding, EDID and the device registry.
 # reboot a device
 await device.reboot()
 
+# ask a device to hello now; False for one below protocol 0x2A
+await device.ping()
+
 # read the device log
 log = await device.get_log()
 
 # call an HTTP API endpoint on the device
 result = await device.get_api("system/status")
 ```
+
+A device on protocol 0x2A pings a peer it suspects is gone and takes it
+offline when nothing answers within about 1.5s. The client answers a ping
+addressed to it with a hello at once, from any sender.
 
 ## Bay Naming
 

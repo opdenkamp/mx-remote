@@ -47,6 +47,7 @@ SUITES = [
     'v2ipsubject',  # a V2IP config belongs to the device its payload names
     'v2ipscaling',  # writing a sink's scaling block, and the cache after it
     'v2ipsettings', # a V2IP device's settings, read and written
+    'ping',         # a ping is answered with a hello, and sent only where answered
 ]
 
 def main() -> int:

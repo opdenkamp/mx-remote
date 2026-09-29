@@ -32,6 +32,7 @@ from ..proto.FrameMeshOperation import MeshOperation, FrameMeshOperation
 from ..proto.FrameV2IPStats import FrameV2IPStats
 from ..proto.FrameNetworkStatus import NetworkPortStatus
 from ..proto.FrameReboot import FrameReboot
+from ..proto.FramePing import FramePing
 from ..proto.FrameV2IPBayMapping import FrameV2IPBayMapping
 from ..proto.V2IPStats import V2IPDeviceStats
 from ..proto.FrameSystemStatus import FrameSystemStatus
@@ -975,6 +976,21 @@ class Device(DeviceBase):
 			self._rebooting = True
 			return True
 		return False
+
+	async def ping(self) -> bool:
+		'''Ask this device to announce itself now.
+
+		Its hello marks it online again, so a device suspected to be gone is
+		confirmed or ruled out within a second or two rather than at the end of
+		its silence window. A device that stays silent is not taken offline here:
+		that remains the silence window's call.
+
+		False for a device below 0x2A, which drops the frame.
+		'''
+		frame = FramePing.construct(mxr=self.registry, target=self)
+		if (frame is None):
+			return False
+		return (self.registry.transmit(frame.frame) == len(frame.frame))
 
 	async def mesh_promote(self) -> bool:
 		'''Promote this device to mesh controller.'''

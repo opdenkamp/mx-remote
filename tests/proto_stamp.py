@@ -28,6 +28,12 @@ print('construct_base : opcode version by default, explicit override honoured')
 
 # 2. no frame the library actually builds may exceed the ProAmp8 / AmpOS cap of 0x22
 PROAMP8_CAP = 0x22
+# Except an opcode that did not exist below its own row: no ProAmp8 build has a
+# handler for it, so no stamp would reach one, and each is stamped exactly at its
+# row rather than above it.
+ABOVE_CAP = {
+    0x4A: 'SYS_PING',
+}
 root = pathlib.Path(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'mx_remote', 'proto'))
 # Calls only. The pattern also matches the def in FrameBase, which carries a
 # type annotation rather than an opcode - exclude it by name rather than
@@ -54,7 +60,13 @@ for path in sorted(root.glob('Frame*.py')):
         checked += 1
         table = MXR_OPCODE_VERSIONS.get(opcode)
         note = '' if (table is None or proto == table) else f'  (explicit; table says 0x{table:02X})'
-        if proto > PROAMP8_CAP:
+        if (table is None):
+            # Falls back to this build's own version, which moves with every
+            # protocol bump and so stops reaching the devices the opcode was for.
+            bad.append(f'{path.name}: opcode 0x{opcode:02X} has no row in MXR_OPCODE_VERSIONS')
+        elif (opcode in ABOVE_CAP) and (proto == table):
+            pass
+        elif proto > PROAMP8_CAP:
             bad.append(f'{path.name}: opcode 0x{opcode:02X} stamps 0x{proto:02X}{note}')
         elif note:
             print(f'  over-stamp   : {path.name} opcode 0x{opcode:02X} -> 0x{proto:02X}{note}')
@@ -73,7 +85,7 @@ if unparsed:
 assert not unparsed, f'{len(unparsed)} transmit sites went unchecked'
 print(f'tx frames      : {checked} construct_base call sites checked')
 if bad:
-    print('\nOVER THE PROAMP8 CAP:')
+    print('\nSTAMPED WRONG:')
     for b in bad:
         print('  ' + b)
     raise SystemExit(1)

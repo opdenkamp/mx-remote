@@ -105,6 +105,7 @@ MXR_OPCODE_VERSIONS: dict[int, int] = {
     0x47: 0x1F,  # DEBUG
     0x48: 0x23,  # RC_IR_TX
     0x49: 0x28,  # V2IP_VIDEOWALL (owned by the v2ipwall module; no MatrixOS handler)
+    0x4A: 0x2A,  # SYS_PING
 }
 """Per-opcode minimum compatible protocol version, mirroring the firmware's
 own opcode table. Transmitters stamp the
