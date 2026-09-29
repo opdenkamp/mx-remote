@@ -103,6 +103,10 @@ class Device(DeviceBase):
 		# before the bay configuration that creates those bays, and a bay that
 		# arrives later picks its mapping up from here.
 		self._v2ip_bay_mappings:dict[tuple[str, int], MxrDeviceUid] = {}
+		# Bay mapping pages whose first port names no bay yet, by that port. A
+		# page runs on by bay number from the bay at its first port, so it cannot
+		# be filed until that bay's configuration says which one it is.
+		self._v2ip_bay_mapping_pages:dict[int, list[MxrDeviceUid]] = {}
 		self._v2ip_versions:dict[FirmwareType,FirmwareVersion] = {}
 		self._audio_endpoints:AudioEndpoints|None = None
 		self._sys_status:int|None = None
@@ -721,6 +725,21 @@ class Device(DeviceBase):
 				return b
 		return None
 
+	def _file_v2ip_bay_mappings(self, first:BayBase, page:list[MxrDeviceUid]) -> None:
+		'''File one page of this device's V2IP bay mappings, and hand every filed
+		mapping to the bay it names.
+
+		The entries run on from first by bay number rather than by port: inputs
+		and outputs share one port space, so a run of bays need not be a run of
+		ports. A device may split its list over several pages, so each is filed on
+		its own and none replaces what another said.
+		'''
+		for idx, uid in enumerate(page):
+			self._v2ip_bay_mappings[(first.mode, first.bay + idx)] = uid
+		for bay in self.bays.values():
+			if ((mapped := self._v2ip_bay_mappings.get((bay.mode, bay.bay))) is not None):
+				bay.v2ip_uid = mapped # pyright: ignore[reportAttributeAccessIssue]
+
 	def _on_mxr_hello(self, hello_frame:FrameHello) -> None:
 		# received a new hello frame from this device. update local info
 		self._last_ping = datetime.now()
@@ -774,7 +793,10 @@ class Device(DeviceBase):
 			bay = Bay(dev=self, data=data)
 			self.bays[data.port] = bay
 		bay.on_mxr_update(data)
-		if ((mapped := self._v2ip_bay_mappings.get((bay.mode, bay.bay))) is not None):
+		if ((page := self._v2ip_bay_mapping_pages.pop(data.port, None)) is not None):
+			# The page this bay starts also names the bays after it.
+			self._file_v2ip_bay_mappings(first=bay, page=page)
+		elif ((mapped := self._v2ip_bay_mappings.get((bay.mode, bay.bay))) is not None):
 			bay.v2ip_uid = mapped # pyright: ignore[reportAttributeAccessIssue]
 		if isnew:
 			self.callbacks.on_bay_registered(bay)
@@ -833,23 +855,14 @@ class Device(DeviceBase):
 			else:
 				sources.append(data)
 		elif isinstance(data, FrameV2IPBayMapping):
-			if data.first_bay_id is None:
+			if ((first_port := data.first_port) is None):
 				return
-			# Firmware iterates bays in MBAY_ITERATE order; the wire payload's
-			# first_bay_id tells us the bay number of payload[0], so payload[i]
-			# maps to bay number (first_bay_id + i). Devices without a local
-			# bay 0 (pure RX) emit first_bay_id=1 and skip the bay-0 slot.
-			mode = 'Input' if data.is_input else 'Output'
-			for idx in range(data.nb_bays):
-				if ((uid := data.bay(idx=idx)) is None):
-					break
-				number = data.first_bay_id + idx
-				# Kept for a bay not configured yet as well: a device may send its
-				# mappings ahead of the bay configuration that creates the bays.
-				self._v2ip_bay_mappings[(mode, number)] = uid
-				bay = self.get_by_mode_bay(mode=mode, bay=number)
-				if (bay is not None):
-					bay.v2ip_uid = uid # pyright: ignore[reportAttributeAccessIssue]
+			# A page names the port of the bay it starts at, and a page whose first
+			# port names no bay yet waits for that bay's configuration.
+			if ((first := self.get_by_portnum(first_port)) is None):
+				self._v2ip_bay_mapping_pages[first_port] = data.bays
+				return
+			self._file_v2ip_bay_mappings(first=first, page=data.bays)
 		elif isinstance(data, FrameSystemStatus):
 			if (self._sys_message is None) or (self._sys_status is None) or (self._sys_status != data.status) or (self._sys_message != data.message):
 				self._sys_status = data.status

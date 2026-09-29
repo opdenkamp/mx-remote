@@ -273,8 +273,8 @@ MAPPED = bytes(range(0xB0, 0xC0))
 rx(0x00, struct.pack('<H', 0x28) + nm('ONEIP-RX') + nm('P8SN77777777') + nm('5.2.0')
         + struct.pack('<I', int(mx_remote.DeviceFeature.V2IP_SINK)), uid=RX)
 rxdev = mx.get_by_uid(MxrDeviceUid(RX))
-# count<<1 | is_input, first bay, then a uid per bay from 8
-rx(0x44, struct.pack('<HH', (1 << 1) | 1, 0) + bytes([0xA5] * 4) + MAPPED, uid=RX)
+# count<<1 | is_input, the port of the first bay, then a uid per bay from 8
+rx(0x44, struct.pack('<HH', (1 << 1) | 1, 1) + bytes([0xA5] * 4) + MAPPED, uid=RX)
 assert rxdev.get_by_portnum(1) is None, 'fixture: the bay must not exist before its mapping'
 SRC_REMOTE = int(mx_remote.BayFeaturesMask.V2IP_SOURCE_REMOTE)
 rx(0x02, bay_rec(1, 0, 0, 'Input 1', feat=SRC_REMOTE), uid=RX)
@@ -282,5 +282,59 @@ early = rxdev.get_by_portnum(1)
 assert early is not None and early.mode == 'Input', early
 assert early.v2ip_uid == MxrDeviceUid(MAPPED), 'the mapping sent ahead of its bay was lost'
 print('0x44 early  : applied when the bay arrived')
+
+# A page names the bay it starts at by its port, and its entries run on from
+# that bay by bay number. Units lay a transceiver out as below and send one page
+# per direction; a captured output page starts at 16, the port of Output 1. Read
+# as a bay number, 16 names an output this unit does not have, and every output
+# mapping is lost.
+def page(is_input, first_port, uids):
+    return struct.pack('<HH', (len(uids) << 1) | int(is_input), first_port) + bytes([0xA5] * 4) + b''.join(uids)
+
+def transceiver(uid, serial):
+    rx(0x00, struct.pack('<H', 0x2A) + nm('ONEIP') + nm(serial) + nm('5.2.0')
+            + struct.pack('<I', int(mx_remote.DeviceFeature.V2IP_SINK)), uid=uid)
+    SINK_REMOTE = int(mx_remote.BayFeaturesMask.V2IP_SINK_REMOTE)
+    rx(0x02, b''.join([bay_rec(p, 0, n, 'Input %d' % (n + 1), feat=SRC_REMOTE) for p, n in ((0, 0), (1, 1), (2, 2))]
+                      + [bay_rec(p, 1, n, 'Output %d' % (n + 1), feat=SINK_REMOTE) for p, n in ((16, 0), (17, 1))]), uid=uid)
+    return mx.get_by_uid(MxrDeviceUid(uid))
+
+def uids(first, n):
+    return [bytes([first + i] * 16) for i in range(n)]
+
+TRX = bytes(range(0xC0, 0xD0))
+trx = transceiver(TRX, 'TRX1')
+ins, outs = uids(0x11, 3), uids(0x21, 2)
+rx(0x44, page(True, 0, ins), uid=TRX)
+rx(0x44, page(False, 16, outs), uid=TRX)
+for port, uid in ((0, ins[0]), (1, ins[1]), (2, ins[2]), (16, outs[0]), (17, outs[1])):
+    assert trx.get_by_portnum(port).v2ip_uid == MxrDeviceUid(uid), 'bay on port %d' % port
+print('0x44 ports  : an output page starting at port 16 reaches Output 1')
+
+# A page that starts past the first bay covers only the bays from there, and
+# leaves what an earlier page said about the others alone.
+TRX2 = bytes(range(0xD0, 0xE0))
+trx2 = transceiver(TRX2, 'TRX2')
+first, later = uids(0x31, 3), uids(0x41, 2)
+rx(0x44, page(True, 0, first), uid=TRX2)
+rx(0x44, page(True, 1, later), uid=TRX2)
+assert [trx2.get_by_portnum(p).v2ip_uid for p in (0, 1, 2)] == [MxrDeviceUid(u) for u in (first[0], later[0], later[1])]
+print('0x44 pages  : a later page leaves the bays before it alone')
+
+# A page whose first bay is not configured yet is filed once that bay arrives,
+# for the bays after it as well, which may have arrived first.
+TRX3 = bytes(range(0xE0, 0xF0))
+rx(0x00, struct.pack('<H', 0x2A) + nm('ONEIP') + nm('TRX3') + nm('5.2.0')
+        + struct.pack('<I', int(mx_remote.DeviceFeature.V2IP_SINK)), uid=TRX3)
+trx3 = mx.get_by_uid(MxrDeviceUid(TRX3))
+SINK_REMOTE = int(mx_remote.BayFeaturesMask.V2IP_SINK_REMOTE)
+rx(0x02, bay_rec(18, 1, 2, 'Output 3', feat=SINK_REMOTE), uid=TRX3)
+waiting = uids(0x51, 2)
+rx(0x44, page(False, 17, waiting), uid=TRX3)
+assert trx3.get_by_portnum(18).v2ip_uid != MxrDeviceUid(waiting[1]), 'filed before its first bay'
+rx(0x02, bay_rec(17, 1, 1, 'Output 2', feat=SINK_REMOTE), uid=TRX3)
+assert trx3.get_by_portnum(17).v2ip_uid == MxrDeviceUid(waiting[0])
+assert trx3.get_by_portnum(18).v2ip_uid == MxrDeviceUid(waiting[1])
+print('0x44 wait   : a page waits for the bay it starts at')
 
 print('ALL OK')

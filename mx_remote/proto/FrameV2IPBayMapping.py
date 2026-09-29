@@ -40,7 +40,11 @@ class FrameV2IPBayMapping(FrameBase):
         return (val & 1 == 0)
 
     @cached_property
-    def first_bay_id(self) -> int|None:
+    def first_port(self) -> int|None:
+        '''Port of the bay this page starts at.
+
+        A port, not a bay number: units put Output 1 on port 16. The entries run
+        on from that bay by bay number.'''
         return self.payload_u16(2)
 
     @cached_property
