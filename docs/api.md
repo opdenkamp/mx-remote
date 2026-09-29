@@ -73,4 +73,11 @@ bit, and the range of the infrared profiles.
 .. autodata:: mx_remote.proto.Constants.V2IP_IR_PROFILE_NOT_SET
 
 .. autodata:: mx_remote.proto.Constants.V2IP_IR_PROFILE_MAX
+
+.. autodata:: mx_remote.proto.Constants.V2IP_DEVICE_SETTINGS_REPORTED_ONLY
+
+.. autodata:: mx_remote.proto.Constants.V2IP_MINUTES_PER_DAY
+
+.. autoclass:: mx_remote.V2IPPowerSaveSchedule
+   :members:
 ```

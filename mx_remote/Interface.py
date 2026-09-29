@@ -1794,6 +1794,60 @@ class DeviceV2IPSink:
     def __str__(self) -> str:
         return f"addresses=[{self._addresses}] audio_fmt={self._audio_fmt}"
 
+class V2IPPowerSaveSchedule:
+    """
+    A V2IP device's daily power save windows, Monday first, in the device's
+    time zone.
+
+    Day ``d`` powers down at ``start[d]`` and up again at ``end[d]``, both in
+    minutes after midnight. A window belongs to the day it starts on and runs
+    past midnight into the next when it ends before it starts; one that ends
+    where it starts means no window that day.
+    """
+    def __init__(self, start:tuple[int, ...]=(0,) * 7, end:tuple[int, ...]=(0,) * 7) -> None:
+        if (len(start) != 7) or (len(end) != 7):
+            raise ValueError('a power save schedule has one start and one end time per weekday')
+        self._start = tuple(start)
+        self._end = tuple(end)
+
+    @property
+    def start(self) -> tuple[int, ...]:
+        """When each day's window starts."""
+        return self._start
+
+    @property
+    def end(self) -> tuple[int, ...]:
+        """When each day's window ends."""
+        return self._end
+
+    def window(self, day:int) -> tuple[int, int]|None:
+        """The window of ``day``, Monday being 0, or None for a day without one
+        or past Sunday."""
+        if not (0 <= day < 7) or (self._start[day] == self._end[day]):
+            return None
+        return (self._start[day], self._end[day])
+
+    def is_valid(self) -> bool:
+        """Whether every time is a time of day."""
+        return all((0 <= m < V2IP_MINUTES_PER_DAY) for m in (self._start + self._end))
+
+    def __eq__(self, other:Any) -> bool:
+        if not isinstance(other, V2IPPowerSaveSchedule):
+            return NotImplemented
+        return (self._start, self._end) == (other._start, other._end)
+
+    def __hash__(self) -> int:
+        return hash((self._start, self._end))
+
+    def __str__(self) -> str:
+        days = ('mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun')
+        parts = [f"{days[d]} {w[0] // 60:02d}:{w[0] % 60:02d}-{w[1] // 60:02d}:{w[1] % 60:02d}"
+                 for d in range(7) if ((w := self.window(d)) is not None)]
+        return ", ".join(parts) if parts else "none"
+
+    def __repr__(self) -> str:
+        return str(self)
+
 class V2IPDeviceSettings:
     """
     The device settings of a V2IP unit, as it reports them and as its controller
@@ -1806,12 +1860,15 @@ class V2IPDeviceSettings:
     """
     def __init__(self, valid:V2IPDeviceSetting=V2IPDeviceSetting(0),
                  flags:V2IPDeviceSetting=V2IPDeviceSetting(0), ir_profiles:int=0,
-                 ir_profile:int=0, ir_profile_sink:int=0) -> None:
+                 ir_profile:int=0, ir_profile_sink:int=0, auto_power_save:int=0,
+                 power_save:V2IPPowerSaveSchedule|None=None) -> None:
         self._valid = V2IPDeviceSetting(valid)
         self._flags = V2IPDeviceSetting(flags)
         self._ir_profiles = ir_profiles
         self._ir_profile = ir_profile
         self._ir_profile_sink = ir_profile_sink
+        self._auto_power_save = auto_power_save
+        self._power_save = power_save if (power_save is not None) else V2IPPowerSaveSchedule()
 
     @property
     def valid(self) -> V2IPDeviceSetting:
@@ -1852,6 +1909,21 @@ class V2IPDeviceSettings:
             return None
         return self._ir_profiles
 
+    @property
+    def auto_power_save(self) -> int|None:
+        """The idle minutes before the device powers down by itself, 0 for never,
+        None while it is not reported."""
+        if (V2IPDeviceSetting.AUTO_POWER_SAVE not in self._valid):
+            return None
+        return self._auto_power_save
+
+    @property
+    def power_save_schedule(self) -> V2IPPowerSaveSchedule|None:
+        """The daily power save windows, None while they are not reported."""
+        if (V2IPDeviceSetting.POWER_SAVE_SCHEDULE not in self._valid):
+            return None
+        return self._power_save
+
     def merge(self, previous:'V2IPDeviceSettings|None') -> 'V2IPDeviceSettings':
         """
         Fold this received block onto the cached one.
@@ -1871,28 +1943,35 @@ class V2IPDeviceSettings:
             ir_profile=(self._ir_profile if (V2IPDeviceSetting.IR_PROFILE in valid)
                         else previous._ir_profile),
             ir_profile_sink=(self._ir_profile_sink if (V2IPDeviceSetting.IR_PROFILE_SINK in valid)
-                             else previous._ir_profile_sink))
+                             else previous._ir_profile_sink),
+            auto_power_save=(self._auto_power_save if (V2IPDeviceSetting.AUTO_POWER_SAVE in valid)
+                             else previous._auto_power_save),
+            power_save=(self._power_save if (V2IPDeviceSetting.POWER_SAVE_SCHEDULE in valid)
+                        else previous._power_save))
 
     def as_applied_to(self, reported:V2IPDeviceSetting) -> 'V2IPDeviceSettings':
         """
         This block limited to what a device takes from a write about it.
 
         A device applies a setting only if it has it, a profile only within its
-        range, and never the list of stored profiles, which only it knows.
+        range, and never what only it can report about itself.
         """
-        valid = (self._valid & reported) & ~V2IPDeviceSetting.IR_PROFILES
+        valid = (self._valid & reported) & ~V2IP_DEVICE_SETTINGS_REPORTED_ONLY
         if not (0 <= self._ir_profile < V2IP_IR_PROFILE_MAX):
             valid &= ~V2IPDeviceSetting.IR_PROFILE
         if not (V2IP_IR_PROFILE_NOT_SET <= self._ir_profile_sink < V2IP_IR_PROFILE_MAX):
             valid &= ~V2IPDeviceSetting.IR_PROFILE_SINK
         return V2IPDeviceSettings(valid=valid, flags=self._flags, ir_profiles=self._ir_profiles,
-                                  ir_profile=self._ir_profile, ir_profile_sink=self._ir_profile_sink)
+                                  ir_profile=self._ir_profile, ir_profile_sink=self._ir_profile_sink,
+                                  auto_power_save=self._auto_power_save, power_save=self._power_save)
 
     def __eq__(self, other:Any) -> bool:
         if not isinstance(other, V2IPDeviceSettings):
             return NotImplemented
-        return ((self._valid, self._flags, self._ir_profiles, self._ir_profile, self._ir_profile_sink)
-                == (other._valid, other._flags, other._ir_profiles, other._ir_profile, other._ir_profile_sink))
+        return ((self._valid, self._flags, self._ir_profiles, self._ir_profile, self._ir_profile_sink,
+                 self._auto_power_save, self._power_save)
+                == (other._valid, other._flags, other._ir_profiles, other._ir_profile, other._ir_profile_sink,
+                    other._auto_power_save, other._power_save))
 
     def __ne__(self, other:Any) -> bool:
         result = self.__eq__(other)
@@ -1908,6 +1987,12 @@ class V2IPDeviceSettings:
             parts.append(f"ir_profile_sink={self.ir_profile_sink}")
         if (self.stored_ir_profiles is not None):
             parts.append(f"ir_profiles={self.stored_ir_profiles:#x}")
+        if ((clock_set := self.get(V2IPDeviceSetting.CLOCK_SET)) is not None):
+            parts.append(f"clock_set={'yes' if clock_set else 'no'}")
+        if (self.auto_power_save is not None):
+            parts.append(f"auto_power_save={self.auto_power_save}")
+        if (self.power_save_schedule is not None):
+            parts.append(f"power_save=[{self.power_save_schedule}]")
         return " ".join(parts)
 
     def __repr__(self) -> str:
@@ -2464,6 +2549,14 @@ class DeviceBase(ABC):
     @abstractmethod
     async def set_v2ip_sink_ir_profile(self, profile:int) -> bool:
         '''set the infrared profile of the device's output infrared port'''
+
+    @abstractmethod
+    async def set_v2ip_auto_power_save(self, minutes:int) -> bool:
+        '''set the idle minutes before the device powers down by itself, 0 for never'''
+
+    @abstractmethod
+    async def set_v2ip_power_save_schedule(self, schedule:V2IPPowerSaveSchedule) -> bool:
+        '''set the device's daily power save windows'''
 
     @abstractmethod
     async def get_log(self) -> str|None:

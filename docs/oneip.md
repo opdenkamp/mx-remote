@@ -189,8 +189,32 @@ reporting its settings, and until then `v2ip_settings` reads back what was
 written.
 
 A write from another controller is cached only as far as the device takes it.
-The list of stored infrared profiles is the device's own and is never taken
-from a write.
+The list of stored infrared profiles and whether the device's clock is set are
+the device's own, and are never taken from a write.
+
+### Power save
+
+A device powers down by itself after a number of idle minutes, and during a
+daily window per weekday, kept in the device's own time zone. Times are minutes
+after midnight, Monday first; a window that ends before it starts runs past
+midnight, and one that ends where it starts means none that day.
+
+```python
+from mx_remote import V2IPPowerSaveSchedule
+
+print(settings.auto_power_save)            # idle minutes, 0 for never
+print(settings.power_save_schedule)        # e.g. "mon 22:00-07:00, ..."
+print(settings.get(V2IPDeviceSetting.CLOCK_SET))
+
+await device.set_v2ip_auto_power_save(30)
+await device.set_v2ip_power_save_schedule(V2IPPowerSaveSchedule(
+    start=(22 * 60,) * 5 + (0, 0), end=(7 * 60,) * 5 + (0, 0)))  # weeknights
+```
+
+A schedule time that is not a time of day is refused before it is sent. A write
+goes out at 176 bytes: a receiver with the schedule ignores the settings of a
+shorter frame, and one whose settings end at the idle minutes takes it all the
+same.
 
 ## Mesh and firmware
 

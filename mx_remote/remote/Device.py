@@ -23,6 +23,7 @@ from ..Interface import (
 	AudioLinks,
 	DeviceV2IPScalingSettings,
 	V2IPDeviceSettings,
+	V2IPPowerSaveSchedule,
 	V2IPOutputMode,
 	V2IPScalingSettings,
 )
@@ -1181,6 +1182,28 @@ class Device(DeviceBase):
 			return False
 		return self._send_v2ip_settings(V2IPDeviceSettings(
 			valid=V2IPDeviceSetting.IR_PROFILE_SINK, ir_profile_sink=profile))
+
+	async def set_v2ip_auto_power_save(self, minutes:int) -> bool:
+		'''Set how many idle minutes this V2IP device waits before it powers down
+		by itself, 0 for never. The terms of set_v2ip_setting() apply.'''
+		if not (0 <= minutes <= 0xFFFF):
+			_LOGGER.warning(f"not setting {minutes} idle minutes on {self}: the field holds 0 to 65535")
+			return False
+		return self._send_v2ip_settings(V2IPDeviceSettings(
+			valid=V2IPDeviceSetting.AUTO_POWER_SAVE, auto_power_save=minutes))
+
+	async def set_v2ip_power_save_schedule(self, schedule:V2IPPowerSaveSchedule) -> bool:
+		'''Set this V2IP device's daily power save windows.
+
+		Every time is below V2IP_MINUTES_PER_DAY, and is checked here. The
+		windows are kept in the device's own time zone. The terms of
+		set_v2ip_setting() apply.
+		'''
+		if not schedule.is_valid():
+			_LOGGER.warning(f"not setting power save schedule [{schedule}] on {self}: a time is not a time of day")
+			return False
+		return self._send_v2ip_settings(V2IPDeviceSettings(
+			valid=V2IPDeviceSetting.POWER_SAVE_SCHEDULE, power_save=schedule))
 
 	def _send_v2ip_settings(self, settings:V2IPDeviceSettings) -> bool:
 		'''The one send behind the device settings commands.'''

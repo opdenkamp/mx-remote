@@ -8,12 +8,13 @@
 
 from functools import cached_property
 from typing import Any
+import struct
 from .FrameBase import FrameBase
 from .FrameHeader import FrameHeader
 from ..Uid import MxrDeviceUid
 from ..Interface import (DeviceBase, DeviceRegistry, DeviceV2IPDetails, DeviceV2IPScalingSettings,
                          DeviceV2IPSink, V2IPAudioFormat, V2IPDeviceSettings, V2IPDscpConfig,
-                         V2IPStreamSource)
+                         V2IPPowerSaveSchedule, V2IPStreamSource)
 from .Constants import (V2IPDeviceSetting, V2IPFpgaFeature, MXR_SCALING_FLAG_AUTO_SCALING,
                         MXR_SCALING_FLAG_MODE_VALID,
                         MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_OPTIONS2_VALID,
@@ -32,8 +33,10 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #    88..112  v2ip_av_source sink, zero when no route is active
 #   112..120  v2ip_audio_format sink_audio_fmt
 #   120..128  u64 video processor feature mask
-#   128..144  device settings: u32 valid, u32 flags, u32 stored ir profiles,
-#             s8 ir_profile, s8 ir_profile_sink, 2 reserved
+#   128..176  device settings: u32 valid, u32 flags, u32 stored ir profiles,
+#             s8 ir_profile, s8 ir_profile_sink, u16 idle minutes before power
+#             save, then the power save schedule: 7 x u16 start at 144,
+#             7 x u16 end at 158, and 4 reserved
 #
 # Each of those blocks was appended behind what came before it, leaving every
 # offset ahead of it where it was, so the length is what says whether one is
@@ -57,7 +60,10 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 # cache wholesale reports a peer's addresses as 0.0.0.0 the moment a controller
 # writes anything else. The sink trailer is the exception: present or absent by
 # length, with no marker, and taken only from a device describing itself.
-# The settings block marks each setting with its own bit in valid.
+# The settings block marks each setting with its own bit in valid. It grew from
+# 16 bytes to 48: a sender whose block ends at the idle minutes reports those,
+# and one that stops short of the schedule reports no schedule whatever its
+# valid bit says.
 #
 # Trust the scaling block only from a peer whose hello carries
 # MXR_FEATURE_CONFIG_INITIALISED. Without it the sender may have built those
@@ -87,7 +93,39 @@ _CODEC_OFFSET       = _WITH_OPTIONS_SIZE
 _CODEC_SIZE         = 8
 _SETTINGS_OFFSET    = _CODEC_OFFSET + _CODEC_SIZE
 _SETTINGS_SIZE      = 16
+'''The settings up to the idle minutes, which is all a sender that predates the
+power save schedule carries.'''
 _WITH_SETTINGS_SIZE = _SETTINGS_OFFSET + _SETTINGS_SIZE
+_SCHEDULE_SIZE      = 28
+'''The power save schedule, behind the idle minutes: seven start times, then
+seven end times.'''
+
+def settings_block(settings:V2IPDeviceSettings) -> bytes:
+    '''The 48-byte device settings block.
+
+    A value not named in settings.valid is not read, so it goes out as zero.'''
+    schedule = settings.power_save_schedule or V2IPPowerSaveSchedule()
+    return (struct.pack('<IIIbbH', int(settings.valid), int(settings.flags),
+                        settings.stored_ir_profiles or 0, settings.ir_profile or 0,
+                        settings.ir_profile_sink or 0, settings.auto_power_save or 0)
+            + struct.pack('<7H7H', *schedule.start, *schedule.end)
+            + bytes(4))
+
+def parse_settings_block(block:bytes) -> V2IPDeviceSettings:
+    '''A device settings block, from its first 16 bytes on.
+
+    A bit claiming the schedule in a block too short to hold it is dropped.'''
+    valid, flags, profiles, profile, profile_sink, minutes = struct.unpack_from('<IIIbbH', block)
+    valid = V2IPDeviceSetting(valid)
+    schedule = None
+    if (len(block) >= (_SETTINGS_SIZE + _SCHEDULE_SIZE)):
+        times = struct.unpack_from('<7H7H', block, _SETTINGS_SIZE)
+        schedule = V2IPPowerSaveSchedule(start=times[:7], end=times[7:])
+    else:
+        valid &= ~V2IPDeviceSetting.POWER_SAVE_SCHEDULE
+    return V2IPDeviceSettings(valid=valid, flags=V2IPDeviceSetting(flags), ir_profiles=profiles,
+                              ir_profile=profile, ir_profile_sink=profile_sink,
+                              auto_power_save=minutes, power_save=schedule)
 
 class V2IPDeviceOptions:
     '''Parsed V2IP device options (TX rate and per-stream DSCP marking).'''
@@ -249,11 +287,15 @@ class FrameV2IPDeviceConfiguration(FrameBase):
                            settings:V2IPDeviceSettings) -> FrameBase|None:
         '''Build the 0x3C write that changes a device's settings and nothing else.
 
-        144 bytes: the configuration as construct_scaling() lays it out but with
+        176 bytes: the configuration as construct_scaling() lays it out but with
         no scaling validity bit, then the options trailer - the sink block at
         88..120, the processor's feature word at 120..128 and the settings at
-        128..144. The settings are the last block, so a frame that carries them
+        128..176. The settings are the last block, so a frame that carries them
         carries the two before them too.
+
+        The settings go out whole. A receiver whose block ends at the idle
+        minutes takes a frame of 144 bytes or more; one with the schedule
+        ignores the settings of a frame shorter than 176.
 
         **Both of those go out zeroed.** A device leaves the feature word zero on
         a frame about another device, and a receiver takes the sink block only
@@ -275,13 +317,7 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         # tiling window whose zero uid says none is carried; then the zeroed
         # sink block and feature word.
         payload += bytes(_SETTINGS_OFFSET - len(payload))
-        payload += int(settings.valid).to_bytes(4, 'little')
-        payload += int(settings.flags).to_bytes(4, 'little')
-        # A value not named in valid is not read, so it goes out as zero.
-        payload += (settings.stored_ir_profiles or 0).to_bytes(4, 'little')
-        payload += (settings.ir_profile or 0).to_bytes(1, 'little', signed=True)
-        payload += (settings.ir_profile_sink or 0).to_bytes(1, 'little', signed=True)
-        payload += bytes(_WITH_SETTINGS_SIZE - len(payload))
+        payload += settings_block(settings)
         return FrameBase.construct_base(target=target, mxr=mxr, opcode=_OPCODE, payload=bytes(payload))
 
     @property
@@ -389,13 +425,7 @@ class FrameV2IPDeviceConfiguration(FrameBase):
             return None
         if ((dev := self.subject_device) is None):
             return None
-        block = self.payload[_SETTINGS_OFFSET:_WITH_SETTINGS_SIZE]
-        frame = V2IPDeviceSettings(
-            valid=V2IPDeviceSetting(int.from_bytes(block[0:4], 'little')),
-            flags=V2IPDeviceSetting(int.from_bytes(block[4:8], 'little')),
-            ir_profiles=int.from_bytes(block[8:12], 'little'),
-            ir_profile=int.from_bytes(block[12:13], 'little', signed=True),
-            ir_profile_sink=int.from_bytes(block[13:14], 'little', signed=True))
+        frame = parse_settings_block(self.payload[_SETTINGS_OFFSET:])
         if self.target_self:
             return frame
         reported = dev.v2ip_settings

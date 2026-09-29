@@ -270,8 +270,8 @@ class V2IPDeviceSetting(IntFlag):
 	'''The device settings a V2IP configuration can carry, each on its own bit.
 
 	The same bits serve as the settings a frame carries and as the values of the
-	on/off ones among them. The last three carry a value elsewhere in the block
-	and have no on/off value of their own.
+	on/off ones among them. IR_PROFILE to POWER_SAVE_SCHEDULE carry a value
+	elsewhere in the block and have no on/off value of their own.
 
 	A device reports every setting it has, so one it never reports is one it
 	does not have.'''
@@ -298,9 +298,23 @@ class V2IPDeviceSetting(IntFlag):
 	IR_PROFILES        = (1 << 10)
 	'''The infrared profiles stored on the device. Reported by the device
 	itself and never written.'''
+	AUTO_POWER_SAVE    = (1 << 11)
+	'''The minutes a device stays idle before it powers down by itself.'''
+	POWER_SAVE_SCHEDULE = (1 << 12)
+	'''The daily windows in which the device powers down.'''
+	CLOCK_SET          = (1 << 13)
+	'''The device's clock has been set, on/off. Reported by the device itself
+	and never written.'''
 
 V2IP_DEVICE_SETTING_SWITCHES = V2IPDeviceSetting(0xFF)
-"""The settings that are on or off, as opposed to carrying a value."""
+"""The settings that are on or off, as opposed to carrying a value, and that
+can be written."""
+
+V2IP_DEVICE_SETTINGS_REPORTED_ONLY = V2IPDeviceSetting.IR_PROFILES | V2IPDeviceSetting.CLOCK_SET
+"""The settings only a device reports about itself, which no write carries."""
+
+V2IP_MINUTES_PER_DAY = 24 * 60
+"""Minutes in a day: every time in a power save schedule is below this."""
 
 V2IP_IR_PROFILE_NOT_SET = -1
 """The infrared profile an output's port reports when it follows the device's
