@@ -222,6 +222,15 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 	if hdr.opcode == 0x4A:
 		from .FramePing import FramePing
 		return FramePing(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x4B:
+		from .FrameTimeZone import FrameTimeZone
+		return FrameTimeZone(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x4C:
+		from .FrameV2IPSettingsAll import FrameV2IPSettingsAll
+		return FrameV2IPSettingsAll(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x4D:
+		from .FrameTime import FrameTime
+		return FrameTime(header=hdr, timestamp=timestamp)
 
 	# Opcodes reaching here are ones current firmware does not emit:
 	#

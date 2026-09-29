@@ -24,6 +24,8 @@ from ..Interface import (
 	DeviceV2IPScalingSettings,
 	V2IPDeviceSettings,
 	V2IPPowerSaveSchedule,
+	TimeZone,
+	DeviceClock,
 	V2IPOutputMode,
 	V2IPScalingSettings,
 )
@@ -99,6 +101,8 @@ class Device(DeviceBase):
 		self._v2ip_sink:DeviceV2IPSink|None = None
 		self._v2ip_features:V2IPFpgaFeature|None = None
 		self._v2ip_settings:V2IPDeviceSettings|None = None
+		self._time_zone:TimeZone|None = None
+		self._clock:DeviceClock|None = None
 		self._mesh_master_uid:MxrDeviceUid|None = None
 		# The source device behind each V2IP bay, by bay mode and number. Held
 		# here as well as on the bays because a device may send its mappings
@@ -342,6 +346,16 @@ class Device(DeviceBase):
 	@override
 	def v2ip_settings(self) -> V2IPDeviceSettings|None:
 		return self._v2ip_settings
+
+	@property
+	@override
+	def time_zone(self) -> TimeZone|None:
+		return self._time_zone
+
+	@property
+	@override
+	def clock(self) -> datetime|None:
+		return self._clock.now() if (self._clock is not None) else None
 
 	def _merge_v2ip_settings(self, frame:V2IPDeviceSettings) -> None:
 		'''Fold a settings block onto the cached one.
@@ -844,6 +858,13 @@ class Device(DeviceBase):
 			self.v2ip_features = data
 		elif isinstance(data, V2IPDeviceSettings):
 			self._merge_v2ip_settings(data)
+		elif isinstance(data, TimeZone):
+			if (self._time_zone != data):
+				self._time_zone = data
+				self.call_callbacks()
+		elif isinstance(data, DeviceClock):
+			# Repeated with every periodic broadcast, so it marks no change.
+			self._clock = data
 		elif isinstance(data, V2IPStreamSourcesList):
 			self.merge_v2ip_sources(first=0, total=len(data), page=data)
 		elif isinstance(data, V2IPDeviceStats):

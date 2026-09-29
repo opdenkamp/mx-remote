@@ -17,16 +17,23 @@ import os
 from pathlib import Path
 import random
 import time
+from datetime import datetime, timezone
 
 from .ConnectionAsync import ConnectionAsync
 from ..const import MXR_HELLO_INTERVAL_MIN, MXR_HELLO_INTERVAL_RAND, __version__
 from .Device import Device
-from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, mxr_broadcast_address
+from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, mxr_broadcast_address, V2IPDeviceSettings, V2IPPowerSaveSchedule
 from ..proto.Constants import MXR_PROTOCOL_VERSION
 from ..proto.FrameDiscover import constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
 from ..proto.FrameHello import FrameHello, constructFrameHello
 from ..proto.FramePing import FramePing
+from ..proto.FrameBase import FrameBase
+from ..proto.FrameTime import FrameTime
+from ..proto.FrameTimeZone import FrameTimeZone
+from ..proto.FrameV2IPSettingsAll import FrameV2IPSettingsAll
+from ..proto.Constants import (V2IP_DEVICE_SETTINGS_REPORTED_ONLY, V2IP_IR_PROFILE_MAX,
+                               V2IP_IR_PROFILE_NOT_SET, V2IPDeviceSetting)
 from ..proto.Svd import SvdMap
 from ..Uid import MxrDeviceUid
 from .State import State
@@ -395,6 +402,79 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._discover_timeout = time.time()
         _LOGGER.debug("discovering devices")
         return self.transmit(pkt.frame)
+
+    def _send_to_all(self, frame:FrameBase|None) -> bool:
+        '''Send a frame to every device, True when all of it was written.'''
+        if (frame is None):
+            return False
+        return (self.transmit(frame.frame) == len(frame.frame))
+
+    async def set_all_v2ip_device_settings(self, settings:V2IPDeviceSettings) -> bool:
+        '''Change settings on every V2IP device of the mesh with one frame.
+
+        settings carries the settings behind their bits in valid, as a device
+        reports them. Each device applies those it has and ignores the rest,
+        and none below protocol 0x2A applies any. A setting only a device
+        reports about itself, a profile out of range and a power save time that
+        is not a time of day are refused here, since every device would ignore
+        them.
+
+        Nothing is cached: each device that applies a change reports its
+        settings, and its v2ip_settings reads that.
+        '''
+        valid = settings.valid
+        why = None
+        if (int(valid) == 0):
+            why = 'no setting is carried'
+        elif (valid & V2IP_DEVICE_SETTINGS_REPORTED_ONLY):
+            why = 'a setting only a device reports is carried'
+        elif (V2IPDeviceSetting.IR_PROFILE in valid) and not (0 <= (settings.ir_profile or 0) < V2IP_IR_PROFILE_MAX):
+            why = 'no such infrared profile'
+        elif (V2IPDeviceSetting.IR_PROFILE_SINK in valid) \
+                and not (V2IP_IR_PROFILE_NOT_SET <= (settings.ir_profile_sink or 0) < V2IP_IR_PROFILE_MAX):
+            why = 'no such output infrared profile'
+        elif (V2IPDeviceSetting.AUTO_POWER_SAVE in valid) and not (0 <= (settings.auto_power_save or 0) <= 0xFFFF):
+            why = 'more idle minutes than the field holds'
+        elif (V2IPDeviceSetting.POWER_SAVE_SCHEDULE in valid) \
+                and not (settings.power_save_schedule or V2IPPowerSaveSchedule()).is_valid():
+            why = 'a power save time is not a time of day'
+        if (why is not None):
+            _LOGGER.warning(f"not changing the settings of every V2IP device: {why}")
+            return False
+        return self._send_to_all(FrameV2IPSettingsAll.construct(mxr=self, settings=settings))
+
+    async def set_mesh_time_zone(self, zone:str, rule:str) -> bool:
+        '''Set the time zone of every device that hears it.
+
+        zone is an IANA name such as Europe/Amsterdam and rule the POSIX TZ rule
+        the devices keep time by, such as CET-1CEST,M3.5.0,M10.5.0/3. A device
+        applies the rule and shows the name. Neither may be empty, hold a NUL,
+        or be longer than its field on the wire leaves room for.
+
+        The mesh controller takes it too, and announces it from then on with
+        every periodic broadcast. A device takes it only from a management
+        application or the controller, and this client announces itself as a
+        management application.
+        '''
+        frame = FrameTimeZone.construct(mxr=self, zone=zone, rule=rule)
+        if (frame is None):
+            _LOGGER.warning(f"not setting time zone {zone!r} {rule!r}: empty, holding a NUL, or too long")
+            return False
+        return self._send_to_all(frame)
+
+    async def set_mesh_time(self, when:datetime|None=None) -> bool:
+        '''Set the clock of every device that hears it to when, or to now.
+
+        A device keeps its own clock where that is within 2s of when. It takes
+        the time only from a management application or the controller; see
+        set_mesh_time_zone(). A time before 1970 or past 2106, which 32 bits of
+        seconds do not hold, is refused.
+        '''
+        frame = FrameTime.construct(mxr=self, when=(when if (when is not None) else datetime.now(timezone.utc)))
+        if (frame is None):
+            _LOGGER.warning(f"not setting the mesh time to {when}: it does not fit the frame")
+            return False
+        return self._send_to_all(frame)
 
     def _arm_hello(self) -> None:
         '''Schedule the next announcement, mirroring the firmware's hello timer.

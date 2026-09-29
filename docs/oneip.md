@@ -216,6 +216,26 @@ goes out at 176 bytes: a receiver with the schedule ignores the settings of a
 shorter frame, and one whose settings end at the idle minutes takes it all the
 same.
 
+### Every device at once
+
+One broadcast changes settings on every V2IP device of the mesh. Each device
+applies the settings it has and ignores the rest, and none below protocol 0x2A
+applies any.
+
+```python
+from mx_remote import V2IPDeviceSettings
+
+await mx.set_all_v2ip_device_settings(V2IPDeviceSettings(
+    valid=V2IPDeviceSetting.STATUS_LED | V2IPDeviceSetting.AUTO_POWER_SAVE,
+    flags=V2IPDeviceSetting.STATUS_LED,      # the LED on
+    auto_power_save=30))
+```
+
+Nothing is cached from it: each device that applies a change reports its
+settings, and its `v2ip_settings` reads that. What every device would ignore is
+refused rather than sent - no setting at all, one only a device reports about
+itself, a profile out of range, or a schedule time that is not a time of day.
+
 ## Mesh and firmware
 
 ```python
@@ -228,6 +248,26 @@ if device.v2ip_firmware_versions:
     for fw_type, fw in device.v2ip_firmware_versions.items():
         print(f"{fw_type}: {fw.version}")
 ```
+
+### Time zone and time
+
+The mesh controller announces its time zone and clock with every periodic
+broadcast, and each device keeps its clock and power save windows by them. Both
+are recorded against the device that announced them.
+
+```python
+print(controller.time_zone)   # TimeZone(zone='Europe/Amsterdam', rule='CET-1CEST,...')
+print(controller.clock)       # its clock as of now, None until it has announced one
+
+await mx.set_mesh_time_zone('Europe/Amsterdam', 'CET-1CEST,M3.5.0,M10.5.0/3')
+await mx.set_mesh_time()      # now; or pass a datetime
+```
+
+A device takes either only from the controller or a management application,
+which is what this client announces itself as; the controller takes them too
+and announces them from then on. A device keeps its own clock where it is within
+2s of the time sent. A name or rule that is empty, holds a NUL or is too long
+for its field, and a time before 1970 or past 2106, are refused.
 
 ---
 

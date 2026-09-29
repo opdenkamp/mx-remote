@@ -81,3 +81,15 @@ bit, and the range of the infrared profiles.
 .. autoclass:: mx_remote.V2IPPowerSaveSchedule
    :members:
 ```
+
+## Mesh time
+
+The time zone and clock a mesh controller announces.
+
+```{eval-rst}
+.. autoclass:: mx_remote.TimeZone
+   :members:
+
+.. autoclass:: mx_remote.DeviceClock
+   :members:
+```

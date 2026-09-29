@@ -48,6 +48,7 @@ SUITES = [
     'v2ipscaling',  # writing a sink's scaling block, and the cache after it
     'v2ipsettings', # a V2IP device's settings, read and written
     'ping',         # a ping is answered with a hello, and sent only where answered
+    'mesh',         # the time zone, time and settings a whole mesh shares
 ]
 
 def main() -> int:

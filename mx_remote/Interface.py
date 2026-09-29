@@ -6,7 +6,10 @@
 ######################################################
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import IntEnum
+import time
 from functools import cached_property
 import aiohttp
 import ipaddress
@@ -1794,6 +1797,36 @@ class DeviceV2IPSink:
     def __str__(self) -> str:
         return f"addresses=[{self._addresses}] audio_fmt={self._audio_fmt}"
 
+@dataclass(frozen=True)
+class TimeZone:
+    """
+    The time zone a device announces for its mesh.
+
+    The mesh controller announces it with every periodic broadcast, and each
+    device of the mesh keeps its clock and its power save windows by it.
+    """
+    zone: str
+    """The IANA name, such as ``Europe/Amsterdam``."""
+    rule: str
+    """The POSIX TZ rule the devices keep time by, such as
+    ``CET-1CEST,M3.5.0,M10.5.0/3``."""
+
+    def __str__(self) -> str:
+        return f"{self.zone} ({self.rule})"
+
+@dataclass(frozen=True)
+class DeviceClock:
+    """The time a device last announced, and when that arrived here."""
+    utc: int
+    """Seconds since 1970 UTC, as the device announced them."""
+    received: float
+    """When the announcement arrived, as time.time() read it."""
+
+    def now(self) -> datetime:
+        """The device's clock as of now: the announced time, advanced by how long
+        ago it arrived."""
+        return datetime.fromtimestamp(self.utc + (time.time() - self.received), timezone.utc)
+
 class V2IPPowerSaveSchedule:
     """
     A V2IP device's daily power save windows, Monday first, in the device's
@@ -2312,6 +2345,22 @@ class DeviceBase(ABC):
         A device reports only the settings it has, so one missing from valid
         once the rest have arrived is one the device does not have.
         '''
+
+    @property
+    @abstractmethod
+    def time_zone(self) -> TimeZone|None:
+        '''The time zone this device announced for its mesh, None until it has.
+
+        The mesh controller announces it with every periodic broadcast.'''
+
+    @property
+    @abstractmethod
+    def clock(self) -> datetime|None:
+        '''This device's clock as of now, None until it has announced one.
+
+        The time it last announced, advanced by how long ago that arrived. The
+        mesh controller announces its clock with every periodic broadcast, and
+        only once it has been set.'''
 
     @property
     @abstractmethod
