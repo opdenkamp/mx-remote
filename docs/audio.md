@@ -12,6 +12,26 @@ bay.volume_set(volume=50, muted=False)
 bay.mute_set(mute=True)
 ```
 
+## Audio endpoints
+
+A V2IP device reports its audio endpoints, each with its features and a status
+word on the same bits: `FEATURE_MUTE` while it is muted, `FEATURE_TRIGGER`
+while its trigger is active, and `FEATURE_AUDIO_LOCK` while its audio source is
+locked.
+
+```python
+ep = device.audio_endpoint_by_id(1)
+print(ep.features, ep.status, ep.audio_locked)
+
+# keep the endpoint's audio source when the video route changes
+await device.set_audio_endpoint_locked(1, True)
+```
+
+Only an endpoint whose features include `FEATURE_AUDIO_LOCK` is written, since
+the device ignores the rest. The device answers by reporting its endpoints
+again, so `audio_locked` reads the lock once that report arrives, and a report
+whose only change is a status fires the device's callbacks.
+
 ## Remote Control
 
 Send remote control key presses and actions:

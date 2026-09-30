@@ -51,6 +51,7 @@ SUITES = [
     'mesh',         # the time zone, time and settings a whole mesh shares
     'v2ipvlan',     # a V2IP device's VLAN configuration, read and written
     'v2iptestcard', # a V2IP sink's test pattern, tone and lip-sync flash
+    'audiolock',    # an audio endpoint's status, and locking its source
 ]
 
 def main() -> int:

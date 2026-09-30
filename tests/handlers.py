@@ -68,6 +68,7 @@ BASELINE = {
     'FrameV2IPAudio.FrameV2IPAudioChangeSource',
     'FrameV2IPAudio.FrameV2IPAudioConfig',
     'FrameV2IPAudio.FrameV2IPAudioLinks',
+    'FrameV2IPAudio.FrameV2IPAudioLock',
     'FrameV2IPBayMapping.FrameV2IPBayMapping',
     'FrameV2IPDetectBays.FrameV2IPDetectBays',
     'FrameV2IPDeviceConfiguration.FrameV2IPDeviceConfiguration',

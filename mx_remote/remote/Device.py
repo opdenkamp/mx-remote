@@ -75,6 +75,7 @@ from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, DeviceFeature, M
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                               MXR_SCALING_FLAG_OPTIONS_VALID, V2IP_DEVICE_SETTING_SWITCHES,
                               V2IP_IR_PROFILE_MAX, V2IP_IR_PROFILE_NOT_SET, V2IP_VLAN_PORT_SFP)
+from ..proto.FrameV2IPAudio import FrameV2IPAudio
 from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
 from ..proto.FrameV2IPTestcard import (FrameV2IPTestcard, TESTCARD_REQUEST, TESTCARD_SET,
                                        TESTCARD_PART_PATTERN, TESTCARD_PART_TONE, TESTCARD_PART_SYNC)
@@ -930,6 +931,10 @@ class Device(DeviceBase):
 				self._topology = data.topology
 				self.call_callbacks()
 		elif isinstance(data, AudioEndpoints):
+			# A device answers a lock by re-sending its tree, so a report whose
+			# only change is an endpoint's status is still a change.
+			previous = self._audio_endpoints
+			changed = (previous is None) or (previous != data) or not previous.same_status(data)
 			self._audio_endpoints = data
 			if (self.is_oneip_tz or self.is_oneip_tx):
 				first_input = self.first_input
@@ -948,6 +953,8 @@ class Device(DeviceBase):
 						bay = self.get_by_mode_bay(mode="Output", bay=id-10)
 					if (bay is not None):
 						bay.audio_endpoint = ep # pyright: ignore[reportAttributeAccessIssue]
+			if changed:
+				self.call_callbacks()
 		elif isinstance(data, AudioChangeSource):
 			# the endpoint that is changing source is the frame's target, not its source
 			if (data.target_uid is not None) and (data.target_id is not None):
@@ -1284,6 +1291,26 @@ class Device(DeviceBase):
 		                   device=vlan.device, port=tuple(vlan.port), uplink=vlan.uplink)
 		frame = FrameV2IPDeviceConfiguration.construct_vlan(
 			mxr=self.registry, target=self, target_uid=self.remote_id, vlan=written)
+		if (frame is None):
+			return False
+		return self.registry.transmit(frame.frame) == len(frame.frame)
+
+	async def set_audio_endpoint_locked(self, endpoint:int, locked:bool) -> bool:
+		'''Lock or unlock the audio source of one of this device's audio
+		endpoints: while it is locked, a video route change leaves the endpoint's
+		audio source alone.
+
+		Refused unless the endpoint reports AudioFeatures.FEATURE_AUDIO_LOCK,
+		which is the only one the device acts on. The device reports its
+		endpoints again once the lock has changed; the endpoint's audio_locked
+		reads it.
+		'''
+		ep = self.audio_endpoint_by_id(endpoint)
+		if (ep is None) or not ep.features.support_audio_lock:
+			_LOGGER.warning(f"not locking audio endpoint {endpoint} of {self}: it cannot lock its audio source")
+			return False
+		frame = FrameV2IPAudio.construct_lock(mxr=self.registry, target=self.remote_id,
+		                                      endpoint_id=endpoint, locked=locked)
 		if (frame is None):
 			return False
 		return self.registry.transmit(frame.frame) == len(frame.frame)

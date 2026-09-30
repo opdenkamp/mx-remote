@@ -559,9 +559,23 @@ class AudioFeatures:
     FEATURE_AMP_OUTPUT = (1 << 12)
     FEATURE_VOLUME_CONTROL = (1 << 13)
     FEATURE_GAIN_CONTROL = (1 << 14)
+    FEATURE_AUDIO_LOCK = (1 << 15)
+    '''Keeps its audio source when the video route changes, while locked.'''
 
     def __init__(self, value:int) -> None:
         self._value = value
+
+    @property
+    def value(self) -> int:
+        return self._value
+
+    def __eq__(self, other:object) -> bool:
+        if not isinstance(other, AudioFeatures):
+            return NotImplemented
+        return (self._value == other._value)
+
+    def __hash__(self) -> int:
+        return hash(self._value)
 
     @property
     def is_input(self) -> bool:
@@ -624,6 +638,10 @@ class AudioFeatures:
         return ((self._value & self.FEATURE_GAIN_CONTROL) != 0)
 
     @property
+    def support_audio_lock(self) -> bool:
+        return ((self._value & self.FEATURE_AUDIO_LOCK) != 0)
+
+    @property
     def features(self) -> list[str]:
         rv:list[str] = []
         if self.is_input:
@@ -656,6 +674,8 @@ class AudioFeatures:
             rv.append('volume')
         if self.support_gain_control:
             rv.append('gain')
+        if self.support_audio_lock:
+            rv.append('audio lock')
         return rv
 
     def __str__(self) -> str:
@@ -693,6 +713,25 @@ class AudioEndpoint(ABC):
         self._bay:'BayBase|None' = None
         self._linked_uid:MxrDeviceUid|None = None
         self._linked_ep:int|None = None
+        self._status:AudioFeatures|None = None
+
+    @property
+    def status(self) -> AudioFeatures|None:
+        '''The state this endpoint reports, on the bits of its features:
+        FEATURE_MUTE while it is muted, FEATURE_TRIGGER while its trigger is
+        active, and FEATURE_AUDIO_LOCK while its audio source is locked. None
+        when the device did not report one.'''
+        return self._status
+
+    @status.setter
+    def status(self, status:AudioFeatures) -> None:
+        self._status = status
+
+    @property
+    def audio_locked(self) -> bool|None:
+        '''Whether this endpoint keeps its audio source when the video route
+        changes, None when it has reported no status.'''
+        return self._status.support_audio_lock if (self._status is not None) else None
 
     def add_child(self, ep:'AudioEndpoint') -> None:
         if not ep in self.children:
@@ -873,6 +912,12 @@ class AudioEndpoints:
             if value.endpoints[k] != v:
                 return False
         return True
+
+    def same_status(self, other:'AudioEndpoints') -> bool:
+        '''Whether every endpoint reports the same status in both.'''
+        if (self.endpoints.keys() != other.endpoints.keys()):
+            return False
+        return all((ep.status == other.endpoints[k].status) for k, ep in self.endpoints.items())
 
     def __str__(self) -> str:
         return str(self.as_list)
@@ -2798,6 +2843,10 @@ class DeviceBase(ABC):
     @abstractmethod
     async def set_v2ip_vlan(self, vlan:V2IPVlan) -> bool:
         '''change the device's VLAN configuration'''
+
+    @abstractmethod
+    async def set_audio_endpoint_locked(self, endpoint:int, locked:bool) -> bool:
+        '''lock or unlock the audio source of one of this device's audio endpoints'''
 
     @abstractmethod
     async def request_v2ip_testcard(self) -> bool:

@@ -35,6 +35,7 @@ class AudioCommandOpcode(IntEnum):
     SELECT_INPUT = 3
     VOLUME = 4
     LINKS = 5
+    LOCK = 6
 
 class AudioEntryType(IntEnum):
     '''Type discriminator for audio configuration entries.'''
@@ -136,6 +137,13 @@ class AudioEntry:
         if (val is None):
             return None
         return EndpointStatus(value=val)
+
+    @cached_property
+    def raw_status(self) -> int|None:
+        '''The status word behind an endpoint's features, on the same bits.'''
+        if (self.entry_type != AudioEntryType.ENDPOINT):
+            return None
+        return self._frame.payload_u32(idx=(self._idx + 12))
 
     @cached_property
     def supported_routes(self) -> int|None:
@@ -399,6 +407,8 @@ class AudioConfig:
                 features = entry.features
                 if (features is not None):
                     ep = AudioEndpointImpl(id=id, features=features, container=rv)
+                    if ((status := entry.raw_status) is not None):
+                        ep.status = AudioFeatures(value=status)
                     rv.add(ep)
                     eps[ep.id] = ep
                 else:
@@ -529,6 +539,22 @@ class AudioVolume:
     def __str__(self) -> str:
         return f"volume endpoint {self.endpoint}: {self.volume}"
 
+
+class AudioLock:
+    '''Parsed audio source lock state for an endpoint.'''
+    def __init__(self, data:FrameBase) -> None:
+        self.data = data
+
+    @cached_property
+    def endpoint(self) -> int|None:
+        return self.data.payload_u16(idx=20)
+
+    @cached_property
+    def locked(self) -> bool|None:
+        return self.data.payload_bool(idx=24)
+
+    def __str__(self) -> str:
+        return f"lock endpoint {self.endpoint}: {self.locked}"
 
 class AudioStreamAddress:
     '''Writable IPv4 + UDP-port pair used in audio endpoint addresses.'''
@@ -706,6 +732,8 @@ class FrameV2IPAudio(FrameBase):
             return FrameV2IPAudioLinks(header=self.header)
         elif (self.opcode == AudioCommandOpcode.VOLUME):
             return FrameV2IPAudioVolume(header=self.header)
+        elif (self.opcode == AudioCommandOpcode.LOCK):
+            return FrameV2IPAudioLock(header=self.header)
         raise Exception(f"unhandled audio opcode {self.opcode}")
 
     def process(self) -> None:
@@ -750,10 +778,15 @@ class FrameV2IPAudio(FrameBase):
         body = _audio_cmd_header(AudioCommandOpcode.VOLUME, target) + _pack_audio_param(endpoint_id, volume & 0xFFFFFFFF)
         return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x43, payload=body)
 
+    @staticmethod
+    def construct_lock(mxr:DeviceRegistry, target:MxrDeviceUid, endpoint_id:int, locked:bool) -> FrameBase|None:
+        body = _audio_cmd_header(AudioCommandOpcode.LOCK, target) + _pack_audio_param(endpoint_id, 1 if locked else 0)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x43, payload=body)
+
     @cached_property
     def opcode(self) -> AudioCommandOpcode:
         val = self.payload_u16(idx=0)
-        if (val is None) or (val > AudioCommandOpcode.LINKS.value):
+        if (val is None) or (val > AudioCommandOpcode.LOCK.value):
             return AudioCommandOpcode.UNKNOWN
         return AudioCommandOpcode(value=val)
 
@@ -894,6 +927,27 @@ class FrameV2IPAudioVolume(FrameV2IPAudio):
     @cached_property
     def param(self) -> AudioVolume:
         return AudioVolume(data=self)
+
+    def __str__(self) -> str:
+        return f"{str(self.remote_device)} {self.param}"
+
+class FrameV2IPAudioLock(FrameV2IPAudio):
+    '''Audio endpoint source lock command.
+
+    Nothing is cached from it: a device answers a lock by reporting its
+    endpoints again, and the status in that report is what is recorded.'''
+    def __init__(self, header: FrameHeader):
+        super().__init__(header)
+        if (self.opcode != AudioCommandOpcode.LOCK):
+            raise Exception(f"invalid opcode {self.opcode}")
+
+    @cached_property
+    def param(self) -> AudioLock:
+        return AudioLock(data=self)
+
+    @override
+    def process(self) -> None:
+        pass
 
     def __str__(self) -> str:
         return f"{str(self.remote_device)} {self.param}"
