@@ -241,6 +241,12 @@ class DeviceFeature(IntFlag):
 	STATUS_CRASHED     = (1 << 23)
 	VIDEO_WALL         = (1 << 24)
 	CONFIG_INITIALISED = (1 << 25)
+	STATUS_MCAST_FAULT = (1 << 26)
+	'''Receives one or more peers only by broadcast, because its multicast receive path is faulty.'''
+	POWER_SAVE         = (1 << 27)
+	'''Powers its video processor down in power save. A device without it refuses to enter power save.'''
+	VLAN               = (1 << 28)
+	'''Tags its uplink by the VLAN configuration it reports, and takes one written to it.'''
 	BOOT_BIT           = (1 << 31)
 
 class V2IPFpgaFeature(IntFlag):
@@ -416,6 +422,10 @@ class BayStatusMask(IntFlag):
 	ENCODER_DISABLED = (1 << 15)
 	CEC_DISABLED = (1 << 20)
 	ENCODER_ERROR = (1 << 21)
+	AUTO_NAME = (1 << 24)
+	'''The bay's name was generated - a default, or taken from CEC or the EDID -
+	rather than set by a user. A device that predates this bit never sets it,
+	so a clear bit does not prove a user set the name.'''
 
 	def __str__(self) -> str:
 		rv = ""
@@ -453,6 +463,8 @@ class BayStatusMask(IntFlag):
 			rv += ", cec disabled"
 		if BayStatusMask.ENCODER_ERROR in self:
 			rv += ", encoder error"
+		if BayStatusMask.AUTO_NAME in self:
+			rv += ", generated name"
 		if len(rv) != 0:
 			return rv[2:]
 		return "none"
