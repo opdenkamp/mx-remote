@@ -16,7 +16,8 @@ from ..Interface import DeviceRegistry, TimeZone
 #
 # The mesh controller announces it with every periodic broadcast, and each
 # device of the mesh keeps its clock and its power save windows by it. A device
-# takes one only from the controller or a management application.
+# takes one only from the controller or a management application. A controller
+# without a time zone announces both fields empty, and its members keep UTC.
 TIME_ZONE_NAME_LEN = 48
 '''Bytes a time zone's IANA name takes on the wire, its terminating NUL included.'''
 TIME_ZONE_RULE_LEN = 64
@@ -36,6 +37,16 @@ class FrameTimeZone(FrameBase):
         field for the terminating NUL.'''
         if not _fits(zone, TIME_ZONE_NAME_LEN) or not _fits(rule, TIME_ZONE_RULE_LEN):
             return None
+        return FrameTimeZone._construct(mxr=mxr, zone=zone, rule=rule)
+
+    @staticmethod
+    def construct_clear(mxr:DeviceRegistry) -> FrameBase|None:
+        '''Build the broadcast that clears the time zone of every device hearing
+        it: both fields empty, which construct() refuses.'''
+        return FrameTimeZone._construct(mxr=mxr, zone='', rule='')
+
+    @staticmethod
+    def _construct(mxr:DeviceRegistry, zone:str, rule:str) -> FrameBase|None:
         payload = zone.encode('utf-8').ljust(TIME_ZONE_NAME_LEN, b'\0') \
             + rule.encode('utf-8').ljust(TIME_ZONE_RULE_LEN, b'\0')
         return FrameBase.construct_base(mxr=mxr, opcode=0x4B, payload=payload)

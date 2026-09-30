@@ -1803,7 +1803,8 @@ class TimeZone:
     The time zone a device announces for its mesh.
 
     The mesh controller announces it with every periodic broadcast, and each
-    device of the mesh keeps its clock and its power save windows by it.
+    device of the mesh keeps its clock and its power save windows by it. An
+    empty zone and rule mean the controller has none, and the devices keep UTC.
     """
     zone: str
     """The IANA name, such as ``Europe/Amsterdam``."""
@@ -2351,7 +2352,8 @@ class DeviceBase(ABC):
     def time_zone(self) -> TimeZone|None:
         '''The time zone this device announced for its mesh, None until it has.
 
-        The mesh controller announces it with every periodic broadcast.'''
+        The mesh controller announces it with every periodic broadcast, empty
+        when it has none.'''
 
     @property
     @abstractmethod

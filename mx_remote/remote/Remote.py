@@ -449,7 +449,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         zone is an IANA name such as Europe/Amsterdam and rule the POSIX TZ rule
         the devices keep time by, such as CET-1CEST,M3.5.0,M10.5.0/3. A device
         applies the rule and shows the name. Neither may be empty, hold a NUL,
-        or be longer than its field on the wire leaves room for.
+        or be longer than its field on the wire leaves room for;
+        clear_mesh_time_zone() sends both empty.
 
         The mesh controller takes it too, and announces it from then on with
         every periodic broadcast. A device takes it only from a management
@@ -461,6 +462,12 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             _LOGGER.warning(f"not setting time zone {zone!r} {rule!r}: empty, holding a NUL, or too long")
             return False
         return self._send_to_all(frame)
+
+    async def clear_mesh_time_zone(self) -> bool:
+        '''Clear the time zone of every device that hears it, which then keeps
+        UTC. Sent, received and announced as set_mesh_time_zone() with an empty
+        name and rule.'''
+        return self._send_to_all(FrameTimeZone.construct_clear(mxr=self))
 
     async def set_mesh_time(self, when:datetime|None=None) -> bool:
         '''Set the clock of every device that hears it to when, or to now.

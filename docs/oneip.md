@@ -260,6 +260,7 @@ print(controller.time_zone)   # TimeZone(zone='Europe/Amsterdam', rule='CET-1CES
 print(controller.clock)       # its clock as of now, None until it has announced one
 
 await mx.set_mesh_time_zone('Europe/Amsterdam', 'CET-1CEST,M3.5.0,M10.5.0/3')
+await mx.clear_mesh_time_zone() # no time zone: the devices keep UTC
 await mx.set_mesh_time()      # now; or pass a datetime
 ```
 
@@ -267,7 +268,8 @@ A device takes either only from the controller or a management application,
 which is what this client announces itself as; the controller takes them too
 and announces them from then on. A device keeps its own clock where it is within
 2s of the time sent. A name or rule that is empty, holds a NUL or is too long
-for its field, and a time before 1970 or past 2106, are refused.
+for its field, and a time before 1970 or past 2106, are refused. A controller
+without a time zone announces an empty one.
 
 ---
 

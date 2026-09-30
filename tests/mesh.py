@@ -88,6 +88,21 @@ for zone, rule in (('', 'UTC0'), ('UTC', ''), ('Z' * 48, 'UTC0'), ('UTC', 'R' * 
 assert call(mx.set_mesh_time_zone('Z' * 47, 'R' * 63)) is True, 'the longest names that fit'
 print('tz write    : two NUL-padded fields; what a device could not hold is refused')
 
+# A controller without a time zone announces an empty one, and that replaces
+# the one it announced before.
+rx(0x4B, CAPTURED_TIME_ZONE)
+rx(0x4B, bytes(112))
+assert ctrl.time_zone == mx_remote.TimeZone(zone='', rule=''), ctrl.time_zone
+assert changes[-1] == ctrl.time_zone, 'clearing the zone was not reported'
+rx(0x4B, CAPTURED_TIME_ZONE)
+
+sent.clear()
+assert call(mx.clear_mesh_time_zone()) is True
+frame = sent.pop()
+assert opcode(frame) == 0x4B and frame[2] == 0x2A, (opcode(frame), frame[2])
+assert frame[24:] == bytes(112), 'a receiver drops a shorter frame'
+print('tz clear    : both fields empty, read and written')
+
 # ----------------------------------------------------------------------- time
 
 # A 0x4D a mesh controller sent: seconds since 1970 as a little-endian u32.
