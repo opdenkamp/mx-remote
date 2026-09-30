@@ -77,6 +77,7 @@ BASELINE = {
     'FrameV2IPSourceSwitch.FrameV2IPSourceSwitch',
     'FrameV2IPSources.FrameV2IPSources',
     'FrameV2IPStats.FrameV2IPStats',
+    'FrameV2IPTestcard.FrameV2IPTestcard',
     'FrameV2IPTiling.FrameV2IPTiling',
     'FrameV2IPVideoWall.FrameV2IPVideoWall',
     'FrameVolume.FrameVolume',

@@ -1967,6 +1967,94 @@ class V2IPVlan:
             rv += f", pending ({self.revert_s}s)"
         return rv
 
+def _wire_enum(cls:Any, value:int) -> Any:
+    '''The member value names, or the raw value where this library names none.'''
+    try:
+        return cls(value)
+    except ValueError:
+        return value
+
+@dataclass(frozen=True)
+class V2IPTestTone:
+    """A V2IP sink's test tone."""
+    mode: V2IPToneMode|int = V2IPToneMode.OFF
+    """What plays; a raw int for a mode this library does not name."""
+    freq: int = 0
+    """The frequency, in Hz."""
+    level: int = 0
+    """The level, in dBFS."""
+    channels: int = 0
+    """The channels it plays on."""
+    rate: int = 0
+    """The sample rate, in Hz."""
+
+    def is_valid(self) -> bool:
+        """Whether a sink plays this tone: a mode it names, and every value in
+        range. A line-up tone needs two channels or more."""
+        min_channels = 2 if (self.mode == V2IPToneMode.LINEUP) else 1
+        return isinstance(self.mode, V2IPToneMode) \
+            and (V2IP_TONE_FREQ_MIN <= self.freq <= V2IP_TONE_FREQ_MAX) \
+            and (V2IP_TONE_LEVEL_MIN <= self.level <= 0) \
+            and (min_channels <= self.channels <= V2IP_TONE_CHANNELS_MAX) \
+            and (self.rate in V2IP_TONE_RATES)
+
+@dataclass(frozen=True)
+class V2IPTestSync:
+    """
+    A V2IP sink's lip-sync flash: a pattern frame is marked every ``period``, the
+    frame ``lead`` after a mark flashes white, and a BEEP tone starts ``offset``
+    sample periods after it.
+
+    The offset is a calibration: nothing measures the sink's own delay between
+    a picture and a sample reaching the HDMI link, and a display adds its own.
+    """
+    period: int = 0
+    """Every this many pattern frames is marked, 0 for none."""
+    lead: int = 0
+    """The frame this many after a mark flashes."""
+    offset: int = 0
+    """The sample periods between a mark and the beep."""
+    beep_ms: int = 0
+    """How long the beep lasts, in milliseconds."""
+
+    def is_valid(self) -> bool:
+        """Whether a sink takes these settings: the lead is below the period, or
+        0 without one, and the period, offset and beep are in range."""
+        lead_ok = (self.lead == 0) if (self.period == 0) else (0 <= self.lead < self.period)
+        return lead_ok and (0 <= self.period <= 0xFFFF) \
+            and (0 <= self.offset <= V2IP_SYNC_OFFSET_MAX) \
+            and (V2IP_SYNC_BEEP_MS_MIN <= self.beep_ms <= V2IP_SYNC_BEEP_MS_MAX)
+
+@dataclass(frozen=True)
+class V2IPTestcard:
+    """
+    The test card a V2IP sink draws on its output, as it last reported it.
+
+    A sink reports it only when asked, with request_v2ip_testcard() or in answer
+    to a change. The counters run free and wrap.
+    """
+    flags: V2IPTestcardFlag = V2IPTestcardFlag(0)
+    """What the sink reports about its test card."""
+    pattern: V2IPTestPattern|int = V2IPTestPattern.OFF
+    """The pattern; a raw int for a pattern this library does not name."""
+    colour: int = 0
+    """The colour of a FLAT pattern, 0xRRGGBB."""
+    tone: V2IPTestTone = V2IPTestTone()
+    """The tone."""
+    sync: V2IPTestSync = V2IPTestSync()
+    """The lip-sync flash."""
+    frames: int = 0
+    """Pattern frames sent."""
+    periods: int = 0
+    """Sample periods since the tone started."""
+    marks: int = 0
+    """Lip-sync marks the tone has seen."""
+
+    @property
+    def supported(self) -> bool:
+        """Whether the sink can draw the test card."""
+        return V2IPTestcardFlag.SUPPORTED in self.flags
+
 class V2IPDeviceSettings:
     """
     The device settings of a V2IP unit, as it reports them and as its controller
@@ -2440,6 +2528,13 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
+    def v2ip_testcard(self) -> V2IPTestcard|None:
+        '''The test card this V2IP sink last reported, None until it has.
+
+        A sink reports it only when asked or in answer to a change.'''
+
+    @property
+    @abstractmethod
     def time_zone(self) -> TimeZone|None:
         '''The time zone this device announced for its mesh, None until it has.
 
@@ -2703,6 +2798,22 @@ class DeviceBase(ABC):
     @abstractmethod
     async def set_v2ip_vlan(self, vlan:V2IPVlan) -> bool:
         '''change the device's VLAN configuration'''
+
+    @abstractmethod
+    async def request_v2ip_testcard(self) -> bool:
+        '''ask this sink for its test card'''
+
+    @abstractmethod
+    async def set_v2ip_test_pattern(self, pattern:V2IPTestPattern, colour:int=0) -> bool:
+        '''show a test pattern on this sink's output'''
+
+    @abstractmethod
+    async def set_v2ip_test_tone(self, tone:V2IPTestTone) -> bool:
+        '''play a test tone on this sink's output'''
+
+    @abstractmethod
+    async def set_v2ip_test_sync(self, sync:V2IPTestSync) -> bool:
+        '''set this sink's lip-sync flash'''
 
     @abstractmethod
     async def get_log(self) -> str|None:

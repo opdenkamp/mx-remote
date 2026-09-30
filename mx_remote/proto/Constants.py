@@ -10,7 +10,7 @@
 from enum import IntEnum, IntFlag
 from typing import TypeVar
 
-MXR_PROTOCOL_VERSION = 0x2A
+MXR_PROTOCOL_VERSION = 0x2B
 """Highest mx_remote protocol version this library understands.
 
 Mirrors the firmware's own protocol version. Bump
@@ -25,7 +25,10 @@ decoded below, or that revision goes silent on the mesh rather than noisy -
 
 0x2A is also what MatrixOS reads a hello by: a device on 0x2A or later is given
 60s to hello again rather than 15s, and a unit only slows its own hello to one
-every 20-30s once every device it knows is on 0x2A."""
+every 20-30s once every device it knows is on 0x2A.
+
+0x2B is the row of V2IP_TESTCARD, so a sink's test card report arrives stamped
+0x2B."""
 
 MXR_PROTOCOL_VERSION_SLOW_HELLO = 0x2A
 """First protocol version whose devices may hello only every 20-30s."""
@@ -109,6 +112,7 @@ MXR_OPCODE_VERSIONS: dict[int, int] = {
     0x4B: 0x2A,  # TIME_ZONE
     0x4C: 0x2A,  # V2IP_SETTINGS_ALL
     0x4D: 0x2A,  # TIME
+    0x4E: 0x2B,  # V2IP_TESTCARD
 }
 """Per-opcode minimum compatible protocol version, mirroring the firmware's
 own opcode table. Transmitters stamp the
@@ -274,6 +278,8 @@ class V2IPFpgaFeature(IntFlag):
 	'''Reports its sink's state.'''
 	SINK_STREAM_INFO   = (1 << 5)
 	'''Reports information about the stream its sink receives.'''
+	SINK_TEST_PATTERN  = (1 << 8)
+	'''Draws a test pattern, tone and lip-sync flash on its sink's output.'''
 
 class V2IPDeviceSetting(IntFlag):
 	'''The device settings a V2IP configuration can carry, each on its own bit.
@@ -332,6 +338,68 @@ global one."""
 V2IP_IR_PROFILE_MAX = 18
 """One past the highest infrared profile: the default profile is 0, the Atlona
 profile 1, and user-defined profiles 1 to 16 are 2 to 17."""
+
+class V2IPTestPattern(IntEnum):
+	'''The test pattern a V2IP sink draws on its output.'''
+	OFF   = 0
+	'''No pattern.'''
+	BARS  = 1
+	'''Colour bars.'''
+	FLAT  = 2
+	'''One flat colour, the one the test card carries.'''
+	RAMP  = 3
+	'''A ramp.'''
+	GRID  = 4
+	'''A grid.'''
+	STRIP = 5
+	'''A strip.'''
+	CARD  = 6
+	'''A test card.'''
+
+class V2IPToneMode(IntEnum):
+	'''The test tone a V2IP sink plays on its output.'''
+	OFF        = 0
+	'''No tone.'''
+	CONTINUOUS = 1
+	'''A continuous tone.'''
+	IDENT      = 2
+	'''A channel ident.'''
+	LINEUP     = 3
+	'''A line-up tone, which needs two channels or more.'''
+	BEEP       = 4
+	'''A beep on each lip-sync mark.'''
+
+class V2IPTestcardFlag(IntFlag):
+	'''What a V2IP sink reports about its test card.'''
+	SUPPORTED       = (1 << 0)
+	'''The sink can draw the test card.'''
+	SHOWING         = (1 << 1)
+	'''The output shows the pattern.'''
+	PLAYING         = (1 << 2)
+	'''The tone plays on the output.'''
+	PATTERN_PENDING = (1 << 3)
+	'''A pattern change has yet to reach the video processor.'''
+	TONE_PENDING    = (1 << 4)
+	'''A tone change has yet to reach the video processor.'''
+	SYNC_PENDING    = (1 << 5)
+	'''A lip-sync change has yet to reach the video processor.'''
+
+V2IP_TONE_FREQ_MIN = 20
+"""The lowest test tone frequency, in Hz."""
+V2IP_TONE_FREQ_MAX = 20000
+"""The highest test tone frequency, in Hz."""
+V2IP_TONE_LEVEL_MIN = -60
+"""The quietest test tone level, in dBFS; the loudest is 0."""
+V2IP_TONE_CHANNELS_MAX = 8
+"""The most channels a test tone plays on."""
+V2IP_TONE_RATES = (44100, 48000, 96000)
+"""The sample rates a test tone plays at, in Hz."""
+V2IP_SYNC_OFFSET_MAX = 0xFFFFFF
+"""The largest lip-sync beep offset, in sample periods."""
+V2IP_SYNC_BEEP_MS_MIN = 1
+"""The shortest lip-sync beep, in milliseconds."""
+V2IP_SYNC_BEEP_MS_MAX = 10000
+"""The longest lip-sync beep, in milliseconds."""
 
 class V2IPVlanFlag(IntFlag):
 	'''The flags of a V2IP device's VLAN configuration.'''

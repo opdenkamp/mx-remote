@@ -246,6 +246,36 @@ a device that reports no SFP port. The write goes out as a settings write that
 carries no setting plus the block, so a receiver that predates the block sees a
 frame it already understood.
 
+### Test pattern, tone and lip-sync
+
+A sink whose video processor reports `V2IPFpgaFeature.SINK_TEST_PATTERN` draws a
+test card on its output: a pattern, a test tone, and a lip-sync flash that marks
+a frame and beeps a set number of sample periods after it.
+
+```python
+from mx_remote import V2IPTestPattern, V2IPTestSync, V2IPTestTone, V2IPToneMode
+
+await sink.request_v2ip_testcard()                        # the sink reports straight back
+await sink.set_v2ip_test_pattern(V2IPTestPattern.FLAT, 0x3050A0)
+await sink.set_v2ip_test_tone(V2IPTestTone(mode=V2IPToneMode.CONTINUOUS,
+                                           freq=1000, level=-20, channels=2, rate=48000))
+await sink.set_v2ip_test_sync(V2IPTestSync(period=60, lead=0, offset=0, beep_ms=40))
+await sink.set_v2ip_test_pattern(V2IPTestPattern.OFF)
+
+print(sink.v2ip_testcard)   # None until the sink has reported
+```
+
+A pattern runs until it is turned off, and holds the output on while it does.
+The sink answers every request and change with its test card, on the group, so
+every client records it against the sink; a write is not cached. A sink with the
+feature but without the module that draws the test card does not answer.
+
+Each value is checked against the ranges the sink accepts, since it drops what
+falls outside them in silence: see `V2IPTestTone.is_valid()` and
+`V2IPTestSync.is_valid()`. A tone turned off goes out whatever else it holds,
+as the sink stops it regardless. The frame needs protocol 0x2B, so a sink
+announcing less is refused as well.
+
 ### Every device at once
 
 One broadcast changes settings on every V2IP device of the mesh. Each device

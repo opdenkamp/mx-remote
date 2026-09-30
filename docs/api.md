@@ -94,6 +94,46 @@ bit, and the range of the infrared profiles.
 .. autodata:: mx_remote.proto.Constants.V2IP_VLAN_ID_MAX
 ```
 
+## V2IP test card
+
+A sink's test pattern, tone and lip-sync flash, and the ranges it accepts.
+
+```{eval-rst}
+.. autoclass:: mx_remote.V2IPTestcard
+   :members:
+
+.. autoclass:: mx_remote.V2IPTestTone
+   :members:
+
+.. autoclass:: mx_remote.V2IPTestSync
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.V2IPTestPattern
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.V2IPToneMode
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.V2IPTestcardFlag
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.V2IP_TONE_FREQ_MIN
+
+.. autodata:: mx_remote.proto.Constants.V2IP_TONE_FREQ_MAX
+
+.. autodata:: mx_remote.proto.Constants.V2IP_TONE_LEVEL_MIN
+
+.. autodata:: mx_remote.proto.Constants.V2IP_TONE_CHANNELS_MAX
+
+.. autodata:: mx_remote.proto.Constants.V2IP_TONE_RATES
+
+.. autodata:: mx_remote.proto.Constants.V2IP_SYNC_OFFSET_MAX
+
+.. autodata:: mx_remote.proto.Constants.V2IP_SYNC_BEEP_MS_MIN
+
+.. autodata:: mx_remote.proto.Constants.V2IP_SYNC_BEEP_MS_MAX
+```
+
 ## Mesh time
 
 The time zone and clock a mesh controller announces.

@@ -231,6 +231,9 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 	if hdr.opcode == 0x4D:
 		from .FrameTime import FrameTime
 		return FrameTime(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x4E:
+		from .FrameV2IPTestcard import FrameV2IPTestcard
+		return FrameV2IPTestcard(header=hdr, timestamp=timestamp)
 
 	# Opcodes reaching here are ones current firmware does not emit:
 	#

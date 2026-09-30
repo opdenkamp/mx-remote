@@ -36,6 +36,7 @@ ABOVE_CAP = {
     0x4B: 'TIME_ZONE',
     0x4C: 'V2IP_SETTINGS_ALL',
     0x4D: 'TIME',
+    0x4E: 'V2IP_TESTCARD',
 }
 root = pathlib.Path(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'mx_remote', 'proto'))
 # Calls only. The pattern also matches the def in FrameBase, which carries a

@@ -25,6 +25,9 @@ from ..Interface import (
 	V2IPDeviceSettings,
 	V2IPPowerSaveSchedule,
 	V2IPVlan,
+	V2IPTestcard,
+	V2IPTestSync,
+	V2IPTestTone,
 	TimeZone,
 	DeviceClock,
 	V2IPOutputMode,
@@ -68,10 +71,13 @@ import time
 from ..Interface import DeviceBase, BayBase, DeviceRegistry
 from ..proto.FrameBase import FrameBase
 from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, DeviceFeature, MxrSignalType, V2IPDeviceSetting, V2IPFpgaFeature, V2IPVlanFlag,
+                              V2IPTestPattern, V2IPToneMode,
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                               MXR_SCALING_FLAG_OPTIONS_VALID, V2IP_DEVICE_SETTING_SWITCHES,
                               V2IP_IR_PROFILE_MAX, V2IP_IR_PROFILE_NOT_SET, V2IP_VLAN_PORT_SFP)
 from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
+from ..proto.FrameV2IPTestcard import (FrameV2IPTestcard, TESTCARD_REQUEST, TESTCARD_SET,
+                                       TESTCARD_PART_PATTERN, TESTCARD_PART_TONE, TESTCARD_PART_SYNC)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -103,6 +109,7 @@ class Device(DeviceBase):
 		self._v2ip_features:V2IPFpgaFeature|None = None
 		self._v2ip_settings:V2IPDeviceSettings|None = None
 		self._v2ip_vlan:V2IPVlan|None = None
+		self._v2ip_testcard:V2IPTestcard|None = None
 		self._time_zone:TimeZone|None = None
 		self._clock:DeviceClock|None = None
 		self._mesh_master_uid:MxrDeviceUid|None = None
@@ -363,6 +370,11 @@ class Device(DeviceBase):
 	@override
 	def v2ip_vlan(self) -> V2IPVlan|None:
 		return self._v2ip_vlan
+
+	@property
+	@override
+	def v2ip_testcard(self) -> V2IPTestcard|None:
+		return self._v2ip_testcard
 
 	def _merge_v2ip_settings(self, frame:V2IPDeviceSettings) -> None:
 		'''Fold a settings block onto the cached one.
@@ -869,6 +881,10 @@ class Device(DeviceBase):
 			if (self._v2ip_vlan != data):
 				self._v2ip_vlan = data
 				self.call_callbacks()
+		elif isinstance(data, V2IPTestcard):
+			if (self._v2ip_testcard != data):
+				self._v2ip_testcard = data
+				self.call_callbacks()
 		elif isinstance(data, TimeZone):
 			if (self._time_zone != data):
 				self._time_zone = data
@@ -1268,6 +1284,71 @@ class Device(DeviceBase):
 		                   device=vlan.device, port=tuple(vlan.port), uplink=vlan.uplink)
 		frame = FrameV2IPDeviceConfiguration.construct_vlan(
 			mxr=self.registry, target=self, target_uid=self.remote_id, vlan=written)
+		if (frame is None):
+			return False
+		return self.registry.transmit(frame.frame) == len(frame.frame)
+
+	async def request_v2ip_testcard(self) -> bool:
+		'''Ask this V2IP sink for its test card, which it reports straight back
+		into v2ip_testcard.
+
+		Refused unless the sink's video processor has reported
+		V2IPFpgaFeature.SINK_TEST_PATTERN. A sink with that feature but without
+		the module that draws the test card does not answer.
+		'''
+		return self._send_v2ip_testcard(TESTCARD_REQUEST, 0, V2IPTestcard())
+
+	async def set_v2ip_test_pattern(self, pattern:V2IPTestPattern, colour:int=0) -> bool:
+		'''Show a test pattern on this V2IP sink's output, or none for
+		V2IPTestPattern.OFF. colour is 0xRRGGBB, used by V2IPTestPattern.FLAT.
+
+		A pattern runs until it is turned off, and holds the output on while it
+		does. The sink reports its test card in answer. Refused as
+		request_v2ip_testcard() is, and for a pattern this library does not name
+		or a colour wider than 24 bits.
+		'''
+		if not isinstance(pattern, V2IPTestPattern) or not (0 <= colour <= 0xFFFFFF):
+			_LOGGER.warning(f"not showing test pattern {pattern!r} colour {colour:#x} on {self}: "
+			                "no such pattern, or a colour wider than 24 bits")
+			return False
+		return self._send_v2ip_testcard(TESTCARD_SET, TESTCARD_PART_PATTERN,
+		                                V2IPTestcard(pattern=pattern, colour=colour))
+
+	async def set_v2ip_test_tone(self, tone:V2IPTestTone) -> bool:
+		'''Play a test tone on this V2IP sink's output.
+
+		Every value is checked here, as the sink ignores a tone that is not
+		V2IPTestTone.is_valid(); V2IPToneMode.OFF stops it whatever the rest
+		holds, and the sink keeps those values as its last ones. Otherwise as
+		set_v2ip_test_pattern().
+		'''
+		if (tone.mode != V2IPToneMode.OFF) and not tone.is_valid():
+			_LOGGER.warning(f"not playing test tone {tone} on {self}: a value is out of range")
+			return False
+		return self._send_v2ip_testcard(TESTCARD_SET, TESTCARD_PART_TONE, V2IPTestcard(tone=tone))
+
+	async def set_v2ip_test_sync(self, sync:V2IPTestSync) -> bool:
+		'''Set this V2IP sink's lip-sync flash.
+
+		Checked here as V2IPTestSync.is_valid(), since the sink ignores settings
+		that are not. Otherwise as set_v2ip_test_pattern().
+		'''
+		if not sync.is_valid():
+			_LOGGER.warning(f"not setting lip-sync {sync} on {self}: a value is out of range")
+			return False
+		return self._send_v2ip_testcard(TESTCARD_SET, TESTCARD_PART_SYNC, V2IPTestcard(sync=sync))
+
+	def _send_v2ip_testcard(self, kind:int, parts:int, testcard:V2IPTestcard) -> bool:
+		'''The one send behind the test card commands. Nothing is cached: the
+		sink answers every frame with its test card.'''
+		if ((features := self._v2ip_features) is None):
+			_LOGGER.warning(f"not sending a test card frame to {self}: its video processor has reported no features")
+			return False
+		if (V2IPFpgaFeature.SINK_TEST_PATTERN not in features):
+			_LOGGER.warning(f"not sending a test card frame to {self}: it cannot draw a test card")
+			return False
+		frame = FrameV2IPTestcard.construct(mxr=self.registry, target=self, target_uid=self.remote_id,
+		                                    kind=kind, parts=parts, testcard=testcard)
 		if (frame is None):
 			return False
 		return self.registry.transmit(frame.frame) == len(frame.frame)
