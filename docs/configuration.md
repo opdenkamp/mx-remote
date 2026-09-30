@@ -57,7 +57,7 @@ device.config_initialised  # False if the device broadcasts config blocks built 
 device.temperatures    # dict of temperature sensor readings
 
 # device type checks
-device.is_v2ip             # Pulse-Eight OneIP HDMI-over-IP device
+device.is_oneip             # Pulse-Eight OneIP HDMI-over-IP device
 device.is_video_matrix     # neo video matrix
 device.is_audio_matrix     # audio-only matrix
 device.is_amp              # ProAmp8 audio amplifier

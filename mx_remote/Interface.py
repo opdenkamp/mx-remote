@@ -18,7 +18,7 @@ import netifaces
 from .proto import RCKey
 from .proto.Constants import *
 from .proto.Data import VolumeMuteStatus
-from .proto.V2IPStats import V2IPDeviceStats
+from .proto.V2IPStats import OneIPDeviceStats
 from .proto.Multiviewer import (
 	MultiviewerViewMode,
 	MultiviewerSource,
@@ -87,7 +87,7 @@ class DeviceStatus(IntEnum):
     """ unit is booting """
 
     INACTIVE = 4
-    """ bay is inactive (V2IP encoder/decoder idle) """
+    """ bay is inactive (OneIP encoder/decoder idle) """
 
     def __str__(self) -> str:
         if self.value == DeviceStatus.ONLINE.value:
@@ -414,8 +414,8 @@ class AmpZoneSettings:
     def __repr__(self) -> str:
         return str(self)
 
-class V2IPAudioFormat:
-    '''V2IP audio format (sample rate + channels). Zero values mean "use firmware defaults".'''
+class OneIPAudioFormat:
+    '''OneIP audio format (sample rate + channels). Zero values mean "use firmware defaults".'''
     _WIRE_SIZE = 8
 
     def __init__(self, sample_rate:int=0, channels:int=0) -> None:
@@ -423,9 +423,9 @@ class V2IPAudioFormat:
         self._channels = channels
 
     @classmethod
-    def from_bytes(cls, data:bytes) -> 'V2IPAudioFormat':
+    def from_bytes(cls, data:bytes) -> 'OneIPAudioFormat':
         if len(data) < cls._WIRE_SIZE:
-            raise ValueError(f"invalid V2IPAudioFormat size: {len(data)}")
+            raise ValueError(f"invalid OneIPAudioFormat size: {len(data)}")
         return cls(
             sample_rate=int.from_bytes(data[0:4], "little"),
             channels=int(data[4]),
@@ -453,7 +453,7 @@ class V2IPAudioFormat:
         ])
 
     def __eq__(self, other:Any) -> bool:
-        if not isinstance(other, V2IPAudioFormat):
+        if not isinstance(other, OneIPAudioFormat):
             return False
         return (self._sample_rate == other._sample_rate) and (self._channels == other._channels)
 
@@ -466,9 +466,9 @@ class V2IPAudioFormat:
     def __repr__(self) -> str:
         return str(self)
 
-class V2IPStreamSource(ABC):
+class OneIPStreamSource(ABC):
     """
-    V2IP multicast IP address and port number
+    OneIP multicast IP address and port number
     """
     @property
     @abstractmethod
@@ -485,9 +485,9 @@ class V2IPStreamSource(ABC):
     def port(self) -> int:
         """ UDP port number """
 
-class V2IPStreamSources:
+class OneIPStreamSources:
     """
-    All V2IP multicast IP addresses and port numbers used by a device
+    All OneIP multicast IP addresses and port numbers used by a device
     """
 
     @property
@@ -497,22 +497,22 @@ class V2IPStreamSources:
 
     @property
     @abstractmethod
-    def video(self) -> V2IPStreamSource:
+    def video(self) -> OneIPStreamSource:
         ''' video stream source '''
 
     @property
     @abstractmethod
-    def audio(self) -> V2IPStreamSource:
+    def audio(self) -> OneIPStreamSource:
         ''' audio stream source '''
 
     @property
     @abstractmethod
-    def anc(self) -> V2IPStreamSource:
+    def anc(self) -> OneIPStreamSource:
         ''' ancillary stream source '''
 
     @property
     @abstractmethod
-    def arc(self) -> V2IPStreamSource|None:
+    def arc(self) -> OneIPStreamSource|None:
         ''' audio return stream source '''
 
     @property
@@ -525,7 +525,7 @@ class V2IPStreamSources:
         can put stack contents in bay 0's addresses under its own uid, which
         rarely satisfy both halves of this test.
         """
-        return v2ip_av_source_valid(self.video, self.anc)
+        return oneip_av_source_valid(self.video, self.anc)
 
     @property
     def cleared(self) -> bool:
@@ -536,18 +536,22 @@ class V2IPStreamSources:
         malformed. Treating a cleared entry as unusable discards the only signal
         that a source went away.
         """
-        return (v2ip_stream_cleared(self.video)
-                and v2ip_stream_cleared(self.audio)
-                and v2ip_stream_cleared(self.anc))
+        return (oneip_stream_cleared(self.video)
+                and oneip_stream_cleared(self.audio)
+                and oneip_stream_cleared(self.anc))
 
-class V2IPStreamSourcesList(list[V2IPStreamSources]):
-    ''' list of V2IP sources '''
+class OneIPStreamSourcesList(list[OneIPStreamSources]):
+    ''' list of OneIP sources '''
 
 class AudioFeatures:
     FEATURE_INPUT = (1 << 0)
     FEATURE_OUTPUT = (1 << 1)
-    FEATURE_V2IP_TX = (1 << 2)
-    FEATURE_V2IP_RX = (1 << 3)
+    FEATURE_ONEIP_TX = (1 << 2)
+    FEATURE_ONEIP_RX = (1 << 3)
+    FEATURE_V2IP_TX = FEATURE_ONEIP_TX
+    '''Deprecated: use FEATURE_ONEIP_TX.'''
+    FEATURE_V2IP_RX = FEATURE_ONEIP_RX
+    '''Deprecated: use FEATURE_ONEIP_RX.'''
     FEATURE_HDMI = (1 << 4)
     FEATURE_RCA = (1 << 5)
     FEATURE_SPDIF = (1 << 6)
@@ -586,12 +590,12 @@ class AudioFeatures:
         return ((self._value & self.FEATURE_OUTPUT) != 0)
 
     @property
-    def is_v2ip_tx(self) -> bool:
-        return ((self._value & self.FEATURE_V2IP_TX) != 0)
+    def is_oneip_tx(self) -> bool:
+        return ((self._value & self.FEATURE_ONEIP_TX) != 0)
 
     @property
-    def is_v2ip_rx(self) -> bool:
-        return ((self._value & self.FEATURE_V2IP_RX) != 0)
+    def is_oneip_rx(self) -> bool:
+        return ((self._value & self.FEATURE_ONEIP_RX) != 0)
 
     @property
     def is_hdmi(self) -> bool:
@@ -648,9 +652,9 @@ class AudioFeatures:
             rv.append('input')
         if self.is_output:
             rv.append('output')
-        if self.is_v2ip_tx:
+        if self.is_oneip_tx:
             rv.append('v2ip tx')
-        if self.is_v2ip_rx:
+        if self.is_oneip_rx:
             rv.append('v2ip rx')
         if self.is_hdmi:
             rv.append('hdmi')
@@ -783,7 +787,7 @@ class AudioEndpoint(ABC):
 
     @property
     @abstractmethod
-    def is_v2ip(self) -> bool:
+    def is_oneip(self) -> bool:
         pass
 
     @property
@@ -813,7 +817,7 @@ class AudioEndpoint(ABC):
 
     @property
     @abstractmethod
-    def address(self) -> V2IPStreamSource|None:
+    def address(self) -> OneIPStreamSource|None:
         pass
 
     @property
@@ -1039,17 +1043,17 @@ class BayBase(ABC):
 
     @property
     @abstractmethod
-    def is_v2ip_remote(self) -> bool:
-        '''V2IP remote bay'''
+    def is_oneip_remote(self) -> bool:
+        '''OneIP remote bay'''
 
     @property
     @abstractmethod
-    def is_v2ip_source(self) -> bool:
+    def is_oneip_source(self) -> bool:
         pass
 
     @property
     @abstractmethod
-    def is_v2ip_sink(self) -> bool:
+    def is_oneip_sink(self) -> bool:
         pass
 
     @property
@@ -1263,18 +1267,18 @@ class BayBase(ABC):
 
     @property
     @abstractmethod
-    def v2ip_source(self) -> V2IPStreamSources|None:
-        '''V2IP source address information'''
+    def oneip_source(self) -> OneIPStreamSources|None:
+        '''OneIP source address information'''
 
     @property
     @abstractmethod
-    def v2ip_uid(self) -> MxrDeviceUid|None:
-        '''Remote V2IP device uid'''
+    def oneip_uid(self) -> MxrDeviceUid|None:
+        '''Remote OneIP device uid'''
 
     @property
     @abstractmethod
-    def v2ip_device(self) -> 'DeviceBase|None':
-        '''Remote V2IP device'''
+    def oneip_device(self) -> 'DeviceBase|None':
+        '''Remote OneIP device'''
 
     @property
     @abstractmethod
@@ -1347,7 +1351,7 @@ class BayBase(ABC):
         '''change the video source of an output bay'''
 
     @abstractmethod
-    async def select_audio_source(self, source:'int|BayBase|str|None', endpoint:str|None=None, audio_fmt:'V2IPAudioFormat|None'=None) -> bool:
+    async def select_audio_source(self, source:'int|BayBase|str|None', endpoint:str|None=None, audio_fmt:'OneIPAudioFormat|None'=None) -> bool:
         '''change the audio source of an output bay'''
 
     @abstractmethod
@@ -1416,7 +1420,7 @@ class SelectedBays:
         return self._audio
 
 
-class DeviceV2IPScalingSettings(ABC):
+class DeviceOneIPScalingSettings(ABC):
     @property
     @abstractmethod
     def mode(self) -> int:
@@ -1493,7 +1497,7 @@ class DeviceV2IPScalingSettings(ABC):
             return None
         return ((self.flags & MXR_SCALING_FLAG_SKIP_420) != 0)
 
-def v2ip_stream_valid(stream:'V2IPStreamSource|None') -> bool:
+def oneip_stream_valid(stream:'OneIPStreamSource|None') -> bool:
     """
     True when a stream source carries an address a frame actually meant to send.
 
@@ -1508,22 +1512,22 @@ def v2ip_stream_valid(stream:'V2IPStreamSource|None') -> bool:
     except ValueError:
         return False
 
-def v2ip_av_source_valid(video:'V2IPStreamSource|None', anc:'V2IPStreamSource|None') -> bool:
+def oneip_av_source_valid(video:'OneIPStreamSource|None', anc:'OneIPStreamSource|None') -> bool:
     """
     True when an av source block carries addresses a frame meant to send.
 
     Mirrors the firmware's own test: video and anc must both be valid, audio
     is optional and is carried along with them.
     """
-    return v2ip_stream_valid(video) and v2ip_stream_valid(anc)
+    return oneip_stream_valid(video) and oneip_stream_valid(anc)
 
-def v2ip_stream_cleared(stream:'V2IPStreamSource|None') -> bool:
+def oneip_stream_cleared(stream:'OneIPStreamSource|None') -> bool:
     """True when a stream source is zeroed, which is how "no source" is spelled."""
     return (stream is not None) and (stream.ip == '0.0.0.0') and (stream.port == 0)
 
-class V2IPOutputMode:
+class OneIPOutputMode:
     """
-    The output format to scale a V2IP sink to.
+    The output format to scale a OneIP sink to.
 
     Built from a depth and a colour space rather than from a packed
     mxr_signal_type word, so the word a caller sends cannot carry the unset bpp
@@ -1537,7 +1541,7 @@ class V2IPOutputMode:
         self.colour = colour
         """Colour space to output."""
         self.refresh = refresh
-        """Refresh rate in Hz, V2IP_SCALING_REFRESH_MIN to V2IP_SCALING_REFRESH_MAX."""
+        """Refresh rate in Hz, ONEIP_SCALING_REFRESH_MIN to ONEIP_SCALING_REFRESH_MAX."""
 
     def validate(self) -> str|None:
         """
@@ -1556,12 +1560,12 @@ class V2IPOutputMode:
         if (lookup_svd(self.svd) is None):
             return "the svd names no known video descriptor"
         if (mxr_sig_bpp_index(self.depth) is None):
-            return "a V2IP output stage takes 8, 10 or 12 bits per pixel"
+            return "a OneIP output stage takes 8, 10 or 12 bits per pixel"
         if (self.colour not in (VideoColourSpace.RGB, VideoColourSpace.YUV444,
                                 VideoColourSpace.YUV422, VideoColourSpace.YUV420)):
             return "the colour space names none of RGB, 4:4:4, 4:2:2 or 4:2:0"
-        if not (V2IP_SCALING_REFRESH_MIN <= self.refresh <= V2IP_SCALING_REFRESH_MAX):
-            return f"the refresh rate is outside {V2IP_SCALING_REFRESH_MIN}..{V2IP_SCALING_REFRESH_MAX}Hz"
+        if not (ONEIP_SCALING_REFRESH_MIN <= self.refresh <= ONEIP_SCALING_REFRESH_MAX):
+            return f"the refresh rate is outside {ONEIP_SCALING_REFRESH_MIN}..{ONEIP_SCALING_REFRESH_MAX}Hz"
         return None
 
     @property
@@ -1576,7 +1580,7 @@ class V2IPOutputMode:
                                         bpp_index=(mxr_sig_bpp_index(self.depth) or 0))
 
     def __eq__(self, other:Any) -> bool:
-        if not isinstance(other, V2IPOutputMode):
+        if not isinstance(other, OneIPOutputMode):
             return NotImplemented
         return (self.svd == other.svd) and (self.depth == other.depth) \
             and (self.colour == other.colour) and (self.refresh == other.refresh)
@@ -1587,7 +1591,7 @@ class V2IPOutputMode:
     def __repr__(self) -> str:
         return str(self)
 
-class V2IPScalingSettings(DeviceV2IPScalingSettings):
+class OneIPScalingSettings(DeviceOneIPScalingSettings):
     """Plain holder for a merged mxr_scaling_config."""
     def __init__(self, mode:int, refresh:int, flags:int) -> None:
         self._mode = mode
@@ -1612,15 +1616,15 @@ class V2IPScalingSettings(DeviceV2IPScalingSettings):
     def __repr__(self) -> str:
         return str(self)
 
-class V2IPDscpConfig:
+class OneIPDscpConfig:
     """
-    Per-stream DSCP marking carried in a V2IP device configuration.
+    Per-stream DSCP marking carried in a OneIP device configuration.
 
     DSCP 0 (CS0) is a legal marking, so each wire byte carries a set bit
     alongside its value and a stream whose byte is unset reads back as None
     here. Firmware treats the marking as all-or-nothing: it only applies one
     when all three streams carry a value, and otherwise falls back to CS2
-    (``V2IP_DSCP_DEFAULT``) - ``complete`` reports which case a frame is in.
+    (``ONEIP_DSCP_DEFAULT``) - ``complete`` reports which case a frame is in.
     """
     def __init__(self, video:int|None, audio:int|None, anc:int|None) -> None:
         self._video = video
@@ -1663,7 +1667,7 @@ class V2IPDscpConfig:
         return (self._video is not None) and (self._audio is not None) and (self._anc is not None)
 
     def __eq__(self, other:Any) -> bool:
-        if not isinstance(other, V2IPDscpConfig):
+        if not isinstance(other, OneIPDscpConfig):
             return False
         return (self._video == other._video) and (self._audio == other._audio) and (self._anc == other._anc)
 
@@ -1679,9 +1683,9 @@ class V2IPDscpConfig:
     def __repr__(self) -> str:
         return str(self)
 
-class DeviceV2IPDetails:
-    """ V2IP stream source details for a device """
-    def __init__(self, video:V2IPStreamSource|None, audio:V2IPStreamSource|None, anc:V2IPStreamSource|None, arc:V2IPStreamSource|None, tx_rate:int|None, scaling:DeviceV2IPScalingSettings|None, dscp:V2IPDscpConfig|None=None, whole_scaling:bool=False) -> None:
+class DeviceOneIPDetails:
+    """ OneIP stream source details for a device """
+    def __init__(self, video:OneIPStreamSource|None, audio:OneIPStreamSource|None, anc:OneIPStreamSource|None, arc:OneIPStreamSource|None, tx_rate:int|None, scaling:DeviceOneIPScalingSettings|None, dscp:OneIPDscpConfig|None=None, whole_scaling:bool=False) -> None:
         '''whole_scaling says the scaling block is the sink's whole state rather
         than a write of one part of it, so a mode it does not carry is a mode
         the sink no longer has.'''
@@ -1699,41 +1703,41 @@ class DeviceV2IPDetails:
         return False
 
     @property
-    def video(self) -> V2IPStreamSource|None:
+    def video(self) -> OneIPStreamSource|None:
         return self._video
 
     @property
-    def audio(self) -> V2IPStreamSource|None:
+    def audio(self) -> OneIPStreamSource|None:
         return self._audio
 
     @property
-    def anc(self) -> V2IPStreamSource|None:
+    def anc(self) -> OneIPStreamSource|None:
         return self._anc
 
     @property
-    def arc(self) -> V2IPStreamSource|None:
+    def arc(self) -> OneIPStreamSource|None:
         return self._arc
 
     @property
     def tx_rate(self) -> int|None:
         '''Source rate this device transmits at, or None if none is known.
 
-        Only a rate within V2IP_SOURCE_RATE_MIN..MAX is one a sender meant to
+        Only a rate within ONEIP_SOURCE_RATE_MIN..MAX is one a sender meant to
         send; anything else is an absent offer rather than a rate, and merge()
         keeps the previously known value instead of caching what was on the wire.
         '''
         return self._tx_rate
 
     @property
-    def scaling(self) -> DeviceV2IPScalingSettings|None:
+    def scaling(self) -> DeviceOneIPScalingSettings|None:
         return self._scaling
 
     @property
-    def dscp(self) -> V2IPDscpConfig|None:
+    def dscp(self) -> OneIPDscpConfig|None:
         """Per-stream DSCP marking, or None from peers that predate it."""
         return self._dscp
 
-    def merge(self, previous:'DeviceV2IPDetails|None') -> 'DeviceV2IPDetails':
+    def merge(self, previous:'DeviceOneIPDetails|None') -> 'DeviceOneIPDetails':
         """
         Carry forward every field this frame did not carry.
 
@@ -1744,21 +1748,21 @@ class DeviceV2IPDetails:
         if (previous is None):
             return self
 
-        if v2ip_av_source_valid(self._video, self._anc):
+        if oneip_av_source_valid(self._video, self._anc):
             video, audio, anc = self._video, self._audio, self._anc
         else:
             video, audio, anc = previous._video, previous._audio, previous._anc
-        arc = self._arc if v2ip_stream_valid(self._arc) else previous._arc
-        tx_rate = self._tx_rate if v2ip_rate_valid(self._tx_rate) else previous._tx_rate
+        arc = self._arc if oneip_stream_valid(self._arc) else previous._arc
+        tx_rate = self._tx_rate if oneip_rate_valid(self._tx_rate) else previous._tx_rate
         dscp = self._dscp if ((self._dscp is not None) and self._dscp.carried) else previous._dscp
         scaling = self._merge_scaling(previous._scaling)
 
         if (video is self._video) and (audio is self._audio) and (anc is self._anc)                 and (arc is self._arc) and (tx_rate == self._tx_rate)                 and (dscp is self._dscp) and (scaling is self._scaling):
             return self
-        return DeviceV2IPDetails(video=video, audio=audio, anc=anc, arc=arc,
+        return DeviceOneIPDetails(video=video, audio=audio, anc=anc, arc=arc,
                                  tx_rate=tx_rate, scaling=scaling, dscp=dscp)
 
-    def _merge_scaling(self, previous:DeviceV2IPScalingSettings|None) -> DeviceV2IPScalingSettings|None:
+    def _merge_scaling(self, previous:DeviceOneIPScalingSettings|None) -> DeviceOneIPScalingSettings|None:
         """
         Merge a scaling config field by field, the way firmware applies it.
 
@@ -1802,11 +1806,11 @@ class DeviceV2IPDetails:
                     | (incoming.flags & MXR_SCALING_OPTIONS2_SETTINGS)
         if (mode == incoming.mode) and (refresh == incoming.refresh) and (flags == incoming.flags):
             return incoming
-        return V2IPScalingSettings(mode=mode, refresh=refresh, flags=flags)
+        return OneIPScalingSettings(mode=mode, refresh=refresh, flags=flags)
 
-class DeviceV2IPSink:
+class DeviceOneIPSink:
     """
-    A V2IP sink's effective multicast subscriptions and resolved audio format.
+    A OneIP sink's effective multicast subscriptions and resolved audio format.
 
     Mirrors the sink-side state broadcast alongside v2ip_device_config updates and
     manual-switch frames. ``addresses`` is None when no active route is announced;
@@ -1838,16 +1842,16 @@ class DeviceV2IPSink:
     Only the device's own report sets this. A controller writing another
     device's configuration sends the block zeroed, and that frame is ignored.
     """
-    def __init__(self, addresses:V2IPStreamSources|None, audio_fmt:V2IPAudioFormat|None) -> None:
+    def __init__(self, addresses:OneIPStreamSources|None, audio_fmt:OneIPAudioFormat|None) -> None:
         self._addresses = addresses
         self._audio_fmt = audio_fmt
 
     @property
-    def addresses(self) -> V2IPStreamSources|None:
+    def addresses(self) -> OneIPStreamSources|None:
         return self._addresses
 
     @property
-    def audio_fmt(self) -> V2IPAudioFormat|None:
+    def audio_fmt(self) -> OneIPAudioFormat|None:
         return self._audio_fmt
 
     def __str__(self) -> str:
@@ -1884,9 +1888,9 @@ class DeviceClock:
         ago it arrived."""
         return datetime.fromtimestamp(self.utc + (time.time() - self.received), timezone.utc)
 
-class V2IPPowerSaveSchedule:
+class OneIPPowerSaveSchedule:
     """
-    A V2IP device's daily power save windows, Monday first, in the device's
+    A OneIP device's daily power save windows, Monday first, in the device's
     time zone.
 
     Day ``d`` powers down at ``start[d]`` and up again at ``end[d]``, both in
@@ -1919,10 +1923,10 @@ class V2IPPowerSaveSchedule:
 
     def is_valid(self) -> bool:
         """Whether every time is a time of day."""
-        return all((0 <= m < V2IP_MINUTES_PER_DAY) for m in (self._start + self._end))
+        return all((0 <= m < ONEIP_MINUTES_PER_DAY) for m in (self._start + self._end))
 
     def __eq__(self, other:Any) -> bool:
-        if not isinstance(other, V2IPPowerSaveSchedule):
+        if not isinstance(other, OneIPPowerSaveSchedule):
             return NotImplemented
         return (self._start, self._end) == (other._start, other._end)
 
@@ -1940,25 +1944,25 @@ class V2IPPowerSaveSchedule:
 
 def _vlan_port_index(wire:int) -> int|None:
     '''A port index from its 1-based wire form.'''
-    return (wire - 1) if (1 <= wire <= V2IP_VLAN_PORTS) else None
+    return (wire - 1) if (1 <= wire <= ONEIP_VLAN_PORTS) else None
 
 @dataclass(frozen=True)
-class V2IPVlan:
+class OneIPVlan:
     """
-    VLAN tagging on a V2IP device's uplink.
+    VLAN tagging on a OneIP device's uplink.
 
     Only the device knows what it runs, so this is what it reported about
     itself. A change written to it is applied at once and stays PENDING until
     the mesh controller confirms it, which proves the device still reaches the
     mesh and the mesh still reaches it; unconfirmed, the device reverts it.
     """
-    flags: V2IPVlanFlag = V2IPVlanFlag(0)
+    flags: OneIPVlanFlag = OneIPVlanFlag(0)
     """The block's flags."""
     device: int = 0
     """The VLAN id of the device's own traffic, 0 for untagged."""
-    port: tuple[int, ...] = (0,) * V2IP_VLAN_PORTS
+    port: tuple[int, ...] = (0,) * ONEIP_VLAN_PORTS
     """The VLAN id each downlink port carries, 0 to share the device's untagged
-    traffic, indexed as V2IP_VLAN_PORTS orders them."""
+    traffic, indexed as ONEIP_VLAN_PORTS orders them."""
     uplink: int = 0
     """The port pinned as the uplink as 1 + its index, 0 to detect it."""
     active_uplink: int = 0
@@ -1970,18 +1974,18 @@ class V2IPVlan:
     @property
     def trunk(self) -> bool:
         """Whether untagged frames arriving on the uplink are dropped."""
-        return V2IPVlanFlag.TRUNK in self.flags
+        return OneIPVlanFlag.TRUNK in self.flags
 
     @property
     def is_pending(self) -> bool:
         """Whether the device reverts this configuration unless the mesh
         controller confirms it."""
-        return V2IPVlanFlag.PENDING in self.flags
+        return OneIPVlanFlag.PENDING in self.flags
 
     @property
     def has_sfp(self) -> bool:
         """Whether the device has an SFP port."""
-        return V2IPVlanFlag.HAS_SFP in self.flags
+        return OneIPVlanFlag.HAS_SFP in self.flags
 
     @property
     def pinned_uplink_port(self) -> int|None:
@@ -1996,11 +2000,11 @@ class V2IPVlan:
         return _vlan_port_index(self.active_uplink)
 
     def is_valid(self) -> bool:
-        """Whether every VLAN id is at most V2IP_VLAN_ID_MAX and the uplink is
+        """Whether every VLAN id is at most ONEIP_VLAN_ID_MAX and the uplink is
         detected or names a port."""
         ids = (self.device,) + tuple(self.port)
-        return (len(self.port) == V2IP_VLAN_PORTS) \
-            and all((0 <= i <= V2IP_VLAN_ID_MAX) for i in ids) \
+        return (len(self.port) == ONEIP_VLAN_PORTS) \
+            and all((0 <= i <= ONEIP_VLAN_ID_MAX) for i in ids) \
             and ((self.uplink == 0) or (self.pinned_uplink_port is not None))
 
     def __str__(self) -> str:
@@ -2020,9 +2024,9 @@ def _wire_enum(cls:Any, value:int) -> Any:
         return value
 
 @dataclass(frozen=True)
-class V2IPTestTone:
-    """A V2IP sink's test tone."""
-    mode: V2IPToneMode|int = V2IPToneMode.OFF
+class OneIPTestTone:
+    """A OneIP sink's test tone."""
+    mode: OneIPToneMode|int = OneIPToneMode.OFF
     """What plays; a raw int for a mode this library does not name."""
     freq: int = 0
     """The frequency, in Hz."""
@@ -2036,17 +2040,17 @@ class V2IPTestTone:
     def is_valid(self) -> bool:
         """Whether a sink plays this tone: a mode it names, and every value in
         range. A line-up tone needs two channels or more."""
-        min_channels = 2 if (self.mode == V2IPToneMode.LINEUP) else 1
-        return isinstance(self.mode, V2IPToneMode) \
-            and (V2IP_TONE_FREQ_MIN <= self.freq <= V2IP_TONE_FREQ_MAX) \
-            and (V2IP_TONE_LEVEL_MIN <= self.level <= 0) \
-            and (min_channels <= self.channels <= V2IP_TONE_CHANNELS_MAX) \
-            and (self.rate in V2IP_TONE_RATES)
+        min_channels = 2 if (self.mode == OneIPToneMode.LINEUP) else 1
+        return isinstance(self.mode, OneIPToneMode) \
+            and (ONEIP_TONE_FREQ_MIN <= self.freq <= ONEIP_TONE_FREQ_MAX) \
+            and (ONEIP_TONE_LEVEL_MIN <= self.level <= 0) \
+            and (min_channels <= self.channels <= ONEIP_TONE_CHANNELS_MAX) \
+            and (self.rate in ONEIP_TONE_RATES)
 
 @dataclass(frozen=True)
-class V2IPTestSync:
+class OneIPTestSync:
     """
-    A V2IP sink's lip-sync flash: a pattern frame is marked every ``period``, the
+    A OneIP sink's lip-sync flash: a pattern frame is marked every ``period``, the
     frame ``lead`` after a mark flashes white, and a BEEP tone starts ``offset``
     sample periods after it.
 
@@ -2067,26 +2071,26 @@ class V2IPTestSync:
         0 without one, and the period, offset and beep are in range."""
         lead_ok = (self.lead == 0) if (self.period == 0) else (0 <= self.lead < self.period)
         return lead_ok and (0 <= self.period <= 0xFFFF) \
-            and (0 <= self.offset <= V2IP_SYNC_OFFSET_MAX) \
-            and (V2IP_SYNC_BEEP_MS_MIN <= self.beep_ms <= V2IP_SYNC_BEEP_MS_MAX)
+            and (0 <= self.offset <= ONEIP_SYNC_OFFSET_MAX) \
+            and (ONEIP_SYNC_BEEP_MS_MIN <= self.beep_ms <= ONEIP_SYNC_BEEP_MS_MAX)
 
 @dataclass(frozen=True)
-class V2IPTestcard:
+class OneIPTestcard:
     """
-    The test card a V2IP sink draws on its output, as it last reported it.
+    The test card a OneIP sink draws on its output, as it last reported it.
 
-    A sink reports it only when asked, with request_v2ip_testcard() or in answer
+    A sink reports it only when asked, with request_oneip_testcard() or in answer
     to a change. The counters run free and wrap.
     """
-    flags: V2IPTestcardFlag = V2IPTestcardFlag(0)
+    flags: OneIPTestcardFlag = OneIPTestcardFlag(0)
     """What the sink reports about its test card."""
-    pattern: V2IPTestPattern|int = V2IPTestPattern.OFF
+    pattern: OneIPTestPattern|int = OneIPTestPattern.OFF
     """The pattern; a raw int for a pattern this library does not name."""
     colour: int = 0
     """The colour of a FLAT pattern, 0xRRGGBB."""
-    tone: V2IPTestTone = V2IPTestTone()
+    tone: OneIPTestTone = OneIPTestTone()
     """The tone."""
-    sync: V2IPTestSync = V2IPTestSync()
+    sync: OneIPTestSync = OneIPTestSync()
     """The lip-sync flash."""
     frames: int = 0
     """Pattern frames sent."""
@@ -2098,11 +2102,11 @@ class V2IPTestcard:
     @property
     def supported(self) -> bool:
         """Whether the sink can draw the test card."""
-        return V2IPTestcardFlag.SUPPORTED in self.flags
+        return OneIPTestcardFlag.SUPPORTED in self.flags
 
-class V2IPDeviceSettings:
+class OneIPDeviceSettings:
     """
-    The device settings of a V2IP unit, as it reports them and as its controller
+    The device settings of a OneIP unit, as it reports them and as its controller
     changes them.
 
     Each setting is carried only behind its bit in ``valid``, so a frame changes
@@ -2110,29 +2114,29 @@ class V2IPDeviceSettings:
     settings it has. Read a setting through ``get()`` and the profile
     properties, which answer None for one the device has not reported.
     """
-    def __init__(self, valid:V2IPDeviceSetting=V2IPDeviceSetting(0),
-                 flags:V2IPDeviceSetting=V2IPDeviceSetting(0), ir_profiles:int=0,
+    def __init__(self, valid:OneIPDeviceSetting=OneIPDeviceSetting(0),
+                 flags:OneIPDeviceSetting=OneIPDeviceSetting(0), ir_profiles:int=0,
                  ir_profile:int=0, ir_profile_sink:int=0, auto_power_save:int=0,
-                 power_save:V2IPPowerSaveSchedule|None=None) -> None:
-        self._valid = V2IPDeviceSetting(valid)
-        self._flags = V2IPDeviceSetting(flags)
+                 power_save:OneIPPowerSaveSchedule|None=None) -> None:
+        self._valid = OneIPDeviceSetting(valid)
+        self._flags = OneIPDeviceSetting(flags)
         self._ir_profiles = ir_profiles
         self._ir_profile = ir_profile
         self._ir_profile_sink = ir_profile_sink
         self._auto_power_save = auto_power_save
-        self._power_save = power_save if (power_save is not None) else V2IPPowerSaveSchedule()
+        self._power_save = power_save if (power_save is not None) else OneIPPowerSaveSchedule()
 
     @property
-    def valid(self) -> V2IPDeviceSetting:
+    def valid(self) -> OneIPDeviceSetting:
         """The settings reported so far."""
         return self._valid
 
     @property
-    def flags(self) -> V2IPDeviceSetting:
+    def flags(self) -> OneIPDeviceSetting:
         """The values of the on/off settings among ``valid``."""
         return self._flags
 
-    def get(self, setting:V2IPDeviceSetting) -> bool|None:
+    def get(self, setting:OneIPDeviceSetting) -> bool|None:
         """Whether an on/off setting is on, None while the device has not reported it."""
         if ((self._valid & setting) != setting):
             return None
@@ -2141,15 +2145,15 @@ class V2IPDeviceSettings:
     @property
     def ir_profile(self) -> int|None:
         """The global infrared port's profile, None while it is not reported."""
-        if (V2IPDeviceSetting.IR_PROFILE not in self._valid):
+        if (OneIPDeviceSetting.IR_PROFILE not in self._valid):
             return None
         return self._ir_profile
 
     @property
     def ir_profile_sink(self) -> int|None:
         """The output infrared port's profile, None while it is not reported.
-        V2IP_IR_PROFILE_NOT_SET means the port follows the global one."""
-        if (V2IPDeviceSetting.IR_PROFILE_SINK not in self._valid):
+        ONEIP_IR_PROFILE_NOT_SET means the port follows the global one."""
+        if (OneIPDeviceSetting.IR_PROFILE_SINK not in self._valid):
             return None
         return self._ir_profile_sink
 
@@ -2157,7 +2161,7 @@ class V2IPDeviceSettings:
     def stored_ir_profiles(self) -> int|None:
         """The infrared profiles stored on the device, bit n for profile n, None
         while it is not reported."""
-        if (V2IPDeviceSetting.IR_PROFILES not in self._valid):
+        if (OneIPDeviceSetting.IR_PROFILES not in self._valid):
             return None
         return self._ir_profiles
 
@@ -2165,18 +2169,18 @@ class V2IPDeviceSettings:
     def auto_power_save(self) -> int|None:
         """The idle minutes before the device powers down by itself, 0 for never,
         None while it is not reported."""
-        if (V2IPDeviceSetting.AUTO_POWER_SAVE not in self._valid):
+        if (OneIPDeviceSetting.AUTO_POWER_SAVE not in self._valid):
             return None
         return self._auto_power_save
 
     @property
-    def power_save_schedule(self) -> V2IPPowerSaveSchedule|None:
+    def power_save_schedule(self) -> OneIPPowerSaveSchedule|None:
         """The daily power save windows, None while they are not reported."""
-        if (V2IPDeviceSetting.POWER_SAVE_SCHEDULE not in self._valid):
+        if (OneIPDeviceSetting.POWER_SAVE_SCHEDULE not in self._valid):
             return None
         return self._power_save
 
-    def merge(self, previous:'V2IPDeviceSettings|None') -> 'V2IPDeviceSettings':
+    def merge(self, previous:'OneIPDeviceSettings|None') -> 'OneIPDeviceSettings':
         """
         Fold this received block onto the cached one.
 
@@ -2185,40 +2189,40 @@ class V2IPDeviceSettings:
         known about the rest.
         """
         if (previous is None):
-            previous = V2IPDeviceSettings()
+            previous = OneIPDeviceSettings()
         valid = self._valid
-        return V2IPDeviceSettings(
+        return OneIPDeviceSettings(
             valid=(previous._valid | valid),
             flags=((previous._flags & ~valid) | (self._flags & valid)),
-            ir_profiles=(self._ir_profiles if (V2IPDeviceSetting.IR_PROFILES in valid)
+            ir_profiles=(self._ir_profiles if (OneIPDeviceSetting.IR_PROFILES in valid)
                          else previous._ir_profiles),
-            ir_profile=(self._ir_profile if (V2IPDeviceSetting.IR_PROFILE in valid)
+            ir_profile=(self._ir_profile if (OneIPDeviceSetting.IR_PROFILE in valid)
                         else previous._ir_profile),
-            ir_profile_sink=(self._ir_profile_sink if (V2IPDeviceSetting.IR_PROFILE_SINK in valid)
+            ir_profile_sink=(self._ir_profile_sink if (OneIPDeviceSetting.IR_PROFILE_SINK in valid)
                              else previous._ir_profile_sink),
-            auto_power_save=(self._auto_power_save if (V2IPDeviceSetting.AUTO_POWER_SAVE in valid)
+            auto_power_save=(self._auto_power_save if (OneIPDeviceSetting.AUTO_POWER_SAVE in valid)
                              else previous._auto_power_save),
-            power_save=(self._power_save if (V2IPDeviceSetting.POWER_SAVE_SCHEDULE in valid)
+            power_save=(self._power_save if (OneIPDeviceSetting.POWER_SAVE_SCHEDULE in valid)
                         else previous._power_save))
 
-    def as_applied_to(self, reported:V2IPDeviceSetting) -> 'V2IPDeviceSettings':
+    def as_applied_to(self, reported:OneIPDeviceSetting) -> 'OneIPDeviceSettings':
         """
         This block limited to what a device takes from a write about it.
 
         A device applies a setting only if it has it, a profile only within its
         range, and never what only it can report about itself.
         """
-        valid = (self._valid & reported) & ~V2IP_DEVICE_SETTINGS_REPORTED_ONLY
-        if not (0 <= self._ir_profile < V2IP_IR_PROFILE_MAX):
-            valid &= ~V2IPDeviceSetting.IR_PROFILE
-        if not (V2IP_IR_PROFILE_NOT_SET <= self._ir_profile_sink < V2IP_IR_PROFILE_MAX):
-            valid &= ~V2IPDeviceSetting.IR_PROFILE_SINK
-        return V2IPDeviceSettings(valid=valid, flags=self._flags, ir_profiles=self._ir_profiles,
+        valid = (self._valid & reported) & ~ONEIP_DEVICE_SETTINGS_REPORTED_ONLY
+        if not (0 <= self._ir_profile < ONEIP_IR_PROFILE_MAX):
+            valid &= ~OneIPDeviceSetting.IR_PROFILE
+        if not (ONEIP_IR_PROFILE_NOT_SET <= self._ir_profile_sink < ONEIP_IR_PROFILE_MAX):
+            valid &= ~OneIPDeviceSetting.IR_PROFILE_SINK
+        return OneIPDeviceSettings(valid=valid, flags=self._flags, ir_profiles=self._ir_profiles,
                                   ir_profile=self._ir_profile, ir_profile_sink=self._ir_profile_sink,
                                   auto_power_save=self._auto_power_save, power_save=self._power_save)
 
     def __eq__(self, other:Any) -> bool:
-        if not isinstance(other, V2IPDeviceSettings):
+        if not isinstance(other, OneIPDeviceSettings):
             return NotImplemented
         return ((self._valid, self._flags, self._ir_profiles, self._ir_profile, self._ir_profile_sink,
                  self._auto_power_save, self._power_save)
@@ -2231,15 +2235,15 @@ class V2IPDeviceSettings:
 
     def __str__(self) -> str:
         parts = [f"{setting.name}={'on' if self.get(setting) else 'off'}"
-                 for setting in V2IPDeviceSetting
-                 if (setting in V2IP_DEVICE_SETTING_SWITCHES) and (self.get(setting) is not None)]
+                 for setting in OneIPDeviceSetting
+                 if (setting in ONEIP_DEVICE_SETTING_SWITCHES) and (self.get(setting) is not None)]
         if (self.ir_profile is not None):
             parts.append(f"ir_profile={self.ir_profile}")
         if (self.ir_profile_sink is not None):
             parts.append(f"ir_profile_sink={self.ir_profile_sink}")
         if (self.stored_ir_profiles is not None):
             parts.append(f"ir_profiles={self.stored_ir_profiles:#x}")
-        if ((clock_set := self.get(V2IPDeviceSetting.CLOCK_SET)) is not None):
+        if ((clock_set := self.get(OneIPDeviceSetting.CLOCK_SET)) is not None):
             parts.append(f"clock_set={'yes' if clock_set else 'no'}")
         if (self.auto_power_save is not None):
             parts.append(f"auto_power_save={self.auto_power_save}")
@@ -2497,7 +2501,7 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
-    def is_v2ip(self) -> bool:
+    def is_oneip(self) -> bool:
         '''True if this a OneIP device'''
 
     @property
@@ -2527,7 +2531,7 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
-    def v2ip_features(self) -> 'V2IPFpgaFeature|None':
+    def oneip_features(self) -> 'OneIPVideoProcessorFeature|None':
         '''What this device's video processor supports, None until it has said.
 
         A device reports the mask only on a configuration it sends about itself,
@@ -2538,28 +2542,28 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
-    def v2ip_sources(self) -> V2IPStreamSourcesList|None:
-        '''V2IP stream source addresses'''
+    def oneip_sources(self) -> OneIPStreamSourcesList|None:
+        '''OneIP stream source addresses'''
 
     @property
     @abstractmethod
-    def v2ip_stats(self) -> V2IPDeviceStats|None:
-         '''V2IP encoder/decoder statistics'''
+    def oneip_stats(self) -> OneIPDeviceStats|None:
+         '''OneIP encoder/decoder statistics'''
 
     @property
     @abstractmethod
-    def v2ip_details(self) -> DeviceV2IPDetails|None:
-        '''V2IP encoder/decoder configuration'''
+    def oneip_details(self) -> DeviceOneIPDetails|None:
+        '''OneIP encoder/decoder configuration'''
 
     @property
     @abstractmethod
-    def v2ip_sink(self) -> DeviceV2IPSink|None:
-        '''V2IP sink-side multicast subscriptions and resolved audio format (None until first announced)'''
+    def oneip_sink(self) -> DeviceOneIPSink|None:
+        '''OneIP sink-side multicast subscriptions and resolved audio format (None until first announced)'''
 
     @property
     @abstractmethod
-    def v2ip_settings(self) -> V2IPDeviceSettings|None:
-        '''The V2IP device settings, None until the device has reported any.
+    def oneip_settings(self) -> OneIPDeviceSettings|None:
+        '''The OneIP device settings, None until the device has reported any.
 
         A device reports only the settings it has, so one missing from valid
         once the rest have arrived is one the device does not have.
@@ -2567,14 +2571,14 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
-    def v2ip_vlan(self) -> V2IPVlan|None:
-        '''The VLAN configuration this V2IP device last reported about itself,
+    def oneip_vlan(self) -> OneIPVlan|None:
+        '''The VLAN configuration this OneIP device last reported about itself,
         None until it has reported one.'''
 
     @property
     @abstractmethod
-    def v2ip_testcard(self) -> V2IPTestcard|None:
-        '''The test card this V2IP sink last reported, None until it has.
+    def oneip_testcard(self) -> OneIPTestcard|None:
+        '''The test card this OneIP sink last reported, None until it has.
 
         A sink reports it only when asked or in answer to a change.'''
 
@@ -2597,13 +2601,13 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
-    def v2ip_source_local(self) -> V2IPStreamSources|None:
+    def oneip_source_local(self) -> OneIPStreamSources|None:
          ''' local v2ip source addresses '''
 
     @property
     @abstractmethod
     def mesh_master(self) -> 'DeviceBase|None':
-        '''The device that is the master device in the V2IP mesh to which this device belongs'''
+        '''The device that is the master device in the OneIP mesh to which this device belongs'''
 
     @mesh_master.setter
     @abstractmethod
@@ -2641,7 +2645,7 @@ class DeviceBase(ABC):
     @property
     @abstractmethod
     def is_mesh_master(self) -> bool:
-        '''True if this device is the master device of a V2IP mesh'''
+        '''True if this device is the master device of a OneIP mesh'''
 
     @property
     @abstractmethod
@@ -2665,13 +2669,13 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
-    def is_v2ip_sink(self) -> bool:
-        '''True if this device decodes a V2IP stream, which is what carries the scaling settings'''
+    def is_oneip_sink(self) -> bool:
+        '''True if this device decodes a OneIP stream, which is what carries the scaling settings'''
 
     @property
     @abstractmethod
     def is_mesh_member(self) -> bool:
-        '''True if this device is a member of a V2IP mesh'''
+        '''True if this device is a member of a OneIP mesh'''
 
     @property
     @abstractmethod
@@ -2722,8 +2726,8 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
-    def v2ip_firmware_versions(self) -> dict[FirmwareType,FirmwareVersion]|None:
-        '''V2IP FPGA firmware versions'''
+    def oneip_firmware_versions(self) -> dict[FirmwareType,FirmwareVersion]|None:
+        '''OneIP video processor firmware versions'''
 
     @property
     @abstractmethod
@@ -2739,8 +2743,8 @@ class DeviceBase(ABC):
         pass
 
     @abstractmethod
-    def v2ip_source(self, bay:BayBase) -> V2IPStreamSources|None:
-        '''Get the V2IP source addresses for the given bay'''
+    def oneip_source(self, bay:BayBase) -> OneIPStreamSources|None:
+        '''Get the OneIP source addresses for the given bay'''
 
     @abstractmethod
     def get_by_portnum(self, portnum: int) -> BayBase|None:
@@ -2765,8 +2769,8 @@ class DeviceBase(ABC):
         '''system health status'''
 
     @abstractmethod
-    def merge_v2ip_sources(self, first:int, total:int, page:'V2IPStreamSourcesList') -> None:
-        '''merge one frame of this device's V2IP source list into the cached list'''
+    def merge_oneip_sources(self, first:int, total:int, page:'OneIPStreamSourcesList') -> None:
+        '''merge one frame of this device's OneIP source list into the cached list'''
 
     @abstractmethod
     def note_link_config(self) -> None:
@@ -2809,39 +2813,39 @@ class DeviceBase(ABC):
         '''start or stop dumping stats'''
 
     @abstractmethod
-    async def set_v2ip_auto_scaling(self, enabled:bool) -> bool:
+    async def set_oneip_auto_scaling(self, enabled:bool) -> bool:
         '''turn this sink's automatic scaling on or off'''
 
     @abstractmethod
-    async def set_v2ip_output_mode(self, mode:'V2IPOutputMode') -> bool:
+    async def set_oneip_output_mode(self, mode:'OneIPOutputMode') -> bool:
         '''set the output format this sink scales to'''
 
     @abstractmethod
-    async def clear_v2ip_output_mode(self) -> bool:
+    async def clear_oneip_output_mode(self) -> bool:
         '''clear the output format this sink is configured to scale to'''
 
     @abstractmethod
-    async def set_v2ip_setting(self, setting:V2IPDeviceSetting, enabled:bool) -> bool:
-        '''switch on/off V2IP device settings, all to the same value'''
+    async def set_oneip_setting(self, setting:OneIPDeviceSetting, enabled:bool) -> bool:
+        '''switch on/off OneIP device settings, all to the same value'''
 
     @abstractmethod
-    async def set_v2ip_ir_profile(self, profile:int) -> bool:
+    async def set_oneip_ir_profile(self, profile:int) -> bool:
         '''set the infrared profile of the device's global infrared port'''
 
     @abstractmethod
-    async def set_v2ip_sink_ir_profile(self, profile:int) -> bool:
+    async def set_oneip_sink_ir_profile(self, profile:int) -> bool:
         '''set the infrared profile of the device's output infrared port'''
 
     @abstractmethod
-    async def set_v2ip_auto_power_save(self, minutes:int) -> bool:
+    async def set_oneip_auto_power_save(self, minutes:int) -> bool:
         '''set the idle minutes before the device powers down by itself, 0 for never'''
 
     @abstractmethod
-    async def set_v2ip_power_save_schedule(self, schedule:V2IPPowerSaveSchedule) -> bool:
+    async def set_oneip_power_save_schedule(self, schedule:OneIPPowerSaveSchedule) -> bool:
         '''set the device's daily power save windows'''
 
     @abstractmethod
-    async def set_v2ip_vlan(self, vlan:V2IPVlan) -> bool:
+    async def set_oneip_vlan(self, vlan:OneIPVlan) -> bool:
         '''change the device's VLAN configuration'''
 
     @abstractmethod
@@ -2849,19 +2853,19 @@ class DeviceBase(ABC):
         '''lock or unlock the audio source of one of this device's audio endpoints'''
 
     @abstractmethod
-    async def request_v2ip_testcard(self) -> bool:
+    async def request_oneip_testcard(self) -> bool:
         '''ask this sink for its test card'''
 
     @abstractmethod
-    async def set_v2ip_test_pattern(self, pattern:V2IPTestPattern, colour:int=0) -> bool:
+    async def set_oneip_test_pattern(self, pattern:OneIPTestPattern, colour:int=0) -> bool:
         '''show a test pattern on this sink's output'''
 
     @abstractmethod
-    async def set_v2ip_test_tone(self, tone:V2IPTestTone) -> bool:
+    async def set_oneip_test_tone(self, tone:OneIPTestTone) -> bool:
         '''play a test tone on this sink's output'''
 
     @abstractmethod
-    async def set_v2ip_test_sync(self, sync:V2IPTestSync) -> bool:
+    async def set_oneip_test_sync(self, sync:OneIPTestSync) -> bool:
         '''set this sink's lip-sync flash'''
 
     @abstractmethod
@@ -3301,7 +3305,7 @@ class DeviceRegistry(ABC):
 
     @abstractmethod
     def get_by_stream_ip(self, ip:str, audio:bool=False) -> BayBase|None:
-        ''' get a bay of a device by its V2IP stream address '''
+        ''' get a bay of a device by its OneIP stream address '''
 
     @abstractmethod
     def get_audio_endpoint(self, device:MxrDeviceUid, id:int) -> AudioEndpoint|None:
@@ -3502,3 +3506,20 @@ class MxrCallbacks:
         ''' called when amp dolby settings were changed '''
         _LOGGER.debug(f"{device} dolby settings changed")
         self.on_device_update(device)
+
+# The V2IP spelling of a name here, from before the rename to OneIP.
+from .deprecated import alias_members as _alias_members, module_getattr as _module_getattr
+# Installed through globals() so the generated stubs carry no __getattr__, which
+# would make a type checker read every unknown name as Any instead of reporting
+# it; to a type checker the old names do not exist.
+globals()['__getattr__'] = _module_getattr(__name__, globals())
+_alias_members(AudioEndpoint, 'is_v2ip')
+_alias_members(AudioFeatures, 'is_v2ip_tx', 'is_v2ip_rx')
+_alias_members(BayBase, 'is_v2ip_remote', 'is_v2ip_source', 'is_v2ip_sink', 'v2ip_source',
+               'v2ip_uid', 'v2ip_device')
+_alias_members(DeviceBase, 'is_v2ip', 'v2ip_features', 'v2ip_sources', 'v2ip_stats',
+               'v2ip_details', 'v2ip_sink', 'v2ip_settings', 'v2ip_source_local',
+               'is_v2ip_sink', 'v2ip_firmware_versions', 'v2ip_source', 'merge_v2ip_sources',
+               'set_v2ip_auto_scaling', 'set_v2ip_output_mode', 'clear_v2ip_output_mode',
+               'set_v2ip_setting', 'set_v2ip_ir_profile', 'set_v2ip_sink_ir_profile',
+               'set_v2ip_auto_power_save', 'set_v2ip_power_save_schedule')

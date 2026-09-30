@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logging.disable(logging.CRITICAL)
 import mx_remote
 from mx_remote import DeviceFeature, MxrDeviceUid, VideoColourSpace
-from mx_remote.Interface import V2IPOutputMode
+from mx_remote.Interface import OneIPOutputMode
 from mx_remote.proto.Constants import (MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                                        MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_OPTIONS2_VALID)
 from mx_remote.proto.Factory import create_mxr_frame
@@ -53,7 +53,7 @@ def hello(sender, features, model='ONEIP'):
                    + name('5.0.0') + struct.pack('<I', int(features)))
     return mx.get_by_uid(MxrDeviceUid(sender))
 
-SINK = int(DeviceFeature.V2IP_SINK) | int(DeviceFeature.VIDEO_ROUTING)
+SINK = int(DeviceFeature.ONEIP_SINK) | int(DeviceFeature.VIDEO_ROUTING)
 
 # ---------------------------------------------------------------------- writing
 
@@ -72,19 +72,19 @@ def last_payload():
     return sent[-1][24:]
 
 sink = hello(uid(0x10), SINK)
-source = hello(uid(0x11), int(DeviceFeature.V2IP_SOURCE), model='TX')
+source = hello(uid(0x11), int(DeviceFeature.ONEIP_SOURCE), model='TX')
 
 # A device that is not a sink has no scaling block to move.
 wire(True)
 n = len(sent)
-assert call(source.set_v2ip_auto_scaling(True)) is False, 'a source accepted a scaling write'
+assert call(source.set_oneip_auto_scaling(True)) is False, 'a source accepted a scaling write'
 assert len(sent) == n, 'a refused command still transmitted'
 print('not a sink  : refused, nothing sent')
 
 # Automatic scaling on. The bytes beside the scaling block are the assertion:
 # a source address that is multicast would repoint the encoder, a zero rate
 # would ask for a rate of zero, and a stamped tiling uid would move the window.
-assert call(sink.set_v2ip_auto_scaling(True)) is True
+assert call(sink.set_oneip_auto_scaling(True)) is True
 p = last_payload()
 assert len(p) == 88, f'{len(p)} bytes: the 120-byte form zeroes every peer\'s sink block'
 assert p[0:16] == uid(0x10), 'the write does not name its subject'
@@ -93,25 +93,25 @@ assert p[40] == 0xFF, 'a rate inside the valid range asks for that rate'
 assert p[64:80] == bytes(16), 'a stamped tiling uid moves the sink\'s wall window'
 mode, refresh, flags = struct.unpack('<HHB', p[56:61])
 assert flags == (MXR_SCALING_FLAG_OPTIONS_VALID | MXR_SCALING_FLAG_AUTO_SCALING), hex(flags)
-assert sink.v2ip_details.scaling.auto_scaling is True, sink.v2ip_details.scaling
-assert sink.v2ip_details.scaling.configured_mode is None, 'a write carried a mode it did not set'
-print('auto on     :', sink.v2ip_details.scaling)
+assert sink.oneip_details.scaling.auto_scaling is True, sink.oneip_details.scaling
+assert sink.oneip_details.scaling.configured_mode is None, 'a write carried a mode it did not set'
+print('auto on     :', sink.oneip_details.scaling)
 
 # Setting a mode leaves automatic scaling where it was, and vice versa.
-bad = V2IPOutputMode(svd=16, depth=16, colour=VideoColourSpace.RGB, refresh=60)
+bad = OneIPOutputMode(svd=16, depth=16, colour=VideoColourSpace.RGB, refresh=60)
 assert bad.validate() is not None, '16bpp is not a depth the output stage takes'
 n = len(sent)
-assert call(sink.set_v2ip_output_mode(bad)) is False, 'a mode no sink takes was sent'
+assert call(sink.set_oneip_output_mode(bad)) is False, 'a mode no sink takes was sent'
 assert len(sent) == n, 'a refused mode still transmitted'
 
-good = V2IPOutputMode(svd=16, depth=12, colour=VideoColourSpace.YUV422, refresh=60)
+good = OneIPOutputMode(svd=16, depth=12, colour=VideoColourSpace.YUV422, refresh=60)
 assert good.validate() is None, good.validate()
-assert call(sink.set_v2ip_output_mode(good)) is True
+assert call(sink.set_oneip_output_mode(good)) is True
 p = last_payload()
 mode, refresh, flags = struct.unpack('<HHB', p[56:61])
 assert (mode, refresh) == (0x6210, 60), (hex(mode), refresh)
 assert flags == MXR_SCALING_FLAG_MODE_VALID, hex(flags)
-cached = sink.v2ip_details.scaling
+cached = sink.oneip_details.scaling
 assert cached.auto_scaling is True, 'setting a mode moved automatic scaling'
 assert cached.configured_mode is not None
 signal, hz = cached.configured_mode
@@ -119,42 +119,42 @@ assert (signal.svd, signal.bpp, int(signal.color), hz) == (16, 12, 2, 60), cache
 print('mode set    :', cached.configured_mode[0], '|', hz, 'Hz')
 
 # Turning automatic scaling off keeps the mode, which is the other reason to scale.
-assert call(sink.set_v2ip_auto_scaling(False)) is True
+assert call(sink.set_oneip_auto_scaling(False)) is True
 p = last_payload()
 _, _, flags = struct.unpack('<HHB', p[56:61])
 assert flags == MXR_SCALING_FLAG_OPTIONS_VALID, hex(flags)
-cached = sink.v2ip_details.scaling
+cached = sink.oneip_details.scaling
 assert cached.auto_scaling is False, cached
 assert cached.configured_mode is not None, 'turning automatic scaling off dropped the mode'
 print('auto off    :', cached)
 
 # Clearing is spelled differently on the wire and in the cache: the valid bit
 # over a zero mode goes out, and the valid bit clear is what a device reports.
-assert call(sink.clear_v2ip_output_mode()) is True
+assert call(sink.clear_oneip_output_mode()) is True
 p = last_payload()
 mode, refresh, flags = struct.unpack('<HHB', p[56:61])
 assert (mode, refresh) == (0, 0), (mode, refresh)
 assert flags == MXR_SCALING_FLAG_MODE_VALID, hex(flags)
-cached = sink.v2ip_details.scaling
+cached = sink.oneip_details.scaling
 assert cached.configured_mode is None, 'the cache holds a state no device broadcasts'
 assert cached.auto_scaling is False, 'clearing a mode moved automatic scaling'
 print('mode clear  : sent', hex(flags), 'cached', hex(cached.flags))
 
 # A write the socket dropped must report failure and leave the cache alone.
-before = (sink.v2ip_details.scaling.mode, sink.v2ip_details.scaling.refresh,
-          sink.v2ip_details.scaling.flags)
+before = (sink.oneip_details.scaling.mode, sink.oneip_details.scaling.refresh,
+          sink.oneip_details.scaling.flags)
 wire(False)
-assert call(sink.set_v2ip_output_mode(good)) is False, 'a failed send reported success'
-after = (sink.v2ip_details.scaling.mode, sink.v2ip_details.scaling.refresh,
-         sink.v2ip_details.scaling.flags)
+assert call(sink.set_oneip_output_mode(good)) is False, 'a failed send reported success'
+after = (sink.oneip_details.scaling.mode, sink.oneip_details.scaling.refresh,
+         sink.oneip_details.scaling.flags)
 assert after == before, f'{before} -> {after}: a failed send moved the cache'
 print('send failed : False, cache unmoved')
 
 # What we build, our own decoder reads back the same way.
 wire(True)
-assert call(sink.set_v2ip_output_mode(good)) is True
+assert call(sink.set_oneip_output_mode(good)) is True
 rx(uid(0x10), 0x3C, last_payload())
-signal, hz = sink.v2ip_details.scaling.configured_mode
+signal, hz = sink.oneip_details.scaling.configured_mode
 assert (signal.value, hz) == (0x6210, 60), (hex(signal.value), hz)
 print('round trip  :', signal, hz, 'Hz')
 
@@ -178,7 +178,7 @@ def report(subject, scaling, sender=None):
 def sink_with_a_mode(n, features=INIT):
     dev = hello(uid(n), features)
     report(uid(n), MANUAL)
-    assert dev.v2ip_details.scaling.configured_mode is not None, dev.v2ip_details.scaling
+    assert dev.oneip_details.scaling.configured_mode is not None, dev.oneip_details.scaling
     return dev
 
 # A sink's own report carries its whole scaling state, so one with the options
@@ -187,26 +187,26 @@ own = sink_with_a_mode(0x30)
 calls = []
 own.register_callback(lambda d: calls.append(d))
 report(uid(0x30), struct.pack('<HHB', 0, 0, MXR_SCALING_FLAG_OPTIONS_VALID | MXR_SCALING_FLAG_AUTO_SCALING))
-assert own.v2ip_details.scaling.configured_mode is None, 'the old mode is still held'
-assert own.v2ip_details.scaling.auto_scaling is True, own.v2ip_details.scaling
+assert own.oneip_details.scaling.configured_mode is None, 'the old mode is still held'
+assert own.oneip_details.scaling.auto_scaling is True, own.oneip_details.scaling
 assert calls, 'turning the mode off was not reported'
-print('mode dropped:', own.v2ip_details.scaling)
+print('mode dropped:', own.oneip_details.scaling)
 
 # Without the whole state, a frame with no mode says nothing about the mode.
 # A report carrying the second options group but not the first:
 dev = sink_with_a_mode(0x31)
 report(uid(0x31), struct.pack('<HHB', 0, 0, MXR_SCALING_FLAG_OPTIONS2_VALID))
-assert dev.v2ip_details.scaling.configured_mode is not None, 'a report without the options marker dropped the mode'
+assert dev.oneip_details.scaling.configured_mode is not None, 'a report without the options marker dropped the mode'
 # a sender whose options bit may be uninitialised memory:
 dev = sink_with_a_mode(0x32, features=SINK)
 report(uid(0x32), struct.pack('<HHB', 0, 0, MXR_SCALING_FLAG_OPTIONS_VALID))
-assert dev.v2ip_details.scaling.configured_mode is not None, 'an uninitialised sender dropped the mode'
+assert dev.oneip_details.scaling.configured_mode is not None, 'an uninitialised sender dropped the mode'
 # and a controller's options-only write, which lands: it turns auto scaling off.
 dev = sink_with_a_mode(0x33)
 hello(uid(0x34), int(DeviceFeature.MANAGER) | int(DeviceFeature.CONFIG_INITIALISED), model='Ctrl')
 report(uid(0x33), struct.pack('<HHB', 0, 0, MXR_SCALING_FLAG_OPTIONS_VALID), sender=uid(0x34))
-assert dev.v2ip_details.scaling.auto_scaling is False, 'the controller\'s write did not land'
-assert dev.v2ip_details.scaling.configured_mode is not None, 'a controller\'s write dropped the mode'
+assert dev.oneip_details.scaling.auto_scaling is False, 'the controller\'s write did not land'
+assert dev.oneip_details.scaling.configured_mode is not None, 'a controller\'s write dropped the mode'
 print('mode kept   : no options marker, uninitialised sender, controller write')
 
 print('ALL OK')

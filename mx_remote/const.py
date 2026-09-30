@@ -46,12 +46,12 @@ bay configuration - see ``Device.has_bays``.
 """
 
 V2IP_UDP_PORT_VIDEO = 50020
-"""Default destination UDP port for a V2IP video stream (firmware ``V2IP_UDP_PORT_VIDEO``)."""
+"""Default destination UDP port for a OneIP video stream (firmware ``V2IP_UDP_PORT_VIDEO``)."""
 
 V2IP_UDP_PORT_ANC = 50021
-"""Default destination UDP port for a V2IP ancillary stream (firmware ``V2IP_UDP_PORT_ANC``)."""
+"""Default destination UDP port for a OneIP ancillary stream (firmware ``V2IP_UDP_PORT_ANC``)."""
 
 V2IP_UDP_PORT_AUDIO = 50022
-"""Default destination UDP port for a V2IP audio stream (firmware ``V2IP_UDP_PORT_AUDIO``)."""
+"""Default destination UDP port for a OneIP audio stream (firmware ``V2IP_UDP_PORT_AUDIO``)."""
 
 BASE_PATH = os.path.dirname(__file__)

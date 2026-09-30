@@ -4,7 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
 ## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
 ######################################################
-'''Protocol frame for V2IP device configuration (stream addresses, scaling, options).'''
+'''Protocol frame for OneIP device configuration (stream addresses, scaling, options).'''
 
 from functools import cached_property
 from typing import Any
@@ -12,14 +12,14 @@ import struct
 from .FrameBase import FrameBase
 from .FrameHeader import FrameHeader
 from ..Uid import MxrDeviceUid
-from ..Interface import (DeviceBase, DeviceRegistry, DeviceV2IPDetails, DeviceV2IPScalingSettings,
-                         DeviceV2IPSink, V2IPAudioFormat, V2IPDeviceSettings, V2IPDscpConfig,
-                         V2IPPowerSaveSchedule, V2IPStreamSource, V2IPVlan)
-from .Constants import (V2IPDeviceSetting, V2IPFpgaFeature, V2IPVlanFlag, MXR_SCALING_FLAG_AUTO_SCALING,
+from ..Interface import (DeviceBase, DeviceRegistry, DeviceOneIPDetails, DeviceOneIPScalingSettings,
+                         DeviceOneIPSink, OneIPAudioFormat, OneIPDeviceSettings, OneIPDscpConfig,
+                         OneIPPowerSaveSchedule, OneIPStreamSource, OneIPVlan)
+from .Constants import (OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag, MXR_SCALING_FLAG_AUTO_SCALING,
                         MXR_SCALING_FLAG_MODE_VALID,
                         MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_OPTIONS2_VALID,
-                        MXR_SCALING_OPTIONS2_SETTINGS, MxrSignalType, v2ip_dscp_value,
-                        v2ip_rate_valid)
+                        MXR_SCALING_OPTIONS2_SETTINGS, MxrSignalType, oneip_dscp_value,
+                        oneip_rate_valid)
 from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 
 # v2ip_device_config_update wire layout (little-endian, ALIGN(8) per inner struct):
@@ -51,7 +51,7 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #   addresses   multicast with a non-zero port, video and anc both;
 #               audio is optional and rides along
 #   tx_rate     inside 5..100
-#   dscp        per byte, MXR_V2IP_DSCP_SET
+#   dscp        per byte, MXR_ONEIP_DSCP_SET
 #   scaling     MXR_SCALING_FLAG_MODE_VALID covers mode and refresh,
 #               MXR_SCALING_FLAG_OPTIONS_VALID auto-scaling, and
 #               MXR_SCALING_FLAG_OPTIONS2_VALID match-source and skip-420
@@ -59,7 +59,7 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #               block means 'not carried' while a stamped uid with zero
 #               geometry is a real clear
 #
-# DeviceV2IPDetails.merge() carries the unmarked fields forward. Replacing the
+# DeviceOneIPDetails.merge() carries the unmarked fields forward. Replacing the
 # cache wholesale reports a peer's addresses as 0.0.0.0 the moment a controller
 # writes anything else. The sink trailer is the exception: present or absent by
 # length, with no marker, and taken only from a device describing itself.
@@ -106,41 +106,41 @@ _VLAN_OFFSET        = _SETTINGS_OFFSET + _SETTINGS_SIZE + _SCHEDULE_SIZE + 4
 '''The VLAN configuration, behind the whole 48-byte settings block.'''
 _VLAN_SIZE          = 16
 
-def settings_block(settings:V2IPDeviceSettings) -> bytes:
+def settings_block(settings:OneIPDeviceSettings) -> bytes:
     '''The 48-byte device settings block.
 
     A value not named in settings.valid is not read, so it goes out as zero.'''
-    schedule = settings.power_save_schedule or V2IPPowerSaveSchedule()
+    schedule = settings.power_save_schedule or OneIPPowerSaveSchedule()
     return (struct.pack('<IIIbbH', int(settings.valid), int(settings.flags),
                         settings.stored_ir_profiles or 0, settings.ir_profile or 0,
                         settings.ir_profile_sink or 0, settings.auto_power_save or 0)
             + struct.pack('<7H7H', *schedule.start, *schedule.end)
             + bytes(4))
 
-def parse_settings_block(block:bytes) -> V2IPDeviceSettings:
+def parse_settings_block(block:bytes) -> OneIPDeviceSettings:
     '''A device settings block, from its first 16 bytes on.
 
     A bit claiming the schedule in a block too short to hold it is dropped.'''
     valid, flags, profiles, profile, profile_sink, minutes = struct.unpack_from('<IIIbbH', block)
-    valid = V2IPDeviceSetting(valid)
+    valid = OneIPDeviceSetting(valid)
     schedule = None
     if (len(block) >= (_SETTINGS_SIZE + _SCHEDULE_SIZE)):
         times = struct.unpack_from('<7H7H', block, _SETTINGS_SIZE)
-        schedule = V2IPPowerSaveSchedule(start=times[:7], end=times[7:])
+        schedule = OneIPPowerSaveSchedule(start=times[:7], end=times[7:])
     else:
-        valid &= ~V2IPDeviceSetting.POWER_SAVE_SCHEDULE
-    return V2IPDeviceSettings(valid=valid, flags=V2IPDeviceSetting(flags), ir_profiles=profiles,
+        valid &= ~OneIPDeviceSetting.POWER_SAVE_SCHEDULE
+    return OneIPDeviceSettings(valid=valid, flags=OneIPDeviceSetting(flags), ir_profiles=profiles,
                               ir_profile=profile, ir_profile_sink=profile_sink,
                               auto_power_save=minutes, power_save=schedule)
 
 class V2IPDeviceOptions:
-    '''Parsed V2IP device options (TX rate and per-stream DSCP marking).'''
+    '''Parsed OneIP device options (TX rate and per-stream DSCP marking).'''
     def __init__(self, data:bytes) -> None:
         self._raw_tx_rate = int.from_bytes(data[0:1], "little")
-        self._dscp = V2IPDscpConfig(
-            video=v2ip_dscp_value(data[1] if (len(data) > 1) else None),
-            audio=v2ip_dscp_value(data[2] if (len(data) > 2) else None),
-            anc=v2ip_dscp_value(data[3] if (len(data) > 3) else None),
+        self._dscp = OneIPDscpConfig(
+            video=oneip_dscp_value(data[1] if (len(data) > 1) else None),
+            audio=oneip_dscp_value(data[2] if (len(data) > 2) else None),
+            anc=oneip_dscp_value(data[3] if (len(data) > 3) else None),
         )
 
     @property
@@ -155,10 +155,10 @@ class V2IPDeviceOptions:
         A rate-only write carries the rate on its own; every other controller
         write puts a value outside 5..100 here, which firmware drops as invalid
         so that address-only and scaling writes leave the peer's rate alone.'''
-        return self._raw_tx_rate if v2ip_rate_valid(self._raw_tx_rate) else None
+        return self._raw_tx_rate if oneip_rate_valid(self._raw_tx_rate) else None
 
     @property
-    def dscp(self) -> V2IPDscpConfig:
+    def dscp(self) -> OneIPDscpConfig:
         '''Per-stream DSCP marking; each stream reads None when its byte is unset.'''
         return self._dscp
 
@@ -166,8 +166,8 @@ class V2IPDeviceOptions:
         rate = f"{self._raw_tx_rate * 10}Mb/s" if (self.tx_rate is not None) else "not set"
         return f"tx rate: {rate}, dscp: {self._dscp}"
 
-class V2IPScalingSettingsImpl(DeviceV2IPScalingSettings):
-    '''Concrete implementation of V2IP output scaling settings.'''
+class V2IPScalingSettingsImpl(DeviceOneIPScalingSettings):
+    '''Concrete implementation of OneIP output scaling settings.'''
     # Bits 2 and 3 have no meaning. A sender without
     # MXR_FEATURE_CONFIG_INITIALISED builds this byte on uninitialised stack, so
     # mask at decode rather than where the value is used: a first frame has
@@ -215,12 +215,12 @@ _OPCODE = 0x3C
 _RATE_UNSET = 0xFF
 '''The tx_rate a frame that is not setting a rate carries.
 
-The field's valid range ends at V2IP_SOURCE_RATE_MAX, and a receiver drops an
+The field's valid range ends at ONEIP_SOURCE_RATE_MAX, and a receiver drops an
 out-of-range rate and keeps the one it had. A plain zero would ask for a rate of
 zero.'''
 
 class FrameV2IPDeviceConfiguration(FrameBase):
-    '''V2IP device configuration with stream addresses and scaling settings.'''
+    '''OneIP device configuration with stream addresses and scaling settings.'''
     def __init__(self, header:FrameHeader, timestamp:float):
         super().__init__(header=header, timestamp=timestamp)
         if (self.payload is None) or (len(self.payload) < _CONFIG_BASE_SIZE):
@@ -275,7 +275,7 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         # source: three stream slots, left zeroed so the encoder keeps its own.
         payload += bytes(40 - len(payload))
         payload.append(_RATE_UNSET)
-        # Three dscp bytes with no MXR_V2IP_DSCP_SET bit, so no marking is
+        # Three dscp bytes with no MXR_ONEIP_DSCP_SET bit, so no marking is
         # applied, then the padding that aligns the audio-return slot, then the
         # audio return itself, zeroed, which reads as carrying no address.
         payload += bytes(56 - len(payload))
@@ -290,7 +290,7 @@ class FrameV2IPDeviceConfiguration(FrameBase):
 
     @staticmethod
     def construct_settings(mxr:DeviceRegistry, target:Any, target_uid:MxrDeviceUid,
-                           settings:V2IPDeviceSettings) -> FrameBase|None:
+                           settings:OneIPDeviceSettings) -> FrameBase|None:
         '''Build the 0x3C write that changes a device's settings and nothing else.
 
         176 bytes: the configuration as construct_scaling() lays it out but with
@@ -328,7 +328,7 @@ class FrameV2IPDeviceConfiguration(FrameBase):
 
     @staticmethod
     def construct_vlan(mxr:DeviceRegistry, target:Any, target_uid:MxrDeviceUid,
-                       vlan:V2IPVlan) -> FrameBase|None:
+                       vlan:OneIPVlan) -> FrameBase|None:
         '''Build the 0x3C write that changes a device's VLAN configuration and
         nothing else.
 
@@ -340,7 +340,7 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         The block goes out as given; the caller clears what a writer does not set.
         '''
         frame = FrameV2IPDeviceConfiguration.construct_settings(
-            mxr=mxr, target=target, target_uid=target_uid, settings=V2IPDeviceSettings())
+            mxr=mxr, target=target, target_uid=target_uid, settings=OneIPDeviceSettings())
         if (frame is None):
             return None
         payload = (frame.payload or b"") + struct.pack('<HH3HBBB', int(vlan.flags), vlan.device, *vlan.port,
@@ -394,18 +394,18 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         return None
 
     @cached_property
-    def details(self) -> DeviceV2IPDetails:
+    def details(self) -> DeviceOneIPDetails:
         # A sink's own report carries its whole scaling state, so one with the
         # options but no mode says manual scaling is off. Only from a sender
         # that initialises the block: from any other, the options bit may be junk.
         sender = self.remote_device
         whole_scaling = self.target_self and (sender is not None) and sender.config_initialised
-        return DeviceV2IPDetails(video=self.video, audio=self.audio, anc=self.anc, arc=self.arc,
+        return DeviceOneIPDetails(video=self.video, audio=self.audio, anc=self.anc, arc=self.arc,
                                  tx_rate=self.options.tx_rate, scaling=self.scaling,
                                  dscp=self.options.dscp, whole_scaling=whole_scaling)
 
     @cached_property
-    def video_processor_features(self) -> V2IPFpgaFeature|None:
+    def video_processor_features(self) -> OneIPVideoProcessorFeature|None:
         '''What the subject's video processor supports, None when nothing is known.
 
         Read only from a frame a device sent about itself. A device leaves the
@@ -426,10 +426,10 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         mask = int.from_bytes(self.payload[_CODEC_OFFSET:(_CODEC_OFFSET + _CODEC_SIZE)], 'little')
         if (mask == 0):
             return None
-        return V2IPFpgaFeature(mask)
+        return OneIPVideoProcessorFeature(mask)
 
     @cached_property
-    def sink(self) -> DeviceV2IPSink|None:
+    def sink(self) -> DeviceOneIPSink|None:
         '''Sink-side state a longer frame appends to the configuration; None when
         the frame stops in front of it.
 
@@ -442,13 +442,13 @@ class FrameV2IPDeviceConfiguration(FrameBase):
             return None
         if not self.target_self:
             return None
-        return DeviceV2IPSink(
+        return DeviceOneIPSink(
             addresses=parse_v2ip_av_source(self.payload, _SINK_OFFSET),
-            audio_fmt=V2IPAudioFormat.from_bytes(self.payload[_SINK_AUDIO_OFFSET:_SINK_AUDIO_OFFSET + 8]),
+            audio_fmt=OneIPAudioFormat.from_bytes(self.payload[_SINK_AUDIO_OFFSET:_SINK_AUDIO_OFFSET + 8]),
         )
 
     @cached_property
-    def settings(self) -> V2IPDeviceSettings|None:
+    def settings(self) -> OneIPDeviceSettings|None:
         '''The device settings block, as the subject will hold it; None when the
         frame stops in front of it or nothing would act on it.
 
@@ -463,11 +463,11 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         frame = parse_settings_block(self.payload[_SETTINGS_OFFSET:])
         if self.target_self:
             return frame
-        reported = dev.v2ip_settings
-        return frame.as_applied_to(reported.valid if (reported is not None) else V2IPDeviceSetting(0))
+        reported = dev.oneip_settings
+        return frame.as_applied_to(reported.valid if (reported is not None) else OneIPDeviceSetting(0))
 
     @cached_property
-    def vlan(self) -> V2IPVlan|None:
+    def vlan(self) -> OneIPVlan|None:
         '''The VLAN configuration the subject reports; None when the frame stops
         in front of it, the block is not valid, or another device sent it.
 
@@ -480,10 +480,10 @@ class FrameV2IPDeviceConfiguration(FrameBase):
             return None
         flags, device, p0, p1, p2, uplink, active, revert = \
             struct.unpack_from('<HH3HBBB', self.payload, _VLAN_OFFSET)
-        flags = V2IPVlanFlag(flags)
-        if V2IPVlanFlag.VALID not in flags:
+        flags = OneIPVlanFlag(flags)
+        if OneIPVlanFlag.VALID not in flags:
             return None
-        return V2IPVlan(flags=flags, device=device, port=(p0, p1, p2), uplink=uplink,
+        return OneIPVlan(flags=flags, device=device, port=(p0, p1, p2), uplink=uplink,
                         active_uplink=active, revert_s=revert)
 
     def process(self) -> None:
@@ -502,7 +502,7 @@ class FrameV2IPDeviceConfiguration(FrameBase):
 
     def __str__(self) -> str:
         sink_str = f" sink=[{self.sink}]" if (self.sink is not None) else ""
-        fpga_str = f" fpga={self.video_processor_features}" if (self.video_processor_features is not None) else ""
+        fpga_str = f" video processor={self.video_processor_features}" if (self.video_processor_features is not None) else ""
         settings_str = f" settings=[{self.settings}]" if (self.settings is not None) else ""
         vlan_str = f" vlan=[{self.vlan}]" if (self.vlan is not None) else ""
-        return f"V2IP device configuration self={self.target_self} {self.video} {self.audio} {self.anc} {self.arc} options={self.options}{sink_str}{fpga_str}{settings_str}{vlan_str}"
+        return f"OneIP device configuration self={self.target_self} {self.video} {self.audio} {self.anc} {self.arc} options={self.options}{sink_str}{fpga_str}{settings_str}{vlan_str}"

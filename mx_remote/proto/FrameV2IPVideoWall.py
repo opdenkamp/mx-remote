@@ -4,7 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
 ## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
 ######################################################
-'''Protocol frame for V2IP video wall window control.'''
+'''Protocol frame for OneIP video wall window control.'''
 
 from functools import cached_property
 from .FrameBase import FrameBase

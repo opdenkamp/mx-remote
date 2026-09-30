@@ -49,7 +49,7 @@ def hello(sender, features, model='ONEIP'):
                    + name('5.0.0') + struct.pack('<I', int(features)))
     return mx.get_by_uid(MxrDeviceUid(sender))
 
-SINK = int(DeviceFeature.V2IP_SINK) | int(DeviceFeature.VIDEO_ROUTING)
+SINK = int(DeviceFeature.ONEIP_SINK) | int(DeviceFeature.VIDEO_ROUTING)
 
 def cfg(subject, rate=0xFF, mode=0, refresh=0, flags=0):
     '''An 88-byte v2ip_device_config_update naming subject, carrying no addresses.'''
@@ -67,25 +67,25 @@ def cfg(subject, rate=0xFF, mode=0, refresh=0, flags=0):
 selfrep = uid(0x01)
 dev = hello(selfrep, SINK)
 rx(selfrep, 0x3C, cfg(selfrep, rate=30))
-assert dev.v2ip_details is not None and dev.v2ip_details.tx_rate == 30, dev.v2ip_details
-print('self-report :', dev.v2ip_details.tx_rate)
+assert dev.oneip_details is not None and dev.oneip_details.tx_rate == 30, dev.oneip_details
+print('self-report :', dev.oneip_details.tx_rate)
 
 # A management write lands on the device it names, not on the sender.
 managed = hello(uid(0x02), SINK)
 ctrl = hello(uid(0x03), int(DeviceFeature.MANAGER), model='Ctrl')
 rx(uid(0x03), 0x3C, cfg(uid(0x02), rate=40))
-assert managed.v2ip_details is not None, 'the write did not reach the device it names'
-assert managed.v2ip_details.tx_rate == 40, managed.v2ip_details
-assert ctrl.v2ip_details is None, 'the write was filed against the sender'
-print('managed     :', managed.v2ip_details.tx_rate, '| sender record:', ctrl.v2ip_details)
+assert managed.oneip_details is not None, 'the write did not reach the device it names'
+assert managed.oneip_details.tx_rate == 40, managed.oneip_details
+assert ctrl.oneip_details is None, 'the write was filed against the sender'
+print('managed     :', managed.oneip_details.tx_rate, '| sender record:', ctrl.oneip_details)
 
 # A sender with no standing cannot move a third device's record - and the frame
 # is not filed against the sender instead.
 plain = hello(uid(0x04), SINK)
-peer = hello(uid(0x05), int(DeviceFeature.V2IP_SOURCE), model='TX')
+peer = hello(uid(0x05), int(DeviceFeature.ONEIP_SOURCE), model='TX')
 rx(uid(0x05), 0x3C, cfg(uid(0x04), rate=40))
-assert plain.v2ip_details is None, 'a peer with no standing moved another device\'s record'
-assert peer.v2ip_details is None, 'the write was filed against the sender'
+assert plain.oneip_details is None, 'a peer with no standing moved another device\'s record'
+assert peer.oneip_details is None, 'the write was filed against the sender'
 print('ordinary peer: dropped, not misattributed')
 
 # MESH_MASTER is the bit a controller actually sets; MANAGER alone would refuse
@@ -93,9 +93,9 @@ print('ordinary peer: dropped, not misattributed')
 mmanaged = hello(uid(0x06), SINK)
 hello(uid(0x07), int(DeviceFeature.MESH_MASTER) | int(DeviceFeature.VIDEO_ROUTING), model='Ctrl')
 rx(uid(0x07), 0x3C, cfg(uid(0x06), rate=60))
-assert mmanaged.v2ip_details is not None, 'a mesh controller\'s write was refused'
-assert mmanaged.v2ip_details.tx_rate == 60, mmanaged.v2ip_details
-print('mesh master :', mmanaged.v2ip_details.tx_rate)
+assert mmanaged.oneip_details is not None, 'a mesh controller\'s write was refused'
+assert mmanaged.oneip_details.tx_rate == 60, mmanaged.oneip_details
+print('mesh master :', mmanaged.oneip_details.tx_rate)
 
 # A device sets MESH_MASTER only while it also has bays mapped, so one promoted
 # before it has any announces neither bit. What closes that window is the
@@ -103,14 +103,14 @@ print('mesh master :', mmanaged.v2ip_details.tx_rate)
 promoted = hello(uid(0x08), SINK)
 hello(uid(0x09), int(DeviceFeature.VIDEO_ROUTING), model='Ctrl')
 rx(uid(0x09), 0x3C, cfg(uid(0x08), rate=60))
-assert promoted.v2ip_details is None, 'a sender nothing has vouched for moved another record'
+assert promoted.oneip_details is None, 'a sender nothing has vouched for moved another record'
 # REPORT_MEMBERSHIP: the sub-opcode at 0, the controller uid at 4.
 mesh = bytes([0xFF, 0, 0, 0]) + uid(0x09) + bytes(20)
 rx(uid(0x08), 0x3B, mesh)
 assert promoted.mesh_master_uid == MxrDeviceUid(uid(0x09)), promoted.mesh_master_uid
 rx(uid(0x09), 0x3C, cfg(uid(0x08), rate=60))
-assert promoted.v2ip_details is not None, 'the controller the device names was not trusted'
-assert promoted.v2ip_details.tx_rate == 60, promoted.v2ip_details
+assert promoted.oneip_details is not None, 'the controller the device names was not trusted'
+assert promoted.oneip_details.tx_rate == 60, promoted.oneip_details
 print('named ctrl  : refused before the membership report, taken after')
 
 # An unknown subject is dropped rather than invented: a record built from a
@@ -118,7 +118,7 @@ print('named ctrl  : refused before the membership report, taken after')
 before = set(mx.remotes.keys())
 rx(uid(0x03), 0x3C, cfg(uid(0x7E), rate=40))
 assert set(mx.remotes.keys()) == before, 'an unknown subject created a device'
-assert ctrl.v2ip_details is None, 'an unknown subject was filed against the sender'
+assert ctrl.oneip_details is None, 'an unknown subject was filed against the sender'
 print('unknown     : dropped, no device invented')
 
 # ------------------------------------------------- the oldest whole form
@@ -128,8 +128,8 @@ print('unknown     : dropped, no device invented')
 # configuration rather than a truncated frame.
 older = hello(uid(0x0A), SINK)
 rx(uid(0x0A), 0x3C, cfg(uid(0x0A), rate=70)[:64])
-assert older.v2ip_details is not None, 'a configuration without the tiling window was refused'
-assert older.v2ip_details.tx_rate == 70, older.v2ip_details
+assert older.oneip_details is not None, 'a configuration without the tiling window was refused'
+assert older.oneip_details.tx_rate == 70, older.oneip_details
 
 # A whole configuration or nothing. Shorter than the oldest complete form is a
 # frame no device acts on, and the fields it does carry are not worth holding a
@@ -144,13 +144,13 @@ try:
     raise SystemExit('a configuration short of any whole form was decoded')
 except Exception as e:
     assert 'invalid v2ip configuration' in str(e), e
-assert short.v2ip_details is None, 'a partial configuration moved a record'
+assert short.oneip_details is None, 'a partial configuration moved a record'
 print('64-byte form: read in full, and 63 bytes is not a configuration')
 
 # ------------------------------------------------ what the processor supports
 # A device fills this word in only on the frame describing itself, so a frame
 # about a third party says nothing about that party's processor.
-from mx_remote.proto.Constants import V2IPFpgaFeature
+from mx_remote.proto.Constants import OneIPVideoProcessorFeature
 
 def cfg_fpga(subject, mask):
     '''The configuration with the options trailer and the processor word.'''
@@ -160,22 +160,22 @@ def cfg_fpga(subject, mask):
 
 # Bit 9 has no name here. The mask only ever gains bits, so one this library
 # cannot name is a later capability rather than a frame to refuse.
-MASK = int(V2IPFpgaFeature.SOURCE_DSCP | V2IPFpgaFeature.SINK_STATE) | (1 << 9)
+MASK = int(OneIPVideoProcessorFeature.SOURCE_DSCP | OneIPVideoProcessorFeature.SINK_STATE) | (1 << 9)
 fpga = hello(uid(0x0B), SINK)
 rx(uid(0x0B), 0x3C, cfg_fpga(uid(0x0B), MASK))
-assert fpga.v2ip_features is not None, 'a device did not report its own processor'
-assert int(fpga.v2ip_features) == MASK, int(fpga.v2ip_features)
-assert V2IPFpgaFeature.SINK_STATE in fpga.v2ip_features
-print('processor   :', fpga.v2ip_features)
+assert fpga.oneip_features is not None, 'a device did not report its own processor'
+assert int(fpga.oneip_features) == MASK, int(fpga.oneip_features)
+assert OneIPVideoProcessorFeature.SINK_STATE in fpga.oneip_features
+print('processor   :', fpga.oneip_features)
 
 # An empty mask is nothing known rather than a device that supports nothing: the
 # word is zero until the processor answers after boot, and an older processor
 # answers with none of the optional commands.
 booting = hello(uid(0x0C), SINK)
 rx(uid(0x0C), 0x3C, cfg_fpga(uid(0x0C), 0))
-assert booting.v2ip_features is None, 'an empty mask was cached as a capability set'
+assert booting.oneip_features is None, 'an empty mask was cached as a capability set'
 rx(uid(0x0B), 0x3C, cfg_fpga(uid(0x0B), 0))
-assert int(fpga.v2ip_features) == MASK, 'an empty mask unsaid what the device had reported'
+assert int(fpga.oneip_features) == MASK, 'an empty mask unsaid what the device had reported'
 print('empty mask  : nothing known, and it unsays nothing')
 
 # A controller writing another device's configuration leaves the word zero, so
@@ -183,12 +183,12 @@ print('empty mask  : nothing known, and it unsays nothing')
 # capabilities from across the network.
 third = hello(uid(0x0D), SINK)
 rx(uid(0x03), 0x3C, cfg_fpga(uid(0x0D), MASK))
-assert third.v2ip_details is not None, 'the write did not reach the device it names'
-assert third.v2ip_features is None, 'a third party described the subject\'s processor'
+assert third.oneip_details is not None, 'the write did not reach the device it names'
+assert third.oneip_features is None, 'a third party described the subject\'s processor'
 
 # and a frame that stops in front of the word says nothing either
 rx(uid(0x0D), 0x3C, cfg(uid(0x0D), rate=50))
-assert third.v2ip_features is None, 'a frame without the word reported a processor'
+assert third.oneip_features is None, 'a frame without the word reported a processor'
 print('processor   : a device\'s own frame, or nothing')
 
 # ------------------------------------------------------------ the sink block
@@ -207,18 +207,18 @@ def cfg_sink(subject, video, port, flags=0):
 
 routed = hello(uid(0x0F), SINK)
 rx(uid(0x0F), 0x3C, cfg_sink(uid(0x0F), [239, 7, 8, 9], 50020))
-assert routed.v2ip_sink is not None, 'a device did not report its own sink'
-assert routed.v2ip_sink.addresses.video.ip == '239.7.8.9', routed.v2ip_sink
+assert routed.oneip_sink is not None, 'a device did not report its own sink'
+assert routed.oneip_sink.addresses.video.ip == '239.7.8.9', routed.oneip_sink
 
 rx(uid(0x03), 0x3C, cfg_sink(uid(0x0F), [0, 0, 0, 0], 0, flags=MXR_SCALING_FLAG_OPTIONS_VALID))
-assert routed.v2ip_details.scaling.auto_scaling is False, 'the write itself did not land'
-assert routed.v2ip_sink.addresses.video.ip == '239.7.8.9', \
+assert routed.oneip_details.scaling.auto_scaling is False, 'the write itself did not land'
+assert routed.oneip_sink.addresses.video.ip == '239.7.8.9', \
     'a controller\'s zeroed sink block replaced the device\'s own report'
 
 # while the device's own empty report still clears it: a sink that has lost its
 # route sends exactly these zeros
 rx(uid(0x0F), 0x3C, cfg_sink(uid(0x0F), [0, 0, 0, 0], 0))
-assert routed.v2ip_sink.addresses.video.ip == '0.0.0.0', routed.v2ip_sink
+assert routed.oneip_sink.addresses.video.ip == '0.0.0.0', routed.oneip_sink
 print('sink block  : a device\'s own report, or nothing')
 
 print('ALL OK')

@@ -4,7 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
 ## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
 ######################################################
-'''Protocol frame for V2IP mirroring status between devices.'''
+'''Protocol frame for OneIP mirroring status between devices.'''
 
 from functools import cached_property
 from .FrameBase import FrameBase
@@ -47,7 +47,7 @@ class FrameMirrorStatus(FrameBase):
         return self.mxr.get_by_uid(self.master)
 
     def process(self) -> None:
-        '''Update the local device cache with mirroring status (V2IP only).'''
+        '''Update the local device cache with mirroring status (OneIP only).'''
         if (    (dev := self.remote_device) is not None) \
                 and self.is_own \
                 and ((first_out:= dev.first_output) is not None):

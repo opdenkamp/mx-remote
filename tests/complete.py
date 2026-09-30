@@ -49,10 +49,10 @@ mx._uid = bytes(range(100, 116))
 
 # device features
 VIDEO_ROUTING, AUDIO_ROUTING, VOLUME_CONTROL = (1 << 5), (1 << 6), (1 << 7)
-V2IP_SOURCE, V2IP_SINK = (1 << 3), (1 << 4)
+ONEIP_SOURCE, ONEIP_SINK = (1 << 3), (1 << 4)
 # bay features
 HDMI_OUT, HDMI_IN = (1 << 0), (1 << 1)
-V2IP_SOURCE_REMOTE, V2IP_SINK_REMOTE = (1 << 13), (1 << 14)
+ONEIP_SOURCE_REMOTE, ONEIP_SINK_REMOTE = (1 << 13), (1 << 14)
 
 def nm(s, sz=16):
     b = s.encode('ascii')[:sz]
@@ -111,11 +111,11 @@ print('complete    : announced once, when the last of it arrived')
 # describes one of the sender's own ports, so those twelve own no record and a
 # count of bays is one no page will ever reach.
 ONEIP = bytes(range(17, 33))
-tz = hello(ONEIP, 'OneIP', 'P9SN66662814', V2IP_SOURCE | V2IP_SINK | VIDEO_ROUTING)
-assert tz is not None and tz.is_v2ip
+tz = hello(ONEIP, 'OneIP', 'P9SN66662814', ONEIP_SOURCE | ONEIP_SINK | VIDEO_ROUTING)
+assert tz is not None and tz.is_oneip
 bays = bay(0, 0, 0, 'Input 1')
 for port in range(1, 13):
-    bays += bay(port, 0, port, f'Input {port + 1}', V2IP_SOURCE_REMOTE)
+    bays += bay(port, 0, port, f'Input {port + 1}', ONEIP_SOURCE_REMOTE)
 bays += bay(16, 1, 0, 'Output 1')
 rx(ONEIP, 0x02, bays)
 assert len(tz.bays) == 14, tz.bays
@@ -123,7 +123,7 @@ assert tz.nb_inputs + tz.nb_outputs == 14, 'every bay is an input or an output h
 
 # Its V2IP source list, which completion needs for a V2IP device in its own right.
 rx(ONEIP, 0x26, bytes(40 * 13))
-assert tz.v2ip_sources is not None and len(tz.v2ip_sources) == 13
+assert tz.oneip_sources is not None and len(tz.oneip_sources) == 13
 
 assert tz.need_link_config and not tz.configuration_complete
 rx(ONEIP, 0x03, link(0, 'P9SN66662903', 'Output 1') + link(16, 'P9SN66662903', 'Input 1'))
@@ -176,7 +176,7 @@ print('complete    : the links stop being waited for, the bays never do')
 # A V2IP device owes its source list in its own right, which the window does not
 # release either.
 LATEV2IP = bytes(range(65, 81))
-vl = hello(LATEV2IP, 'OneIP-2', 'P9SN66662905', V2IP_SOURCE | V2IP_SINK)
+vl = hello(LATEV2IP, 'OneIP-2', 'P9SN66662905', ONEIP_SOURCE | ONEIP_SINK)
 vl._hello_received -= (MXR_CONFIG_TIMEOUT + 1)
 rx(LATEV2IP, 0x02, bay(0, 0, 0, 'Input 1') + bay(16, 1, 0, 'Output 1'))
 assert vl.has_bays and not vl.need_link_config

@@ -9,29 +9,29 @@
 from .Bay import Bay
 from ..Interface import (
 	MxrCallbacks,
-	V2IPStreamSources,
+	OneIPStreamSources,
 	AmpDolbySettings,
 	DeviceStatus,
-	DeviceV2IPDetails,
-	DeviceV2IPSink,
+	DeviceOneIPDetails,
+	DeviceOneIPSink,
 	SystemTemperature,
-	V2IPStreamSourcesList,
+	OneIPStreamSourcesList,
 	Multiviewer,
 	AudioEndpoint,
 	AudioEndpoints,
 	AudioChangeSource,
 	AudioLinks,
-	DeviceV2IPScalingSettings,
-	V2IPDeviceSettings,
-	V2IPPowerSaveSchedule,
-	V2IPVlan,
-	V2IPTestcard,
-	V2IPTestSync,
-	V2IPTestTone,
+	DeviceOneIPScalingSettings,
+	OneIPDeviceSettings,
+	OneIPPowerSaveSchedule,
+	OneIPVlan,
+	OneIPTestcard,
+	OneIPTestSync,
+	OneIPTestTone,
 	TimeZone,
 	DeviceClock,
-	V2IPOutputMode,
-	V2IPScalingSettings,
+	OneIPOutputMode,
+	OneIPScalingSettings,
 )
 from ..proto.BayConfig import BayConfig
 from ..proto.FrameHello import FrameHello
@@ -41,7 +41,7 @@ from ..proto.FrameNetworkStatus import NetworkPortStatus
 from ..proto.FrameReboot import FrameReboot
 from ..proto.FramePing import FramePing
 from ..proto.FrameV2IPBayMapping import FrameV2IPBayMapping
-from ..proto.V2IPStats import V2IPDeviceStats
+from ..proto.V2IPStats import OneIPDeviceStats
 from ..proto.FrameSystemStatus import FrameSystemStatus
 from ..proto.FrameV2IPMultiviewer import V2IPMultiviewerConfig
 from ..proto.FrameFirmwareVersion import FirmwareType,FirmwareVersion
@@ -70,11 +70,11 @@ import time
 
 from ..Interface import DeviceBase, BayBase, DeviceRegistry
 from ..proto.FrameBase import FrameBase
-from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, DeviceFeature, MxrSignalType, V2IPDeviceSetting, V2IPFpgaFeature, V2IPVlanFlag,
-                              V2IPTestPattern, V2IPToneMode,
+from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, DeviceFeature, MxrSignalType, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag,
+                              OneIPTestPattern, OneIPToneMode,
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
-                              MXR_SCALING_FLAG_OPTIONS_VALID, V2IP_DEVICE_SETTING_SWITCHES,
-                              V2IP_IR_PROFILE_MAX, V2IP_IR_PROFILE_NOT_SET, V2IP_VLAN_PORT_SFP)
+                              MXR_SCALING_FLAG_OPTIONS_VALID, ONEIP_DEVICE_SETTING_SWITCHES,
+                              ONEIP_IR_PROFILE_MAX, ONEIP_IR_PROFILE_NOT_SET, ONEIP_VLAN_PORT_SFP)
 from ..proto.FrameV2IPAudio import FrameV2IPAudio
 from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
 from ..proto.FrameV2IPTestcard import (FrameV2IPTestcard, TESTCARD_REQUEST, TESTCARD_SET,
@@ -98,23 +98,23 @@ class Device(DeviceBase):
 		self._have_config = False
 		self._dolby_settings:AmpDolbySettings|None = None
 		self._network:dict[int, NetworkPortStatus] = {}
-		self._v2ip_sources:V2IPStreamSourcesList|None = None
+		self._v2ip_sources:OneIPStreamSourcesList|None = None
 		# Source records by their position in the sender's list. A paged list
 		# arrives as windows that can be reordered or lost, so the records are
 		# held by position and _v2ip_sources is the run of them that has
 		# arrived from the start.
-		self._v2ip_source_pages:dict[int, V2IPStreamSources] = {}
-		self._v2ip_stats:V2IPDeviceStats|None = None
-		self._v2ip_details:DeviceV2IPDetails|None = None
-		self._v2ip_sink:DeviceV2IPSink|None = None
-		self._v2ip_features:V2IPFpgaFeature|None = None
-		self._v2ip_settings:V2IPDeviceSettings|None = None
-		self._v2ip_vlan:V2IPVlan|None = None
-		self._v2ip_testcard:V2IPTestcard|None = None
+		self._v2ip_source_pages:dict[int, OneIPStreamSources] = {}
+		self._v2ip_stats:OneIPDeviceStats|None = None
+		self._v2ip_details:DeviceOneIPDetails|None = None
+		self._v2ip_sink:DeviceOneIPSink|None = None
+		self._v2ip_features:OneIPVideoProcessorFeature|None = None
+		self._v2ip_settings:OneIPDeviceSettings|None = None
+		self._v2ip_vlan:OneIPVlan|None = None
+		self._v2ip_testcard:OneIPTestcard|None = None
 		self._time_zone:TimeZone|None = None
 		self._clock:DeviceClock|None = None
 		self._mesh_master_uid:MxrDeviceUid|None = None
-		# The source device behind each V2IP bay, by bay mode and number. Held
+		# The source device behind each OneIP bay, by bay mode and number. Held
 		# here as well as on the bays because a device may send its mappings
 		# before the bay configuration that creates those bays, and a bay that
 		# arrives later picks its mapping up from here.
@@ -245,17 +245,17 @@ class Device(DeviceBase):
 		self._check_config_complete()
 
 	@property
-	def v2ip_sources(self) -> V2IPStreamSourcesList|None:
+	def oneip_sources(self) -> OneIPStreamSourcesList|None:
 		return self._v2ip_sources
 
-	@v2ip_sources.setter
-	def v2ip_sources(self, sources:V2IPStreamSourcesList) -> None:
+	@oneip_sources.setter
+	def oneip_sources(self, sources:OneIPStreamSourcesList) -> None:
 		if (self._v2ip_sources is None) or (self._v2ip_sources != sources):
 			self._v2ip_sources = sources
 			self.call_callbacks()
 
 	@override
-	def merge_v2ip_sources(self, first:int, total:int, page:V2IPStreamSourcesList) -> None:
+	def merge_oneip_sources(self, first:int, total:int, page:OneIPStreamSourcesList) -> None:
 		'''Merge one frame of this device's source list into the list it belongs to.
 
 		A list that fits one frame is the whole list and replaces what was held.
@@ -274,23 +274,23 @@ class Device(DeviceBase):
 		for idx, source in enumerate(page):
 			self._v2ip_source_pages[first + idx] = source
 		if whole:
-			self.v2ip_sources = page
+			self.oneip_sources = page
 			return
 		# A record's position is what maps it to a bay, so the list reported is
 		# the run that has arrived from the start. A gap is where it stops, never
 		# something to fill: a placeholder in the middle would report a bay as
 		# advertising no streams, which is a reading rather than an absence.
-		merged = V2IPStreamSourcesList()
+		merged = OneIPStreamSourcesList()
 		for at in sorted(self._v2ip_source_pages):
 			if (at != len(merged)):
 				break
 			merged.append(self._v2ip_source_pages[at])
 		if (len(merged) == 0):
 			return
-		self.v2ip_sources = merged
+		self.oneip_sources = merged
 
-	def v2ip_source(self, bay:BayBase) -> V2IPStreamSources|None:
-		if not bay.is_input or not bay.device.is_v2ip:
+	def oneip_source(self, bay:BayBase) -> OneIPStreamSources|None:
+		if not bay.is_input or not bay.device.is_oneip:
 			return None
 		if self._v2ip_sources is None:
 			return None
@@ -305,20 +305,20 @@ class Device(DeviceBase):
 		return self._v2ip_sources[idx]
 
 	@property
-	def v2ip_stats(self) -> V2IPDeviceStats|None:
+	def oneip_stats(self) -> OneIPDeviceStats|None:
 		return self._v2ip_stats
 
-	@v2ip_stats.setter
-	def v2ip_stats(self, stats:V2IPDeviceStats) -> None:
+	@oneip_stats.setter
+	def oneip_stats(self, stats:OneIPDeviceStats) -> None:
 		self._v2ip_stats = stats
 		self.call_callbacks()
 
 	@property
-	def v2ip_details(self) -> DeviceV2IPDetails|None:
+	def oneip_details(self) -> DeviceOneIPDetails|None:
 		return self._v2ip_details
 
-	@v2ip_details.setter
-	def v2ip_details(self, details:DeviceV2IPDetails) -> None:
+	@oneip_details.setter
+	def oneip_details(self, details:DeviceOneIPDetails) -> None:
 		# a controller writing only addresses or scaling sends an out-of-range
 		# tx_rate and leaves the dscp bytes unset; keep the cached values for
 		# those, like the firmware does, instead of reporting them as gone
@@ -326,21 +326,21 @@ class Device(DeviceBase):
 		self.call_callbacks()
 
 	@property
-	def v2ip_sink(self) -> DeviceV2IPSink|None:
+	def oneip_sink(self) -> DeviceOneIPSink|None:
 		return self._v2ip_sink
 
-	@v2ip_sink.setter
-	def v2ip_sink(self, sink:DeviceV2IPSink) -> None:
+	@oneip_sink.setter
+	def oneip_sink(self, sink:DeviceOneIPSink) -> None:
 		self._v2ip_sink = sink
 		self.call_callbacks()
 
 	@property
 	@override
-	def v2ip_features(self) -> V2IPFpgaFeature|None:
+	def oneip_features(self) -> OneIPVideoProcessorFeature|None:
 		return self._v2ip_features
 
-	@v2ip_features.setter
-	def v2ip_features(self, features:V2IPFpgaFeature) -> None:
+	@oneip_features.setter
+	def oneip_features(self, features:OneIPVideoProcessorFeature) -> None:
 		'''Record what this device's video processor supports.
 
 		The mask only ever gains bits, and the caller passes a non-empty one
@@ -354,7 +354,7 @@ class Device(DeviceBase):
 
 	@property
 	@override
-	def v2ip_settings(self) -> V2IPDeviceSettings|None:
+	def oneip_settings(self) -> OneIPDeviceSettings|None:
 		return self._v2ip_settings
 
 	@property
@@ -369,15 +369,15 @@ class Device(DeviceBase):
 
 	@property
 	@override
-	def v2ip_vlan(self) -> V2IPVlan|None:
+	def oneip_vlan(self) -> OneIPVlan|None:
 		return self._v2ip_vlan
 
 	@property
 	@override
-	def v2ip_testcard(self) -> V2IPTestcard|None:
+	def oneip_testcard(self) -> OneIPTestcard|None:
 		return self._v2ip_testcard
 
-	def _merge_v2ip_settings(self, frame:V2IPDeviceSettings) -> None:
+	def _merge_v2ip_settings(self, frame:OneIPDeviceSettings) -> None:
 		'''Fold a settings block onto the cached one.
 
 		The caller has already limited a write about this device to what the
@@ -393,11 +393,11 @@ class Device(DeviceBase):
 		self.call_callbacks()
 
 	@property
-	def v2ip_source_local(self) -> V2IPStreamSources|None:
+	def oneip_source_local(self) -> OneIPStreamSources|None:
 		input = self.first_input
 		if (input is None):
 			return None
-		return self.v2ip_source(input)
+		return self.oneip_source(input)
 
 	@property
 	def configuration_complete(self) -> bool:
@@ -407,7 +407,7 @@ class Device(DeviceBase):
 			return True
 		if not self.has_bays:
 			return False
-		if self.is_v2ip and (self.v2ip_sources is None):
+		if self.is_oneip and (self.oneip_sources is None):
 			return False
 		return not self.need_link_config
 
@@ -477,14 +477,14 @@ class Device(DeviceBase):
 		return self._hello.version
 
 	@property
-	def is_v2ip(self) -> bool:
+	def is_oneip(self) -> bool:
 		return (self.features is not None) \
-			and (DeviceFeature.V2IP_SINK in self.features or DeviceFeature.V2IP_SOURCE in self.features)
+			and (DeviceFeature.ONEIP_SINK in self.features or DeviceFeature.ONEIP_SOURCE in self.features)
 
 	@property
 	@override
-	def is_v2ip_sink(self) -> bool:
-		return (self.features is not None) and (DeviceFeature.V2IP_SINK in self.features)
+	def is_oneip_sink(self) -> bool:
+		return (self.features is not None) and (DeviceFeature.ONEIP_SINK in self.features)
 
 	@property
 	@override
@@ -527,10 +527,10 @@ class Device(DeviceBase):
 
 	@property
 	def temperatures(self) -> dict[str,int]:
-		if self.is_v2ip:
+		if self.is_oneip:
 			return {
 				'System': self._temperatures[0] if len(self._temperatures) > 0 else -1,
-				'FPGA': self._temperatures[1] if len(self._temperatures) > 1 else -1,
+				'Video Processor': self._temperatures[1] if len(self._temperatures) > 1 else -1,
 				'Switch': self._temperatures[2] if len(self._temperatures) > 2 else -1,
 			}
 		rv:dict[str,int] = {}
@@ -556,7 +556,7 @@ class Device(DeviceBase):
 		sends, which is what makes requiring it safe for all of them; the
 		secondary list does not stand in for it.
 
-		For a V2IP device this is half the answer on its own: its bays include
+		For a OneIP device this is half the answer on its own: its bays include
 		ones that live on other devices, which arrive on a frame of their own
 		that configuration_complete requires separately.
 
@@ -621,7 +621,7 @@ class Device(DeviceBase):
 
 	@property
 	def model_name(self) -> str:
-		if self.is_v2ip:
+		if self.is_oneip:
 			if self.is_oneip_multiviewer:
 				return 'OneIP Multiviewer'
 			if self.has_local_source and self.has_local_sink:
@@ -652,7 +652,7 @@ class Device(DeviceBase):
 
 	@property
 	def mesh_master(self) -> 'DeviceBase|None':
-		if not self.is_v2ip or (self._mesh_master_uid is None):
+		if not self.is_oneip or (self._mesh_master_uid is None):
 			return self
 		return self.registry.get_by_uid(remote_id=self._mesh_master_uid)
 
@@ -681,7 +681,7 @@ class Device(DeviceBase):
 	@property
 	@override
 	def is_oneip_multiviewer(self) -> bool:
-		return self.is_v2ip and (self.features is not None) and DeviceFeature.MULTIVIEWER in self.features
+		return self.is_oneip and (self.features is not None) and DeviceFeature.MULTIVIEWER in self.features
 
 	@property
 	@override
@@ -696,17 +696,17 @@ class Device(DeviceBase):
 	@property
 	@override
 	def is_oneip_tz(self) -> bool:
-		return self.is_v2ip and self.has_local_sink and self.has_local_source
+		return self.is_oneip and self.has_local_sink and self.has_local_source
 
 	@property
 	@override
 	def is_oneip_tx(self) -> bool:
-		return self.is_v2ip and self.has_local_source and not self.has_local_sink
+		return self.is_oneip and self.has_local_source and not self.has_local_sink
 
 	@property
 	@override
 	def is_oneip_rx(self) -> bool:
-		return self.is_v2ip and self.has_local_sink and not self.has_local_source
+		return self.is_oneip and self.has_local_sink and not self.has_local_source
 
 	@property
 	def need_link_config(self) -> bool:
@@ -715,7 +715,7 @@ class Device(DeviceBase):
 		That it reported at all is the whole of what can be established, and no
 		count of bays stands in for it. Two reasons, either enough on its own:
 
-		A link record describes one of the sender's own ports. Most of a V2IP
+		A link record describes one of the sender's own ports. Most of a OneIP
 		device's bays are proxies for streams that live on other devices, and
 		those own no record - a 14-bay transceiver reports two, for its local
 		input and its local output.
@@ -734,7 +734,7 @@ class Device(DeviceBase):
 		undescribed, which is a state nothing on the wire distinguishes from a
 		device that has no bays to offer.
 		'''
-		if (self.is_amp or self.is_video_matrix or self.is_audio_matrix or self.is_v2ip):
+		if (self.is_amp or self.is_video_matrix or self.is_audio_matrix or self.is_oneip):
 			return (not self._link_config_received) \
 				and ((time.time() - self._hello_received) <= MXR_CONFIG_TIMEOUT)
 		return False
@@ -762,7 +762,7 @@ class Device(DeviceBase):
 		return None
 
 	def _file_v2ip_bay_mappings(self, first:BayBase, page:list[MxrDeviceUid]) -> None:
-		'''File one page of this device's V2IP bay mappings, and hand every filed
+		'''File one page of this device's OneIP bay mappings, and hand every filed
 		mapping to the bay it names.
 
 		The entries run on from first by bay number rather than by port: inputs
@@ -774,7 +774,7 @@ class Device(DeviceBase):
 			self._v2ip_bay_mappings[(first.mode, first.bay + idx)] = uid
 		for bay in self.bays.values():
 			if ((mapped := self._v2ip_bay_mappings.get((bay.mode, bay.bay))) is not None):
-				bay.v2ip_uid = mapped # pyright: ignore[reportAttributeAccessIssue]
+				bay.oneip_uid = mapped # pyright: ignore[reportAttributeAccessIssue]
 
 	def _on_mxr_hello(self, hello_frame:FrameHello) -> None:
 		# received a new hello frame from this device. update local info
@@ -833,7 +833,7 @@ class Device(DeviceBase):
 			# The page this bay starts also names the bays after it.
 			self._file_v2ip_bay_mappings(first=bay, page=page)
 		elif ((mapped := self._v2ip_bay_mappings.get((bay.mode, bay.bay))) is not None):
-			bay.v2ip_uid = mapped # pyright: ignore[reportAttributeAccessIssue]
+			bay.oneip_uid = mapped # pyright: ignore[reportAttributeAccessIssue]
 		if isnew:
 			self.callbacks.on_bay_registered(bay)
 			self._check_config_complete()
@@ -870,19 +870,19 @@ class Device(DeviceBase):
 			self.update_network_status(data)
 		elif isinstance(data, SystemTemperature):
 			self._on_mxr_temperature(data)
-		elif isinstance(data, DeviceV2IPDetails):
-			self.v2ip_details = data
-		elif isinstance(data, DeviceV2IPSink):
-			self.v2ip_sink = data
-		elif isinstance(data, V2IPFpgaFeature):
-			self.v2ip_features = data
-		elif isinstance(data, V2IPDeviceSettings):
+		elif isinstance(data, DeviceOneIPDetails):
+			self.oneip_details = data
+		elif isinstance(data, DeviceOneIPSink):
+			self.oneip_sink = data
+		elif isinstance(data, OneIPVideoProcessorFeature):
+			self.oneip_features = data
+		elif isinstance(data, OneIPDeviceSettings):
 			self._merge_v2ip_settings(data)
-		elif isinstance(data, V2IPVlan):
+		elif isinstance(data, OneIPVlan):
 			if (self._v2ip_vlan != data):
 				self._v2ip_vlan = data
 				self.call_callbacks()
-		elif isinstance(data, V2IPTestcard):
+		elif isinstance(data, OneIPTestcard):
 			if (self._v2ip_testcard != data):
 				self._v2ip_testcard = data
 				self.call_callbacks()
@@ -893,13 +893,13 @@ class Device(DeviceBase):
 		elif isinstance(data, DeviceClock):
 			# Repeated with every periodic broadcast, so it marks no change.
 			self._clock = data
-		elif isinstance(data, V2IPStreamSourcesList):
-			self.merge_v2ip_sources(first=0, total=len(data), page=data)
-		elif isinstance(data, V2IPDeviceStats):
-			self.v2ip_stats = data
-		elif isinstance(data, V2IPStreamSources):
+		elif isinstance(data, OneIPStreamSourcesList):
+			self.merge_oneip_sources(first=0, total=len(data), page=data)
+		elif isinstance(data, OneIPDeviceStats):
+			self.oneip_stats = data
+		elif isinstance(data, OneIPStreamSources):
 			if ((sources := self._v2ip_sources) is None):
-				self._v2ip_sources = V2IPStreamSourcesList()
+				self._v2ip_sources = OneIPStreamSourcesList()
 				sources = self._v2ip_sources
 			if len(sources) > 0:
 				sources[0] = data
@@ -979,7 +979,7 @@ class Device(DeviceBase):
 
 	@property
 	@override
-	def v2ip_firmware_versions(self) -> dict[FirmwareType,FirmwareVersion]|None:
+	def oneip_firmware_versions(self) -> dict[FirmwareType,FirmwareVersion]|None:
 		return self._v2ip_versions
 
 	@property
@@ -1067,7 +1067,7 @@ class Device(DeviceBase):
 		return False
 
 	async def read_stats(self, enable:bool) -> bool:
-		'''Enable or disable V2IP statistics reporting on the device.'''
+		'''Enable or disable OneIP statistics reporting on the device.'''
 		frame = FrameV2IPStats.construct(registry=self.registry, device=self, enable=enable)
 		if frame is not None:
 			if self.registry.transmit(frame.frame) != len(frame.frame):
@@ -1075,32 +1075,32 @@ class Device(DeviceBase):
 			return True
 		return False
 
-	async def set_v2ip_auto_scaling(self, enabled:bool) -> bool:
+	async def set_oneip_auto_scaling(self, enabled:bool) -> bool:
 		'''Turn this sink's automatic scaling on or off.
 
 		Automatic scaling and a configured output mode are separate reasons for
 		a sink to scale, and this moves only the first: a sink with a mode
 		configured goes on scaling to it with automatic scaling off. Turning
-		both off is this call plus clear_v2ip_output_mode().
+		both off is this call plus clear_oneip_output_mode().
 
-		Nothing acknowledges the frame. Read v2ip_details.scaling back to learn
+		Nothing acknowledges the frame. Read oneip_details.scaling back to learn
 		what the sink did, and trust that block only where config_initialised is
 		set.
 
 		**Read any route you still need before writing.** The sink rebuilds and
 		rebroadcasts its subscription in response, and that report can arrive
-		empty for up to a minute; DeviceV2IPSink says when and why.
+		empty for up to a minute; DeviceOneIPSink says when and why.
 		'''
 		written = MXR_SCALING_FLAG_OPTIONS_VALID
 		if enabled:
 			written |= MXR_SCALING_FLAG_AUTO_SCALING
-		def applied(cached:DeviceV2IPScalingSettings) -> V2IPScalingSettings:
+		def applied(cached:DeviceOneIPScalingSettings) -> OneIPScalingSettings:
 			flags = (cached.flags & ~MXR_SCALING_FLAG_AUTO_SCALING) | written
-			return V2IPScalingSettings(mode=cached.mode, refresh=cached.refresh, flags=flags)
+			return OneIPScalingSettings(mode=cached.mode, refresh=cached.refresh, flags=flags)
 		return self._send_v2ip_scaling(mode=MxrSignalType(bytes(2)), refresh=0,
 		                               written=written, applied=applied)
 
-	async def set_v2ip_output_mode(self, mode:V2IPOutputMode) -> bool:
+	async def set_oneip_output_mode(self, mode:OneIPOutputMode) -> bool:
 		'''Set the output format this sink scales to.
 
 		The mode is checked here and nothing is sent if it fails, because every
@@ -1135,24 +1135,24 @@ class Device(DeviceBase):
 
 		**Read any route you still need before writing.** The sink rebuilds and
 		rebroadcasts its subscription in response, and that report can arrive
-		empty for up to a minute; DeviceV2IPSink says when and why.
+		empty for up to a minute; DeviceOneIPSink says when and why.
 		'''
 		if ((reason := mode.validate()) is not None):
 			_LOGGER.warning(f"not setting the output mode of {self}: {reason}")
 			return False
 		signal = mode.signal_type
-		def applied(cached:DeviceV2IPScalingSettings) -> V2IPScalingSettings:
-			return V2IPScalingSettings(mode=signal.value, refresh=mode.refresh,
+		def applied(cached:DeviceOneIPScalingSettings) -> OneIPScalingSettings:
+			return OneIPScalingSettings(mode=signal.value, refresh=mode.refresh,
 			                           flags=(cached.flags | MXR_SCALING_FLAG_MODE_VALID))
 		return self._send_v2ip_scaling(mode=signal, refresh=mode.refresh,
 		                               written=MXR_SCALING_FLAG_MODE_VALID, applied=applied)
 
-	async def clear_v2ip_output_mode(self) -> bool:
+	async def clear_oneip_output_mode(self) -> bool:
 		'''Clear the output format this sink is configured to scale to.
 
 		The sink stops scaling for that reason and keeps its automatic scaling
 		setting, so a sink scaling for both reasons goes on scaling until
-		set_v2ip_auto_scaling() turns the other one off.
+		set_oneip_auto_scaling() turns the other one off.
 
 		This is the only way to express "no mode configured", and it is what a
 		caller restoring a sink that had none has to send: a sink reports no mode
@@ -1161,10 +1161,10 @@ class Device(DeviceBase):
 
 		**Read any route you still need before writing.** The sink rebuilds and
 		rebroadcasts its subscription in response, and that report can arrive
-		empty for up to a minute; DeviceV2IPSink says when and why.
+		empty for up to a minute; DeviceOneIPSink says when and why.
 		'''
-		def applied(cached:DeviceV2IPScalingSettings) -> V2IPScalingSettings:
-			return V2IPScalingSettings(mode=0, refresh=0,
+		def applied(cached:DeviceOneIPScalingSettings) -> OneIPScalingSettings:
+			return OneIPScalingSettings(mode=0, refresh=0,
 			                           flags=(cached.flags & ~MXR_SCALING_FLAG_MODE_VALID))
 		# The valid bit with a zero mode is the clear. The receiver takes that
 		# branch ahead of validating anything, and ignores the depth, colour
@@ -1173,7 +1173,7 @@ class Device(DeviceBase):
 		                               written=MXR_SCALING_FLAG_MODE_VALID, applied=applied)
 
 	def _send_v2ip_scaling(self, mode:MxrSignalType, refresh:int, written:int,
-	                       applied:Callable[[DeviceV2IPScalingSettings],V2IPScalingSettings]) -> bool:
+	                       applied:Callable[[DeviceOneIPScalingSettings],OneIPScalingSettings]) -> bool:
 		'''The one send behind the scaling commands.
 
 		written is the flag byte that goes out; applied says what the sink will
@@ -1183,8 +1183,8 @@ class Device(DeviceBase):
 		predicting the cached value from the frame alone would leave a caller
 		reading a state no device ever broadcasts.
 		'''
-		if not self.is_v2ip_sink:
-			_LOGGER.warning(f"not setting scaling on {self}: scaling settings need a V2IP sink")
+		if not self.is_oneip_sink:
+			_LOGGER.warning(f"not setting scaling on {self}: scaling settings need a OneIP sink")
 			return False
 		frame = FrameV2IPDeviceConfiguration.construct_scaling(
 			mxr=self.registry, target=self, target_uid=self.remote_id,
@@ -1196,83 +1196,83 @@ class Device(DeviceBase):
 		self._apply_v2ip_scaling(applied(self._cached_scaling))
 		return True
 
-	async def set_v2ip_setting(self, setting:V2IPDeviceSetting, enabled:bool) -> bool:
-		'''Switch on/off settings of this V2IP device, all to the same value.
+	async def set_oneip_setting(self, setting:OneIPDeviceSetting, enabled:bool) -> bool:
+		'''Switch on/off settings of this OneIP device, all to the same value.
 
-		setting names one or more of V2IP_DEVICE_SETTING_SWITCHES, and each must
+		setting names one or more of ONEIP_DEVICE_SETTING_SWITCHES, and each must
 		be one the device has reported: a device ignores a setting it does not
 		have, so a write for one would read back as applied here and change
 		nothing there.
 
 		Nothing acknowledges the frame. The device answers by reporting its
-		settings, and until then v2ip_settings reads back what was written.
+		settings, and until then oneip_settings reads back what was written.
 		'''
-		setting = V2IPDeviceSetting(setting)
-		if (int(setting) == 0) or ((setting & ~V2IP_DEVICE_SETTING_SWITCHES) != 0):
+		setting = OneIPDeviceSetting(setting)
+		if (int(setting) == 0) or ((setting & ~ONEIP_DEVICE_SETTING_SWITCHES) != 0):
 			_LOGGER.warning(f"not setting {setting!r} on {self}: only on/off device settings are switched")
 			return False
-		return self._send_v2ip_settings(V2IPDeviceSettings(
-			valid=setting, flags=(setting if enabled else V2IPDeviceSetting(0))))
+		return self._send_v2ip_settings(OneIPDeviceSettings(
+			valid=setting, flags=(setting if enabled else OneIPDeviceSetting(0))))
 
-	async def set_v2ip_ir_profile(self, profile:int) -> bool:
-		'''Set the infrared profile of this V2IP device's global infrared port.
+	async def set_oneip_ir_profile(self, profile:int) -> bool:
+		'''Set the infrared profile of this OneIP device's global infrared port.
 
-		profile is below V2IP_IR_PROFILE_MAX, and is checked here because a
-		device ignores one out of range. The terms of set_v2ip_setting() apply.
+		profile is below ONEIP_IR_PROFILE_MAX, and is checked here because a
+		device ignores one out of range. The terms of set_oneip_setting() apply.
 		'''
-		if not (0 <= profile < V2IP_IR_PROFILE_MAX):
+		if not (0 <= profile < ONEIP_IR_PROFILE_MAX):
 			_LOGGER.warning(f"not setting infrared profile {profile} on {self}: no such profile")
 			return False
-		return self._send_v2ip_settings(V2IPDeviceSettings(
-			valid=V2IPDeviceSetting.IR_PROFILE, ir_profile=profile))
+		return self._send_v2ip_settings(OneIPDeviceSettings(
+			valid=OneIPDeviceSetting.IR_PROFILE, ir_profile=profile))
 
-	async def set_v2ip_sink_ir_profile(self, profile:int) -> bool:
-		'''Set the infrared profile of this V2IP device's output infrared port.
+	async def set_oneip_sink_ir_profile(self, profile:int) -> bool:
+		'''Set the infrared profile of this OneIP device's output infrared port.
 
-		V2IP_IR_PROFILE_NOT_SET makes the port follow the global one. Otherwise
-		as set_v2ip_ir_profile().
+		ONEIP_IR_PROFILE_NOT_SET makes the port follow the global one. Otherwise
+		as set_oneip_ir_profile().
 		'''
-		if not (V2IP_IR_PROFILE_NOT_SET <= profile < V2IP_IR_PROFILE_MAX):
+		if not (ONEIP_IR_PROFILE_NOT_SET <= profile < ONEIP_IR_PROFILE_MAX):
 			_LOGGER.warning(f"not setting output infrared profile {profile} on {self}: no such profile")
 			return False
-		return self._send_v2ip_settings(V2IPDeviceSettings(
-			valid=V2IPDeviceSetting.IR_PROFILE_SINK, ir_profile_sink=profile))
+		return self._send_v2ip_settings(OneIPDeviceSettings(
+			valid=OneIPDeviceSetting.IR_PROFILE_SINK, ir_profile_sink=profile))
 
-	async def set_v2ip_auto_power_save(self, minutes:int) -> bool:
-		'''Set how many idle minutes this V2IP device waits before it powers down
-		by itself, 0 for never. The terms of set_v2ip_setting() apply.'''
+	async def set_oneip_auto_power_save(self, minutes:int) -> bool:
+		'''Set how many idle minutes this OneIP device waits before it powers down
+		by itself, 0 for never. The terms of set_oneip_setting() apply.'''
 		if not (0 <= minutes <= 0xFFFF):
 			_LOGGER.warning(f"not setting {minutes} idle minutes on {self}: the field holds 0 to 65535")
 			return False
-		return self._send_v2ip_settings(V2IPDeviceSettings(
-			valid=V2IPDeviceSetting.AUTO_POWER_SAVE, auto_power_save=minutes))
+		return self._send_v2ip_settings(OneIPDeviceSettings(
+			valid=OneIPDeviceSetting.AUTO_POWER_SAVE, auto_power_save=minutes))
 
-	async def set_v2ip_power_save_schedule(self, schedule:V2IPPowerSaveSchedule) -> bool:
-		'''Set this V2IP device's daily power save windows.
+	async def set_oneip_power_save_schedule(self, schedule:OneIPPowerSaveSchedule) -> bool:
+		'''Set this OneIP device's daily power save windows.
 
-		Every time is below V2IP_MINUTES_PER_DAY, and is checked here. The
+		Every time is below ONEIP_MINUTES_PER_DAY, and is checked here. The
 		windows are kept in the device's own time zone. The terms of
-		set_v2ip_setting() apply.
+		set_oneip_setting() apply.
 		'''
 		if not schedule.is_valid():
 			_LOGGER.warning(f"not setting power save schedule [{schedule}] on {self}: a time is not a time of day")
 			return False
-		return self._send_v2ip_settings(V2IPDeviceSettings(
-			valid=V2IPDeviceSetting.POWER_SAVE_SCHEDULE, power_save=schedule))
+		return self._send_v2ip_settings(OneIPDeviceSettings(
+			valid=OneIPDeviceSetting.POWER_SAVE_SCHEDULE, power_save=schedule))
 
-	async def set_v2ip_vlan(self, vlan:V2IPVlan) -> bool:
-		'''Change this V2IP device's VLAN configuration.
+	async def set_oneip_vlan(self, vlan:OneIPVlan) -> bool:
+		'''Change this OneIP device's VLAN configuration.
 
 		Writes the VLAN ids, the pinned uplink and the TRUNK flag of vlan; its
 		other flags and the fields only the device reports are not sent.
 		Refused before anything is sent unless the device announces
 		DeviceFeature.VLAN and has reported its configuration, every id is at
-		most V2IP_VLAN_ID_MAX, and the uplink is detected or names a port the
+		most ONEIP_VLAN_ID_MAX, and the uplink is detected or names a port the
 		device has.
 
 		The device applies the change at once and reverts it unless the mesh
 		controller, hearing the device report it, confirms it. Nothing is cached
-		here: v2ip_vlan reads what the device reports, and its is_pending whether
+		here: oneip_vlan reads what the device reports, and its is_pending whether
 		it is still to be confirmed.
 		'''
 		why = None
@@ -1282,12 +1282,12 @@ class Device(DeviceBase):
 			why = 'the device does not take VLANs'
 		elif ((reported := self._v2ip_vlan) is None):
 			why = 'it has not reported its VLAN configuration'
-		elif (vlan.pinned_uplink_port == V2IP_VLAN_PORT_SFP) and not reported.has_sfp:
+		elif (vlan.pinned_uplink_port == ONEIP_VLAN_PORT_SFP) and not reported.has_sfp:
 			why = 'the device has no SFP port'
 		if (why is not None):
 			_LOGGER.warning(f"not changing the VLAN configuration of {self}: {why}")
 			return False
-		written = V2IPVlan(flags=(V2IPVlanFlag.VALID | (vlan.flags & V2IPVlanFlag.TRUNK)),
+		written = OneIPVlan(flags=(OneIPVlanFlag.VALID | (vlan.flags & OneIPVlanFlag.TRUNK)),
 		                   device=vlan.device, port=tuple(vlan.port), uplink=vlan.uplink)
 		frame = FrameV2IPDeviceConfiguration.construct_vlan(
 			mxr=self.registry, target=self, target_uid=self.remote_id, vlan=written)
@@ -1315,63 +1315,63 @@ class Device(DeviceBase):
 			return False
 		return self.registry.transmit(frame.frame) == len(frame.frame)
 
-	async def request_v2ip_testcard(self) -> bool:
-		'''Ask this V2IP sink for its test card, which it reports straight back
-		into v2ip_testcard.
+	async def request_oneip_testcard(self) -> bool:
+		'''Ask this OneIP sink for its test card, which it reports straight back
+		into oneip_testcard.
 
 		Refused unless the sink's video processor has reported
-		V2IPFpgaFeature.SINK_TEST_PATTERN. A sink with that feature but without
+		OneIPVideoProcessorFeature.SINK_TEST_PATTERN. A sink with that feature but without
 		the module that draws the test card does not answer.
 		'''
-		return self._send_v2ip_testcard(TESTCARD_REQUEST, 0, V2IPTestcard())
+		return self._send_v2ip_testcard(TESTCARD_REQUEST, 0, OneIPTestcard())
 
-	async def set_v2ip_test_pattern(self, pattern:V2IPTestPattern, colour:int=0) -> bool:
-		'''Show a test pattern on this V2IP sink's output, or none for
-		V2IPTestPattern.OFF. colour is 0xRRGGBB, used by V2IPTestPattern.FLAT.
+	async def set_oneip_test_pattern(self, pattern:OneIPTestPattern, colour:int=0) -> bool:
+		'''Show a test pattern on this OneIP sink's output, or none for
+		OneIPTestPattern.OFF. colour is 0xRRGGBB, used by OneIPTestPattern.FLAT.
 
 		A pattern runs until it is turned off, and holds the output on while it
 		does. The sink reports its test card in answer. Refused as
-		request_v2ip_testcard() is, and for a pattern this library does not name
+		request_oneip_testcard() is, and for a pattern this library does not name
 		or a colour wider than 24 bits.
 		'''
-		if not isinstance(pattern, V2IPTestPattern) or not (0 <= colour <= 0xFFFFFF):
+		if not isinstance(pattern, OneIPTestPattern) or not (0 <= colour <= 0xFFFFFF):
 			_LOGGER.warning(f"not showing test pattern {pattern!r} colour {colour:#x} on {self}: "
 			                "no such pattern, or a colour wider than 24 bits")
 			return False
 		return self._send_v2ip_testcard(TESTCARD_SET, TESTCARD_PART_PATTERN,
-		                                V2IPTestcard(pattern=pattern, colour=colour))
+		                                OneIPTestcard(pattern=pattern, colour=colour))
 
-	async def set_v2ip_test_tone(self, tone:V2IPTestTone) -> bool:
-		'''Play a test tone on this V2IP sink's output.
+	async def set_oneip_test_tone(self, tone:OneIPTestTone) -> bool:
+		'''Play a test tone on this OneIP sink's output.
 
 		Every value is checked here, as the sink ignores a tone that is not
-		V2IPTestTone.is_valid(); V2IPToneMode.OFF stops it whatever the rest
+		OneIPTestTone.is_valid(); OneIPToneMode.OFF stops it whatever the rest
 		holds, and the sink keeps those values as its last ones. Otherwise as
-		set_v2ip_test_pattern().
+		set_oneip_test_pattern().
 		'''
-		if (tone.mode != V2IPToneMode.OFF) and not tone.is_valid():
+		if (tone.mode != OneIPToneMode.OFF) and not tone.is_valid():
 			_LOGGER.warning(f"not playing test tone {tone} on {self}: a value is out of range")
 			return False
-		return self._send_v2ip_testcard(TESTCARD_SET, TESTCARD_PART_TONE, V2IPTestcard(tone=tone))
+		return self._send_v2ip_testcard(TESTCARD_SET, TESTCARD_PART_TONE, OneIPTestcard(tone=tone))
 
-	async def set_v2ip_test_sync(self, sync:V2IPTestSync) -> bool:
-		'''Set this V2IP sink's lip-sync flash.
+	async def set_oneip_test_sync(self, sync:OneIPTestSync) -> bool:
+		'''Set this OneIP sink's lip-sync flash.
 
-		Checked here as V2IPTestSync.is_valid(), since the sink ignores settings
-		that are not. Otherwise as set_v2ip_test_pattern().
+		Checked here as OneIPTestSync.is_valid(), since the sink ignores settings
+		that are not. Otherwise as set_oneip_test_pattern().
 		'''
 		if not sync.is_valid():
 			_LOGGER.warning(f"not setting lip-sync {sync} on {self}: a value is out of range")
 			return False
-		return self._send_v2ip_testcard(TESTCARD_SET, TESTCARD_PART_SYNC, V2IPTestcard(sync=sync))
+		return self._send_v2ip_testcard(TESTCARD_SET, TESTCARD_PART_SYNC, OneIPTestcard(sync=sync))
 
-	def _send_v2ip_testcard(self, kind:int, parts:int, testcard:V2IPTestcard) -> bool:
+	def _send_v2ip_testcard(self, kind:int, parts:int, testcard:OneIPTestcard) -> bool:
 		'''The one send behind the test card commands. Nothing is cached: the
 		sink answers every frame with its test card.'''
 		if ((features := self._v2ip_features) is None):
 			_LOGGER.warning(f"not sending a test card frame to {self}: its video processor has reported no features")
 			return False
-		if (V2IPFpgaFeature.SINK_TEST_PATTERN not in features):
+		if (OneIPVideoProcessorFeature.SINK_TEST_PATTERN not in features):
 			_LOGGER.warning(f"not sending a test card frame to {self}: it cannot draw a test card")
 			return False
 		frame = FrameV2IPTestcard.construct(mxr=self.registry, target=self, target_uid=self.remote_id,
@@ -1380,7 +1380,7 @@ class Device(DeviceBase):
 			return False
 		return self.registry.transmit(frame.frame) == len(frame.frame)
 
-	def _send_v2ip_settings(self, settings:V2IPDeviceSettings) -> bool:
+	def _send_v2ip_settings(self, settings:OneIPDeviceSettings) -> bool:
 		'''The one send behind the device settings commands.'''
 		if ((reported := self._v2ip_settings) is None):
 			_LOGGER.warning(f"not changing the settings of {self}: it has not reported any")
@@ -1398,23 +1398,23 @@ class Device(DeviceBase):
 		return True
 
 	@property
-	def _cached_scaling(self) -> DeviceV2IPScalingSettings:
+	def _cached_scaling(self) -> DeviceOneIPScalingSettings:
 		'''The scaling block as last reported or written, all-zero before either.'''
 		if ((details := self._v2ip_details) is None) or ((scaling := details.scaling) is None):
-			return V2IPScalingSettings(mode=0, refresh=0, flags=0)
+			return OneIPScalingSettings(mode=0, refresh=0, flags=0)
 		return scaling
 
-	def _apply_v2ip_scaling(self, scaling:V2IPScalingSettings) -> None:
+	def _apply_v2ip_scaling(self, scaling:OneIPScalingSettings) -> None:
 		'''Replace the cached scaling block with the state a write leaves on the device.
 
-		Separate from the v2ip_details setter because that merges a received
+		Separate from the oneip_details setter because that merges a received
 		frame on, and merging cannot express a cleared mode: a write clears one
 		by sending the valid bit over a zero mode, while a device with no mode
 		configured reports the valid bit clear. Only the second is a state a
 		device broadcasts, so it is the one to cache.
 		'''
 		previous = self._v2ip_details
-		self._v2ip_details = DeviceV2IPDetails(
+		self._v2ip_details = DeviceOneIPDetails(
 			video=(previous.video if previous is not None else None),
 			audio=(previous.audio if previous is not None else None),
 			anc=(previous.anc if previous is not None else None),

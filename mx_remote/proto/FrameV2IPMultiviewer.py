@@ -4,7 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
 ## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
 ######################################################
-'''Protocol frames for V2IP multiviewer configuration and control.'''
+'''Protocol frames for OneIP multiviewer configuration and control.'''
 
 from enum import Enum
 from functools import cached_property
@@ -195,7 +195,7 @@ _PARAMS_OFFSET = 24
 _STATUS_MIN_SIZE = 187
 
 class FrameV2IPMultiviewer(FrameBase):
-    '''V2IP multiviewer command and status frame.'''
+    '''OneIP multiviewer command and status frame.'''
     @property
     def target_uid(self) -> MxrDeviceUid|None:
         '''UID of the target multiviewer device.'''

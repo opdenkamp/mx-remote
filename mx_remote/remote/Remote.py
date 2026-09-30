@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from .ConnectionAsync import ConnectionAsync
 from ..const import MXR_HELLO_INTERVAL_MIN, MXR_HELLO_INTERVAL_RAND, __version__
 from .Device import Device
-from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, mxr_broadcast_address, V2IPDeviceSettings, V2IPPowerSaveSchedule
+from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, mxr_broadcast_address, OneIPDeviceSettings, OneIPPowerSaveSchedule
 from ..proto.Constants import MXR_PROTOCOL_VERSION
 from ..proto.FrameDiscover import constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
@@ -32,8 +32,8 @@ from ..proto.FrameBase import FrameBase
 from ..proto.FrameTime import FrameTime
 from ..proto.FrameTimeZone import FrameTimeZone
 from ..proto.FrameV2IPSettingsAll import FrameV2IPSettingsAll
-from ..proto.Constants import (V2IP_DEVICE_SETTINGS_REPORTED_ONLY, V2IP_IR_PROFILE_MAX,
-                               V2IP_IR_PROFILE_NOT_SET, V2IPDeviceSetting)
+from ..proto.Constants import (ONEIP_DEVICE_SETTINGS_REPORTED_ONLY, ONEIP_IR_PROFILE_MAX,
+                               ONEIP_IR_PROFILE_NOT_SET, OneIPDeviceSetting)
 from ..proto.Svd import SvdMap
 from ..Uid import MxrDeviceUid
 from .State import State
@@ -357,11 +357,11 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
 
     def get_by_stream_ip(self, ip:str, audio:bool=False) -> BayBase|None:
         for _, dev in self.remotes.items():
-            if not dev.is_v2ip or dev.v2ip_sources is None or dev.first_input is None:
+            if not dev.is_oneip or dev.oneip_sources is None or dev.first_input is None:
                 continue
-            if not audio and (dev.first_input.v2ip_source is not None) and (dev.first_input.v2ip_source.video.ip == ip):
+            if not audio and (dev.first_input.oneip_source is not None) and (dev.first_input.oneip_source.video.ip == ip):
                 return dev.first_input
-            if audio and (dev.first_input.v2ip_source is not None) and (dev.first_input.v2ip_source.audio.ip == ip):
+            if audio and (dev.first_input.oneip_source is not None) and (dev.first_input.oneip_source.audio.ip == ip):
                 return dev.first_input
         return None
     
@@ -409,8 +409,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             return False
         return (self.transmit(frame.frame) == len(frame.frame))
 
-    async def set_all_v2ip_device_settings(self, settings:V2IPDeviceSettings) -> bool:
-        '''Change settings on every V2IP device of the mesh with one frame.
+    async def set_all_oneip_device_settings(self, settings:OneIPDeviceSettings) -> bool:
+        '''Change settings on every OneIP device of the mesh with one frame.
 
         settings carries the settings behind their bits in valid, as a device
         reports them. Each device applies those it has and ignores the rest,
@@ -420,26 +420,26 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         them.
 
         Nothing is cached: each device that applies a change reports its
-        settings, and its v2ip_settings reads that.
+        settings, and its oneip_settings reads that.
         '''
         valid = settings.valid
         why = None
         if (int(valid) == 0):
             why = 'no setting is carried'
-        elif (valid & V2IP_DEVICE_SETTINGS_REPORTED_ONLY):
+        elif (valid & ONEIP_DEVICE_SETTINGS_REPORTED_ONLY):
             why = 'a setting only a device reports is carried'
-        elif (V2IPDeviceSetting.IR_PROFILE in valid) and not (0 <= (settings.ir_profile or 0) < V2IP_IR_PROFILE_MAX):
+        elif (OneIPDeviceSetting.IR_PROFILE in valid) and not (0 <= (settings.ir_profile or 0) < ONEIP_IR_PROFILE_MAX):
             why = 'no such infrared profile'
-        elif (V2IPDeviceSetting.IR_PROFILE_SINK in valid) \
-                and not (V2IP_IR_PROFILE_NOT_SET <= (settings.ir_profile_sink or 0) < V2IP_IR_PROFILE_MAX):
+        elif (OneIPDeviceSetting.IR_PROFILE_SINK in valid) \
+                and not (ONEIP_IR_PROFILE_NOT_SET <= (settings.ir_profile_sink or 0) < ONEIP_IR_PROFILE_MAX):
             why = 'no such output infrared profile'
-        elif (V2IPDeviceSetting.AUTO_POWER_SAVE in valid) and not (0 <= (settings.auto_power_save or 0) <= 0xFFFF):
+        elif (OneIPDeviceSetting.AUTO_POWER_SAVE in valid) and not (0 <= (settings.auto_power_save or 0) <= 0xFFFF):
             why = 'more idle minutes than the field holds'
-        elif (V2IPDeviceSetting.POWER_SAVE_SCHEDULE in valid) \
-                and not (settings.power_save_schedule or V2IPPowerSaveSchedule()).is_valid():
+        elif (OneIPDeviceSetting.POWER_SAVE_SCHEDULE in valid) \
+                and not (settings.power_save_schedule or OneIPPowerSaveSchedule()).is_valid():
             why = 'a power save time is not a time of day'
         if (why is not None):
-            _LOGGER.warning(f"not changing the settings of every V2IP device: {why}")
+            _LOGGER.warning(f"not changing the settings of every OneIP device: {why}")
             return False
         return self._send_to_all(FrameV2IPSettingsAll.construct(mxr=self, settings=settings))
 
@@ -585,3 +585,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             d = Device(self, hello_frame)
             self.remotes[hello_frame.remote_id] = d
         d.on_mxr_update(hello_frame)
+
+# The V2IP spelling of a Remote method, from before the rename to OneIP.
+from ..deprecated import alias_members as _alias_members
+_alias_members(Remote, 'set_all_v2ip_device_settings')

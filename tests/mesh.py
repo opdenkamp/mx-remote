@@ -17,9 +17,9 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logging.disable(logging.CRITICAL)
 import mx_remote
-from mx_remote import MxrDeviceUid, V2IPDeviceSetting as S, V2IPDeviceSettings, V2IPPowerSaveSchedule
-from mx_remote.proto.Constants import (V2IP_IR_PROFILE_MAX, V2IP_IR_PROFILE_NOT_SET,
-                                       V2IP_MINUTES_PER_DAY)
+from mx_remote import MxrDeviceUid, OneIPDeviceSetting as S, OneIPDeviceSettings, OneIPPowerSaveSchedule
+from mx_remote.proto.Constants import (ONEIP_IR_PROFILE_MAX, ONEIP_IR_PROFILE_NOT_SET,
+                                       ONEIP_MINUTES_PER_DAY)
 from mx_remote.proto.Factory import create_mxr_frame
 
 ADDR = ('192.0.2.9', 8812)
@@ -40,7 +40,7 @@ def rx(opcode, payload, protocol=0x2A):
     mx.process_frame(time.time(), bytes(frame), ADDR)
 
 rx(0x00, struct.pack('<H', 0x2A) + name('ONEIP') + name('TZ0001') + name('5.0.0')
-         + struct.pack('<I', int(mx_remote.DeviceFeature.V2IP_SINK)))
+         + struct.pack('<I', int(mx_remote.DeviceFeature.ONEIP_SINK)))
 ctrl = mx.get_by_uid(MxrDeviceUid(CTRL))
 
 def call(coro):
@@ -136,7 +136,7 @@ print('time write  : seconds since 1970 in a u32; outside that is refused')
 # reports it.
 sink = mx.get_by_uid(MxrDeviceUid(CTRL))
 sent.clear()
-assert call(mx.set_all_v2ip_device_settings(V2IPDeviceSettings(
+assert call(mx.set_all_oneip_device_settings(OneIPDeviceSettings(
     valid=S.STATUS_LED | S.AUTO_POWER_SAVE, flags=S.STATUS_LED, auto_power_save=0x0304))) is True
 frame = sent.pop()
 assert opcode(frame) == 0x4C and frame[2] == 0x2A
@@ -144,25 +144,25 @@ p = frame[24:]
 assert len(p) == 48, len(p)
 assert struct.unpack('<II', p[:8]) == ((1 << 11) | (1 << 3), 1 << 3), p[:8].hex()
 assert p[14:16] == bytes([0x04, 0x03]), 'the idle minutes'
-assert sink.v2ip_settings is None, 'a write for everyone was cached before any device took it'
+assert sink.oneip_settings is None, 'a write for everyone was cached before any device took it'
 print('all write   : the block alone, to everyone, nothing cached')
 
 for why, settings in (
-        ('nothing carried', V2IPDeviceSettings()),
-        ('the clock bit', V2IPDeviceSettings(valid=S.CLOCK_SET)),
-        ('the stored profiles', V2IPDeviceSettings(valid=S.IR_PROFILES)),
-        ('a profile out of range', V2IPDeviceSettings(valid=S.IR_PROFILE, ir_profile=V2IP_IR_PROFILE_MAX)),
-        ('an output profile out of range', V2IPDeviceSettings(valid=S.IR_PROFILE_SINK,
-                                                              ir_profile_sink=V2IP_IR_PROFILE_NOT_SET - 1)),
-        ('minutes past the field', V2IPDeviceSettings(valid=S.AUTO_POWER_SAVE, auto_power_save=0x10000)),
-        ('a time past midnight', V2IPDeviceSettings(valid=S.POWER_SAVE_SCHEDULE, power_save=V2IPPowerSaveSchedule(
-            start=(V2IP_MINUTES_PER_DAY,) * 7)))):
-    refused(mx.set_all_v2ip_device_settings(settings), why)
-for ok in (V2IPDeviceSettings(valid=S.IR_PROFILE, ir_profile=V2IP_IR_PROFILE_MAX - 1),
-           V2IPDeviceSettings(valid=S.IR_PROFILE_SINK, ir_profile_sink=V2IP_IR_PROFILE_NOT_SET),
-           V2IPDeviceSettings(valid=S.POWER_SAVE_SCHEDULE, power_save=V2IPPowerSaveSchedule(
-               start=(V2IP_MINUTES_PER_DAY - 1,) * 7))):
-    assert call(mx.set_all_v2ip_device_settings(ok)) is True, f'{ok} was refused'
+        ('nothing carried', OneIPDeviceSettings()),
+        ('the clock bit', OneIPDeviceSettings(valid=S.CLOCK_SET)),
+        ('the stored profiles', OneIPDeviceSettings(valid=S.IR_PROFILES)),
+        ('a profile out of range', OneIPDeviceSettings(valid=S.IR_PROFILE, ir_profile=ONEIP_IR_PROFILE_MAX)),
+        ('an output profile out of range', OneIPDeviceSettings(valid=S.IR_PROFILE_SINK,
+                                                              ir_profile_sink=ONEIP_IR_PROFILE_NOT_SET - 1)),
+        ('minutes past the field', OneIPDeviceSettings(valid=S.AUTO_POWER_SAVE, auto_power_save=0x10000)),
+        ('a time past midnight', OneIPDeviceSettings(valid=S.POWER_SAVE_SCHEDULE, power_save=OneIPPowerSaveSchedule(
+            start=(ONEIP_MINUTES_PER_DAY,) * 7)))):
+    refused(mx.set_all_oneip_device_settings(settings), why)
+for ok in (OneIPDeviceSettings(valid=S.IR_PROFILE, ir_profile=ONEIP_IR_PROFILE_MAX - 1),
+           OneIPDeviceSettings(valid=S.IR_PROFILE_SINK, ir_profile_sink=ONEIP_IR_PROFILE_NOT_SET),
+           OneIPDeviceSettings(valid=S.POWER_SAVE_SCHEDULE, power_save=OneIPPowerSaveSchedule(
+               start=(ONEIP_MINUTES_PER_DAY - 1,) * 7))):
+    assert call(mx.set_all_oneip_device_settings(ok)) is True, f'{ok} was refused'
 print('all refused : what every device would ignore is not sent')
 
 print('ALL OK')

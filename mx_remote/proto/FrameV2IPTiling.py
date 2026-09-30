@@ -4,14 +4,14 @@
 ## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
 ## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
 ######################################################
-'''Protocol frame for V2IP video wall tiling configuration.'''
+'''Protocol frame for OneIP video wall tiling configuration.'''
 
 from functools import cached_property
 from .FrameBase import FrameBase
 from ..Interface import DeviceBase, MxrDeviceUid
 
 class FrameV2IPTiling(FrameBase):
-    '''V2IP tiling configuration for video wall setups.'''
+    '''OneIP tiling configuration for video wall setups.'''
     def process(self) -> None:
         '''No-op; tiling data is informational only.'''
         pass

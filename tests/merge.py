@@ -3,7 +3,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logging.disable(logging.CRITICAL)
 import mx_remote
 from mx_remote.proto.Factory import create_mxr_frame, process_mxr_frame
-from mx_remote.proto.Constants import (MXR_V2IP_DSCP_SET, MXR_SCALING_FLAG_MODE_VALID,
+from mx_remote.proto.Constants import (MXR_ONEIP_DSCP_SET, MXR_SCALING_FLAG_MODE_VALID,
     MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_AUTO_SCALING,
     MXR_SCALING_FLAG_OPTIONS2_VALID, MXR_SCALING_FLAG_MATCH_SOURCE,
     MXR_SCALING_FLAG_SKIP_420, DeviceFeature)
@@ -42,7 +42,7 @@ def cfg(addrs=None, rate=0, dscp=None, scaling=(0, 0, 0)):
 def rx(payload, sender=UID):
     f = process_mxr_frame(mx, time.time(), create_mxr_frame(sender, 0x3C, payload), ADDR)
     f.process()
-    return dev.v2ip_details
+    return dev.oneip_details
 
 def sc(d):
     return (hex(d.scaling.mode), d.scaling.refresh, hex(d.scaling.flags))
@@ -50,7 +50,7 @@ def sc(d):
 # 1. a full periodic broadcast establishes the cache
 d = rx(cfg(addrs=[('239.1.1.1', 50020), ('239.1.1.2', 50022), ('239.1.1.3', 50021)],
            rate=60,
-           dscp=(MXR_V2IP_DSCP_SET | 34, MXR_V2IP_DSCP_SET | 46, MXR_V2IP_DSCP_SET | 0),
+           dscp=(MXR_ONEIP_DSCP_SET | 34, MXR_ONEIP_DSCP_SET | 46, MXR_ONEIP_DSCP_SET | 0),
            scaling=(0x1050, 60, MXR_SCALING_FLAG_MODE_VALID | MXR_SCALING_FLAG_OPTIONS_VALID | MXR_SCALING_FLAG_AUTO_SCALING)))
 print('broadcast  :', d.video, '| rate', d.tx_rate, '| dscp', d.dscp, '| scaling', sc(d))
 assert d.video.ip == '239.1.1.1' and d.tx_rate == 60 and d.scaling.mode == 0x1050
@@ -98,13 +98,13 @@ assert (d.scaling.flags & MXR_SCALING_FLAG_OPTIONS_VALID) != 0, 'options validit
 
 # 7. a PARTIAL dscp set (video+audio set, anc unset) overwrites - it is not "absent".
 #    firmware gates the cache on the video byte alone and stores all three verbatim.
-d = rx(cfg(dscp=(MXR_V2IP_DSCP_SET | 8, MXR_V2IP_DSCP_SET | 12, 0)))
+d = rx(cfg(dscp=(MXR_ONEIP_DSCP_SET | 8, MXR_ONEIP_DSCP_SET | 12, 0)))
 print('dscp partial :', d.dscp, '| carried', d.dscp.carried, '| complete', d.dscp.complete)
 assert (d.dscp.video, d.dscp.audio, d.dscp.anc) == (8, 12, None), str(d.dscp)
 assert d.dscp.carried and not d.dscp.complete
 
 # 8. video byte unset = the frame carried no marking at all, so keep the cache
-d = rx(cfg(dscp=(0, MXR_V2IP_DSCP_SET | 20, MXR_V2IP_DSCP_SET | 20)))
+d = rx(cfg(dscp=(0, MXR_ONEIP_DSCP_SET | 20, MXR_ONEIP_DSCP_SET | 20)))
 print('dscp no-video:', d.dscp)
 assert (d.dscp.video, d.dscp.audio, d.dscp.anc) == (8, 12, None), 'cache not kept'
 
@@ -138,7 +138,7 @@ def first_frame(features, flags):
     m.process_frame(time.time(), create_mxr_frame(UID, 0x00, hi), ADDR)
     f = process_mxr_frame(m, time.time(), create_mxr_frame(UID, 0x3C, cfg(scaling=(0x1050, 60, flags))), ADDR)
     f.process()
-    return m.get_by_uid(mx_remote.MxrDeviceUid(UID)).v2ip_details.scaling
+    return m.get_by_uid(mx_remote.MxrDeviceUid(UID)).oneip_details.scaling
 
 # Bits 2 and 3 have no meaning at all, and the second options group has none on
 # a sender that does not announce an initialised configuration: no firmware

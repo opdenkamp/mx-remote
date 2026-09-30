@@ -81,7 +81,7 @@ V2IP_STATS_FULL_LEN:int = V2IP_DECODER_DETAIL_OFFSET + V2IP_DECODER_DETAIL_LEN
 '''Payload length of a report that carries the decoder detail block.'''
 
 class V2IPDecoderState(IntEnum):
-    '''Health state of the V2IP decoder.
+    '''Health state of the OneIP decoder.
 
     Only HEALTHY and BAD are verdicts; UNKNOWN and STARTING mean the decoder has
     not said yet. Use `settled` rather than `state != HEALTHY`, which reads a
@@ -464,7 +464,7 @@ class V2IPDecoderDetail:
     '''The decoder detail block a 0x3F report carries from MatrixOS 10.12.46.
 
     Three answers this report can give, kept apart because they mean different
-    things: no block at all (the sender predates it, and V2IPDeviceStats.decoder
+    things: no block at all (the sender predates it, and OneIPDeviceStats.decoder
     is None), a block whose decoder has never answered (`reading` is None), and a
     reading.
     '''
@@ -494,8 +494,8 @@ class V2IPDecoderDetail:
     def __repr__(self) -> str:
         return str(self)
 
-class V2IPDeviceStats:
-    '''Combined TX and RX statistics for a V2IP device.'''
+class OneIPDeviceStats:
+    '''Combined TX and RX statistics for a OneIP device.'''
 
     tx:V2IPTxStats|None = None
     tx_per_minute:V2IPTxStats|None = None
@@ -510,3 +510,9 @@ class V2IPDeviceStats:
 
     def __repr__(self) -> str:
         return str(self)
+# The V2IP spelling of a name here, from before the rename to OneIP.
+from ..deprecated import module_getattr as _module_getattr
+# Installed through globals() so the generated stubs carry no __getattr__, which
+# would make a type checker read every unknown name as Any instead of reporting
+# it; to a type checker the old names do not exist.
+globals()['__getattr__'] = _module_getattr(__name__, globals())

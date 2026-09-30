@@ -4,7 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
 ## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
 ######################################################
-'''Protocol frame for V2IP bay-to-device UID mapping.'''
+'''Protocol frame for OneIP bay-to-device UID mapping.'''
 
 from functools import cached_property
 from ..compat import override
@@ -12,7 +12,7 @@ from ..Interface import MxrDeviceUid
 from .FrameBase import FrameBase
 
 class FrameV2IPBayMapping(FrameBase):
-    '''V2IP bay mapping associating bay indices with device UIDs.'''
+    '''OneIP bay mapping associating bay indices with device UIDs.'''
     @cached_property
     def nb_bays(self) -> int:
         '''Number of bay mappings in this frame.'''

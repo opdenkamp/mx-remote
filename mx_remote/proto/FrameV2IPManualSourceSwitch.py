@@ -4,12 +4,12 @@
 ## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
 ## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
 ######################################################
-'''Protocol frame for V2IP manual source switching by raw stream addresses (opcode 0x24).'''
+'''Protocol frame for OneIP manual source switching by raw stream addresses (opcode 0x24).'''
 
 from functools import cached_property
 from .FrameBase import FrameBase
 from .V2IPConfig import V2IPStreamSourceImpl, V2IPStreamSourcesImpl
-from ..Interface import BayBase, DeviceBase, DeviceRegistry, DeviceV2IPSink, SelectedBays, V2IPAudioFormat
+from ..Interface import BayBase, DeviceBase, DeviceRegistry, DeviceOneIPSink, SelectedBays, OneIPAudioFormat
 from ..Uid import MxrDeviceUid
 import socket
 
@@ -18,7 +18,7 @@ _BASE_SIZE = 40
 _WITH_OPTIONS_SIZE = 48
 
 class FrameV2IPManualSourceSwitch(FrameBase):
-    '''Manual V2IP source switch: target sink + raw video/audio/anc multicast addresses.
+    '''Manual OneIP source switch: target sink + raw video/audio/anc multicast addresses.
 
     Payload layout (little-endian, ALIGN(8) per field):
         0..16   sink uid
@@ -33,7 +33,7 @@ class FrameV2IPManualSourceSwitch(FrameBase):
                   video_ip:str, video_port:int,
                   audio_ip:str, audio_port:int,
                   anc_ip:str, anc_port:int,
-                  audio_fmt:V2IPAudioFormat|None=None) -> FrameBase|None:
+                  audio_fmt:OneIPAudioFormat|None=None) -> FrameBase|None:
         '''Build a manual switch frame for transmission.'''
         if isinstance(target, DeviceBase):
             uid_bytes = target.remote_id.byte_value
@@ -78,11 +78,11 @@ class FrameV2IPManualSourceSwitch(FrameBase):
         return self._stream("anc", 32)
 
     @cached_property
-    def audio_fmt(self) -> V2IPAudioFormat|None:
+    def audio_fmt(self) -> OneIPAudioFormat|None:
         '''Optional audio format override; None when the peer omitted the extension.'''
         if (self.payload is None) or (len(self.payload) < _WITH_OPTIONS_SIZE):
             return None
-        return V2IPAudioFormat.from_bytes(self.payload[_BASE_SIZE:_WITH_OPTIONS_SIZE])
+        return OneIPAudioFormat.from_bytes(self.payload[_BASE_SIZE:_WITH_OPTIONS_SIZE])
 
     @cached_property
     def video_bay(self) -> BayBase|None:
@@ -93,9 +93,9 @@ class FrameV2IPManualSourceSwitch(FrameBase):
         return self.mxr.get_by_stream_ip(ip=self.audio.ip, audio=True)
 
     @cached_property
-    def sink(self) -> DeviceV2IPSink:
+    def sink(self) -> DeviceOneIPSink:
         '''Effective sink-side state announced by this manual switch (mirrors what /v2ip/sink reports).'''
-        return DeviceV2IPSink(
+        return DeviceOneIPSink(
             addresses=V2IPStreamSourcesImpl(video=self.video, audio=self.audio, anc=self.anc),
             audio_fmt=self.audio_fmt,
         )
@@ -113,4 +113,4 @@ class FrameV2IPManualSourceSwitch(FrameBase):
 
     def __str__(self) -> str:
         fmt = f" fmt={self.audio_fmt}" if (self.audio_fmt is not None) else ""
-        return f"V2IP manual source switch: {self.target_device} -> {self.video}/{self.audio}/{self.anc}{fmt}"
+        return f"OneIP manual source switch: {self.target_device} -> {self.video}/{self.audio}/{self.anc}{fmt}"

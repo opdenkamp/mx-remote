@@ -138,22 +138,22 @@ neighbouring struct member."""
 MXR_FW_VERSION_LEN = 128
 """Width of the fixed-size firmware version name field (mxr_fw_version.name)."""
 
-V2IP_AUDIO_DEFAULT_SAMPLE_RATE = 48000
-V2IP_AUDIO_DEFAULT_CHANNELS    = 2
-V2IP_AUDIO_MIN_CHANNELS        = 1
-V2IP_AUDIO_MAX_CHANNELS        = 8
+ONEIP_AUDIO_DEFAULT_SAMPLE_RATE = 48000
+ONEIP_AUDIO_DEFAULT_CHANNELS    = 2
+ONEIP_AUDIO_MIN_CHANNELS        = 1
+ONEIP_AUDIO_MAX_CHANNELS        = 8
 
-V2IP_SOURCE_RATE_MIN = 5
-V2IP_SOURCE_RATE_MAX = 100
-"""Valid encoder tx rate range (firmware V2IP_SOURCE_RATE_MIN/MAX, in units of
+ONEIP_SOURCE_RATE_MIN = 5
+ONEIP_SOURCE_RATE_MAX = 100
+"""Valid encoder tx rate range (firmware ONEIP_SOURCE_RATE_MIN/MAX, in units of
 10Mb/s). A V2IP_DEVICE_CFG sender with no rate to offer deliberately puts a
 value outside this range in ``tx_rate``; both the firmware's cache update and
 its apply drop that as invalid, which is what keeps address-only and scaling
 writes from resetting a peer's rate."""
 
-def v2ip_rate_valid(rate:int|None) -> bool:
+def oneip_rate_valid(rate:int|None) -> bool:
     '''True when a tx_rate carries an actual rate (firmware v2ip_source_rate_valid()).'''
-    return (rate is not None) and (V2IP_SOURCE_RATE_MIN <= rate <= V2IP_SOURCE_RATE_MAX)
+    return (rate is not None) and (ONEIP_SOURCE_RATE_MIN <= rate <= ONEIP_SOURCE_RATE_MAX)
 
 MXR_SCALING_FLAG_MODE_VALID     = (1 << 0)
 MXR_SCALING_FLAG_OPTIONS_VALID  = (1 << 1)
@@ -172,30 +172,30 @@ options at all. Bits 2 and 3 have no meaning."""
 MXR_SCALING_OPTIONS2_SETTINGS = (MXR_SCALING_FLAG_MATCH_SOURCE | MXR_SCALING_FLAG_SKIP_420)
 """The settings behind MXR_SCALING_FLAG_OPTIONS2_VALID, which carries both."""
 
-V2IP_SCALING_REFRESH_MIN = 24
-V2IP_SCALING_REFRESH_MAX = 120
-"""Refresh rate range a V2IP output stage accepts, in Hz. A receiver replaces
+ONEIP_SCALING_REFRESH_MIN = 24
+ONEIP_SCALING_REFRESH_MAX = 120
+"""Refresh rate range a OneIP output stage accepts, in Hz. A receiver replaces
 anything outside it with 50 rather than refusing the write, so a 0 here asks
 for 50Hz instead of asking for nothing."""
 
-MXR_V2IP_DSCP_SET = 0x80
+MXR_ONEIP_DSCP_SET = 0x80
 """DSCP 0 (CS0) is a legal marking, so a zero byte cannot mean "absent": each
 dscp byte in a V2IP_DEVICE_CFG options word carries this bit alongside its
 0..63 value, and a sender that leaves the byte zero is read as carrying no
 marking at all."""
 
-V2IP_DSCP_MAX = 63
+ONEIP_DSCP_MAX = 63
 """Highest DSCP value; the marking occupies the upper 6 bits of the IPv4 TOS byte."""
 
-V2IP_DSCP_DEFAULT = 16
+ONEIP_DSCP_DEFAULT = 16
 """CS2, the marking the video processor applies at boot and the value firmware
 falls back to when a peer sends no marking."""
 
-def v2ip_dscp_value(raw:int|None) -> int|None:
+def oneip_dscp_value(raw:int|None) -> int|None:
     '''Decode one dscp byte from a V2IP_DEVICE_CFG options word, or None when unset.'''
-    if (raw is None) or ((raw & MXR_V2IP_DSCP_SET) == 0):
+    if (raw is None) or ((raw & MXR_ONEIP_DSCP_SET) == 0):
         return None
-    return (raw & V2IP_DSCP_MAX)
+    return (raw & ONEIP_DSCP_MAX)
 
 _EnumT = TypeVar('_EnumT', bound=IntEnum)
 
@@ -222,8 +222,12 @@ class DeviceFeature(IntFlag):
 	IR_RX              = (1 << 0)
 	IR_TX              = (1 << 1)
 	CEC                = (1 << 2)
+	ONEIP_SOURCE       = (1 << 3)
+	ONEIP_SINK         = (1 << 4)
 	V2IP_SOURCE        = (1 << 3)
+	'''Deprecated: use ONEIP_SOURCE.'''
 	V2IP_SINK          = (1 << 4)
+	'''Deprecated: use ONEIP_SINK.'''
 	VIDEO_ROUTING      = (1 << 5)
 	AUDIO_ROUTING      = (1 << 6)
 	VOLUME_CONTROL     = (1 << 7)
@@ -253,8 +257,8 @@ class DeviceFeature(IntFlag):
 	'''Tags its uplink by the VLAN configuration it reports, and takes one written to it.'''
 	BOOT_BIT           = (1 << 31)
 
-class V2IPFpgaFeature(IntFlag):
-	'''What a V2IP device's video processor supports, as the device reports it in
+class OneIPVideoProcessorFeature(IntFlag):
+	'''What a OneIP device's video processor supports, as the device reports it in
 	its configuration.
 
 	Read-only, and a device's own: it fills the field in only on the frame
@@ -281,8 +285,8 @@ class V2IPFpgaFeature(IntFlag):
 	SINK_TEST_PATTERN  = (1 << 8)
 	'''Draws a test pattern, tone and lip-sync flash on its sink's output.'''
 
-class V2IPDeviceSetting(IntFlag):
-	'''The device settings a V2IP configuration can carry, each on its own bit.
+class OneIPDeviceSetting(IntFlag):
+	'''The device settings a OneIP configuration can carry, each on its own bit.
 
 	The same bits serve as the settings a frame carries and as the values of the
 	on/off ones among them. IR_PROFILE to POWER_SAVE_SCHEDULE carry a value
@@ -321,26 +325,26 @@ class V2IPDeviceSetting(IntFlag):
 	'''The device's clock has been set, on/off. Reported by the device itself
 	and never written.'''
 
-V2IP_DEVICE_SETTING_SWITCHES = V2IPDeviceSetting(0xFF)
+ONEIP_DEVICE_SETTING_SWITCHES = OneIPDeviceSetting(0xFF)
 """The settings that are on or off, as opposed to carrying a value, and that
 can be written."""
 
-V2IP_DEVICE_SETTINGS_REPORTED_ONLY = V2IPDeviceSetting.IR_PROFILES | V2IPDeviceSetting.CLOCK_SET
+ONEIP_DEVICE_SETTINGS_REPORTED_ONLY = OneIPDeviceSetting.IR_PROFILES | OneIPDeviceSetting.CLOCK_SET
 """The settings only a device reports about itself, which no write carries."""
 
-V2IP_MINUTES_PER_DAY = 24 * 60
+ONEIP_MINUTES_PER_DAY = 24 * 60
 """Minutes in a day: every time in a power save schedule is below this."""
 
-V2IP_IR_PROFILE_NOT_SET = -1
+ONEIP_IR_PROFILE_NOT_SET = -1
 """The infrared profile an output's port reports when it follows the device's
 global one."""
 
-V2IP_IR_PROFILE_MAX = 18
+ONEIP_IR_PROFILE_MAX = 18
 """One past the highest infrared profile: the default profile is 0, the Atlona
 profile 1, and user-defined profiles 1 to 16 are 2 to 17."""
 
-class V2IPTestPattern(IntEnum):
-	'''The test pattern a V2IP sink draws on its output.'''
+class OneIPTestPattern(IntEnum):
+	'''The test pattern a OneIP sink draws on its output.'''
 	OFF   = 0
 	'''No pattern.'''
 	BARS  = 1
@@ -356,8 +360,8 @@ class V2IPTestPattern(IntEnum):
 	CARD  = 6
 	'''A test card.'''
 
-class V2IPToneMode(IntEnum):
-	'''The test tone a V2IP sink plays on its output.'''
+class OneIPToneMode(IntEnum):
+	'''The test tone a OneIP sink plays on its output.'''
 	OFF        = 0
 	'''No tone.'''
 	CONTINUOUS = 1
@@ -369,8 +373,8 @@ class V2IPToneMode(IntEnum):
 	BEEP       = 4
 	'''A beep on each lip-sync mark.'''
 
-class V2IPTestcardFlag(IntFlag):
-	'''What a V2IP sink reports about its test card.'''
+class OneIPTestcardFlag(IntFlag):
+	'''What a OneIP sink reports about its test card.'''
 	SUPPORTED       = (1 << 0)
 	'''The sink can draw the test card.'''
 	SHOWING         = (1 << 1)
@@ -384,25 +388,25 @@ class V2IPTestcardFlag(IntFlag):
 	SYNC_PENDING    = (1 << 5)
 	'''A lip-sync change has yet to reach the video processor.'''
 
-V2IP_TONE_FREQ_MIN = 20
+ONEIP_TONE_FREQ_MIN = 20
 """The lowest test tone frequency, in Hz."""
-V2IP_TONE_FREQ_MAX = 20000
+ONEIP_TONE_FREQ_MAX = 20000
 """The highest test tone frequency, in Hz."""
-V2IP_TONE_LEVEL_MIN = -60
+ONEIP_TONE_LEVEL_MIN = -60
 """The quietest test tone level, in dBFS; the loudest is 0."""
-V2IP_TONE_CHANNELS_MAX = 8
+ONEIP_TONE_CHANNELS_MAX = 8
 """The most channels a test tone plays on."""
-V2IP_TONE_RATES = (44100, 48000, 96000)
+ONEIP_TONE_RATES = (44100, 48000, 96000)
 """The sample rates a test tone plays at, in Hz."""
-V2IP_SYNC_OFFSET_MAX = 0xFFFFFF
+ONEIP_SYNC_OFFSET_MAX = 0xFFFFFF
 """The largest lip-sync beep offset, in sample periods."""
-V2IP_SYNC_BEEP_MS_MIN = 1
+ONEIP_SYNC_BEEP_MS_MIN = 1
 """The shortest lip-sync beep, in milliseconds."""
-V2IP_SYNC_BEEP_MS_MAX = 10000
+ONEIP_SYNC_BEEP_MS_MAX = 10000
 """The longest lip-sync beep, in milliseconds."""
 
-class V2IPVlanFlag(IntFlag):
-	'''The flags of a V2IP device's VLAN configuration.'''
+class OneIPVlanFlag(IntFlag):
+	'''The flags of a OneIP device's VLAN configuration.'''
 	VALID   = (1 << 0)
 	'''The block carries a configuration. A block without it carries nothing,
 	whatever its other bytes hold.'''
@@ -418,37 +422,45 @@ class V2IPVlanFlag(IntFlag):
 	HAS_SFP = (1 << 4)
 	'''Reported by the device: it has an SFP port. Never written.'''
 
-V2IP_VLAN_PORTS = 3
-"""The external network ports a V2IPVlan covers, in the order of its port
+ONEIP_VLAN_PORTS = 3
+"""The external network ports a OneIPVlan covers, in the order of its port
 field: the SFP port, the UTP port with PoE, then the UTP port."""
 
-V2IP_VLAN_PORT_SFP = 0
-"""The index of the SFP port in V2IPVlan.port."""
+ONEIP_VLAN_PORT_SFP = 0
+"""The index of the SFP port in OneIPVlan.port."""
 
-V2IP_VLAN_ID_MAX = 4094
+ONEIP_VLAN_ID_MAX = 4094
 """The highest VLAN id: 0 means untagged, and 4095 is reserved by IEEE 802.1Q."""
 
 BAY_FEATURE_DOLBY_IN_POS = 24
 
 class BayFeaturesMask(IntFlag):
 	'''Bay feature flags reported in bay config frames.'''
-	HDMI_OUT           = (1 << 0)
-	HDMI_IN            = (1 << 1)
-	AUDIO_DIG_OUT      = (1 << 2)
-	AUDIO_DIG_IN       = (1 << 3)
-	AUDIO_ANA_OUT      = (1 << 4)
-	AUDIO_ANA_IN       = (1 << 5)
-	IR_IN              = (1 << 6)
-	IR_OUT             = (1 << 7)
-	AUDIO_AMP_OUT      = (1 << 8)
-	RC_OUT             = (1 << 9)
-	RC_IN              = (1 << 10)
-	DOLBY              = (1 << 11)
-	AUTO_OFF           = (1 << 12)
-	V2IP_SOURCE_REMOTE = (1 << 13)
-	V2IP_SINK_REMOTE   = (1 << 14)
-	V2IP_SOURCE_LOCAL  = (1 << 15)
-	V2IP_SINK_LOCAL    = (1 << 16)
+	HDMI_OUT            = (1 << 0)
+	HDMI_IN             = (1 << 1)
+	AUDIO_DIG_OUT       = (1 << 2)
+	AUDIO_DIG_IN        = (1 << 3)
+	AUDIO_ANA_OUT       = (1 << 4)
+	AUDIO_ANA_IN        = (1 << 5)
+	IR_IN               = (1 << 6)
+	IR_OUT              = (1 << 7)
+	AUDIO_AMP_OUT       = (1 << 8)
+	RC_OUT              = (1 << 9)
+	RC_IN               = (1 << 10)
+	DOLBY               = (1 << 11)
+	AUTO_OFF            = (1 << 12)
+	ONEIP_SOURCE_REMOTE = (1 << 13)
+	ONEIP_SINK_REMOTE   = (1 << 14)
+	ONEIP_SOURCE_LOCAL  = (1 << 15)
+	ONEIP_SINK_LOCAL    = (1 << 16)
+	V2IP_SOURCE_REMOTE  = (1 << 13)
+	'''Deprecated: use ONEIP_SOURCE_REMOTE.'''
+	V2IP_SINK_REMOTE    = (1 << 14)
+	'''Deprecated: use ONEIP_SINK_REMOTE.'''
+	V2IP_SOURCE_LOCAL   = (1 << 15)
+	'''Deprecated: use ONEIP_SOURCE_LOCAL.'''
+	V2IP_SINK_LOCAL     = (1 << 16)
+	'''Deprecated: use ONEIP_SINK_LOCAL.'''
 
 	def toJson(self) -> str:
 		return '{' + f'"features":"{int(self)}"' + '}'
@@ -481,14 +493,14 @@ class BayFeaturesMask(IntFlag):
 			rv += ", remote control output"
 		if BayFeaturesMask.AUTO_OFF in self:
 			rv += ", auto standby"
-		if BayFeaturesMask.V2IP_SOURCE_REMOTE in self:
-			rv += ", V2IP remote source"
-		if BayFeaturesMask.V2IP_SINK_REMOTE in self:
-			rv += ", V2IP remote sink"
-		if BayFeaturesMask.V2IP_SOURCE_LOCAL in self:
-			rv += ", V2IP local source"
-		if BayFeaturesMask.V2IP_SINK_LOCAL in self:
-			rv += ", V2IP local sink"
+		if BayFeaturesMask.ONEIP_SOURCE_REMOTE in self:
+			rv += ", OneIP remote source"
+		if BayFeaturesMask.ONEIP_SINK_REMOTE in self:
+			rv += ", OneIP remote sink"
+		if BayFeaturesMask.ONEIP_SOURCE_LOCAL in self:
+			rv += ", OneIP local source"
+		if BayFeaturesMask.ONEIP_SINK_LOCAL in self:
+			rv += ", OneIP local sink"
 
 		if (len(rv) != 0):
 			return rv[2:]
@@ -607,7 +619,7 @@ _MXR_SIG_BPP_WRITABLE_INDICES: dict[int, int] = {
 def mxr_sig_bpp_index(depth: int) -> int|None:
 	'''Map a bit depth to the mxr_signal_type bpp *index* that stands for it.
 
-	Only the three depths a V2IP output stage accepts are here. Index 4 names
+	Only the three depths a OneIP output stage accepts are here. Index 4 names
 	16bpp, which mxr_sig_bpp_get() reads back from a device, but the output
 	stage refuses it - offering it as something to write would build a frame
 	that is decoded cleanly and then dropped in silence.
@@ -988,9 +1000,11 @@ class EdidProfile(IntEnum):
 class FirmwareType(IntEnum):
 	'''Firmware component type identifiers.'''
 	UNKNOWN = 0
-	FPGA = 1
+	VIDEO_PROCESSOR = 1
 	LINUX = 2
 	LOADING_OVERLAY = 3
+	FPGA = 1
+	'''Deprecated: use VIDEO_PROCESSOR.'''
 
 	# No clamping __init__ here: IntEnum rejects an unknown value before __init__
 	# would run, so a guard there never fires - it only looks like one. Decode
@@ -998,8 +1012,8 @@ class FirmwareType(IntEnum):
 	# build does not recognise.
 
 	def __str__(self) -> str:
-		if (self.value == FirmwareType.FPGA.value):
-			return "FPGA"
+		if (self.value == FirmwareType.VIDEO_PROCESSOR.value):
+			return "Video Processor"
 		if (self.value == FirmwareType.LINUX.value):
 			return "Linux"
 		if (self.value == FirmwareType.LOADING_OVERLAY.value):
@@ -1040,3 +1054,10 @@ class UtpLinkSpeed(IntEnum):
 
     def __repr__(self) -> str:
         return str(self)
+
+# The V2IP spelling of a name here, from before the rename to OneIP.
+from ..deprecated import module_getattr as _module_getattr
+# Installed through globals() so the generated stubs carry no __getattr__, which
+# would make a type checker read every unknown name as Any instead of reporting
+# it; to a type checker the old names do not exist.
+globals()['__getattr__'] = _module_getattr(__name__, globals())

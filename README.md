@@ -79,7 +79,7 @@ API reference generated from the docstrings, and are readable here in
 | [Routing](docs/routing.md) | Selecting video and audio sources for an output. |
 | [Callbacks](docs/callbacks.md) | Reacting to state changes rather than polling for them. |
 | [Audio](docs/audio.md) | Volume, mute and remote-control passthrough. |
-| [OneIP and V2IP](docs/oneip.md) | Streaming endpoints, stream sources and statistics. |
+| [OneIP](docs/oneip.md) | Streaming endpoints, stream sources and statistics. |
 | [Multiviewer](docs/multiviewer.md) | Layout, sources and output configuration. |
 | [Diagnostics](docs/diagnostics.md) | Network status, the mxr console app and capture replay. |
 

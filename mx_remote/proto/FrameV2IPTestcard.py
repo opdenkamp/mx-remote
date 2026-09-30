@@ -4,22 +4,22 @@
 ## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
 ## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
 ######################################################
-'''Protocol frame for a V2IP sink's test pattern, tone and lip-sync flash.'''
+'''Protocol frame for a OneIP sink's test pattern, tone and lip-sync flash.'''
 
 from functools import cached_property
 from typing import Any
 import struct
 from ..compat import override
 from .FrameBase import FrameBase
-from .Constants import V2IPTestcardFlag, V2IPTestPattern, V2IPToneMode
-from ..Interface import DeviceRegistry, V2IPTestcard, V2IPTestSync, V2IPTestTone, _wire_enum
+from .Constants import OneIPTestcardFlag, OneIPTestPattern, OneIPToneMode
+from ..Interface import DeviceRegistry, OneIPTestcard, OneIPTestSync, OneIPTestTone, _wire_enum
 from ..Uid import MxrDeviceUid
 
 # Payload, 56 bytes, whatever the frame type:
 #     0..16   uid of the sink
 #    16       frame type: TESTCARD_REQUEST, TESTCARD_SET or TESTCARD_STATE
 #    17       flags: on a change the TESTCARD_PART_* it carries, on a report
-#             the V2IPTestcardFlag bits
+#             the OneIPTestcardFlag bits
 #    18       pattern
 #    19       tone mode
 #    20..24   u32 colour, 0xRRGGBB
@@ -49,7 +49,7 @@ class FrameV2IPTestcard(FrameBase):
     '''A request, a change, or a sink's report of its test card.'''
     @staticmethod
     def construct(mxr:DeviceRegistry, target:Any, target_uid:MxrDeviceUid, kind:int, parts:int=0,
-                  testcard:V2IPTestcard=V2IPTestcard()) -> FrameBase|None:
+                  testcard:OneIPTestcard=OneIPTestcard()) -> FrameBase|None:
         '''Build a request or a change addressed to one sink.
 
         A sink reads only the parts named in parts from a change, and nothing
@@ -75,20 +75,20 @@ class FrameV2IPTestcard(FrameBase):
         return self.payload[16]
 
     @cached_property
-    def testcard(self) -> V2IPTestcard|None:
+    def testcard(self) -> OneIPTestcard|None:
         '''The test card a sink reports, None for a request, a change, or a
         frame shorter than the whole struct.'''
         if (self.kind != TESTCARD_STATE) or (self.payload is None):
             return None
         (_, flags, pattern, mode, colour, freq, level, channels, rate,
          period, lead, offset, beep, frames, periods, marks) = _LAYOUT.unpack_from(self.payload, 16)
-        return V2IPTestcard(
-            flags=V2IPTestcardFlag(flags),
-            pattern=_wire_enum(V2IPTestPattern, pattern),
+        return OneIPTestcard(
+            flags=OneIPTestcardFlag(flags),
+            pattern=_wire_enum(OneIPTestPattern, pattern),
             colour=(colour & 0xFFFFFF),
-            tone=V2IPTestTone(mode=_wire_enum(V2IPToneMode, mode), freq=freq, level=level,
+            tone=OneIPTestTone(mode=_wire_enum(OneIPToneMode, mode), freq=freq, level=level,
                               channels=channels, rate=rate),
-            sync=V2IPTestSync(period=period, lead=lead, offset=offset, beep_ms=beep),
+            sync=OneIPTestSync(period=period, lead=lead, offset=offset, beep_ms=beep),
             frames=frames, periods=periods, marks=marks)
 
     @override
@@ -101,7 +101,7 @@ class FrameV2IPTestcard(FrameBase):
 
     def __str__(self) -> str:
         if (self.kind is None):
-            return "V2IP test card <short>"
+            return "OneIP test card <short>"
         if (self.testcard is not None):
-            return f"V2IP test card of {self.target_uid}: {self.testcard}"
-        return f"V2IP test card {('request', 'change')[self.kind] if self.kind < 2 else self.kind} for {self.target_uid}"
+            return f"OneIP test card of {self.target_uid}: {self.testcard}"
+        return f"OneIP test card {('request', 'change')[self.kind] if self.kind < 2 else self.kind} for {self.target_uid}"

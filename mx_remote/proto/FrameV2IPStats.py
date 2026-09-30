@@ -4,17 +4,17 @@
 ## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
 ## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
 ######################################################
-'''Protocol frame for V2IP encoder/decoder statistics.'''
+'''Protocol frame for OneIP encoder/decoder statistics.'''
 
 from functools import cached_property
 import warnings
 from .FrameBase import FrameBase
-from .V2IPStats import (V2IPRxStats, V2IPTxStats, V2IPDeviceStats, V2IPDecoderDetail,
+from .V2IPStats import (V2IPRxStats, V2IPTxStats, OneIPDeviceStats, V2IPDecoderDetail,
     V2IP_DECODER_DETAIL_OFFSET, V2IP_STATS_COUNTERS_LEN, V2IP_STATS_FULL_LEN)
 from ..Interface import DeviceBase, DeviceRegistry
 
 class FrameV2IPStats(FrameBase):
-    '''V2IP encoder/decoder statistics report.'''
+    '''OneIP encoder/decoder statistics report.'''
     @staticmethod
     def construct(registry:DeviceRegistry, device:DeviceBase, enable:bool) -> FrameBase|None:
         '''Build a stats enable/disable request frame for transmission.
@@ -101,8 +101,8 @@ class FrameV2IPStats(FrameBase):
         return V2IPDecoderDetail(pl)
 
     @cached_property
-    def stats(self) -> V2IPDeviceStats:
-        rv = V2IPDeviceStats()
+    def stats(self) -> OneIPDeviceStats:
+        rv = OneIPDeviceStats()
         rv.tx = self.tx
         rv.tx_per_minute = self.tx_per_minute
         rv.rx = self.rx
@@ -111,7 +111,7 @@ class FrameV2IPStats(FrameBase):
         return rv
 
     def process(self) -> None:
-        '''Update the local device cache with V2IP statistics.'''
+        '''Update the local device cache with OneIP statistics.'''
         if self.is_report and ((dev := self.remote_device) is not None):
             dev.on_mxr_update(self.stats)
 

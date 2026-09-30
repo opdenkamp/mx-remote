@@ -4,13 +4,13 @@
 ## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
 ## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
 ######################################################
-'''Protocol frame listing a device's V2IP stream sources, whole or paged.'''
+'''Protocol frame listing a device's OneIP stream sources, whole or paged.'''
 
 from functools import cached_property
 from .V2IPConfig import V2IPConfig
 from .FrameBase import FrameBase
 from .V2IPConfig import V2IPStreamSourcesImpl
-from ..Interface import V2IPStreamSourcesList
+from ..Interface import OneIPStreamSourcesList
 
 # One source record, and the header a paged list puts in front of its records:
 # where in the sender's list this page starts, how many records that list held
@@ -19,7 +19,7 @@ _RECORD_SIZE = 40
 _PAGE_HEADER_SIZE = 8
 
 class FrameV2IPSources(FrameBase):
-    '''A device's configured V2IP sources, whole or one page of them.'''
+    '''A device's configured OneIP sources, whole or one page of them.'''
     @cached_property
     def page(self) -> tuple[int,int]|None:
         '''Where this frame's records begin in the sender's list, and how long
@@ -65,10 +65,10 @@ class FrameV2IPSources(FrameBase):
         return int((len(self.payload) - self.records_offset) / _RECORD_SIZE)
 
     @cached_property
-    def sources(self) -> V2IPStreamSourcesList:
-        '''The V2IP stream sources carried by this frame.
+    def sources(self) -> OneIPStreamSourcesList:
+        '''The OneIP stream sources carried by this frame.
 
-        Entries are positional, since Device.v2ip_source() indexes into the
+        Entries are positional, since Device.oneip_source() indexes into the
         merged list, so an entry is kept rather than dropped: dropping one would
         re-map every source after it.
 
@@ -77,7 +77,7 @@ class FrameV2IPSources(FrameBase):
         is signalled, so it must not be discarded as unusable. Anything else is
         malformed and should leave a cached address alone.
         '''
-        rv = V2IPStreamSourcesList()
+        rv = OneIPStreamSourcesList()
         if (self.page is None):
             return rv
         first = self.page[0]
@@ -98,7 +98,7 @@ class FrameV2IPSources(FrameBase):
         if ((page := self.page) is None):
             return
         if ((dev := self.remote_device) is not None):
-            dev.merge_v2ip_sources(first=page[0], total=page[1], page=self.sources)
+            dev.merge_oneip_sources(first=page[0], total=page[1], page=self.sources)
 
     def __str__(self) -> str:
         if (self.page is None):

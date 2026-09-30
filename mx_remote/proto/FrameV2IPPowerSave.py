@@ -4,14 +4,14 @@
 ## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
 ## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
 ######################################################
-'''Protocol frame for V2IP power saving mode configuration.'''
+'''Protocol frame for OneIP power saving mode configuration.'''
 
 from functools import cached_property
 from ..Interface import MxrDeviceUid, DeviceBase
 from .FrameBase import FrameBase
 
 class FrameV2IPPowerSave(FrameBase):
-    '''V2IP power saving mode status or configuration.'''
+    '''OneIP power saving mode status or configuration.'''
     def process(self) -> None:
         '''No-op; power save state is informational only.'''
         pass

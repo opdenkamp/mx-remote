@@ -14,7 +14,7 @@ bay.mute_set(mute=True)
 
 ## Audio endpoints
 
-A V2IP device reports its audio endpoints, each with its features and a status
+A OneIP device reports its audio endpoints, each with its features and a status
 word on the same bits: `FEATURE_MUTE` while it is muted, `FEATURE_TRIGGER`
 while its trigger is active, and `FEATURE_AUDIO_LOCK` while its audio source is
 locked.

@@ -4,7 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
 ## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
 ######################################################
-'''Protocol frames for V2IP audio configuration, routing, and control.'''
+'''Protocol frames for OneIP audio configuration, routing, and control.'''
 
 from enum import IntEnum
 from functools import cached_property
@@ -14,7 +14,7 @@ from ..compat import override
 
 from .FrameHeader import FrameHeader
 from .FrameBase import FrameBase
-from ..Interface import DeviceRegistry, MxrDeviceUid, V2IPStreamSource, AudioFeatures, AudioEndpoint, AudioEndpoints, AudioChangeSource, AudioLink, AudioLinks
+from ..Interface import DeviceRegistry, MxrDeviceUid, OneIPStreamSource, AudioFeatures, AudioEndpoint, AudioEndpoints, AudioChangeSource, AudioLink, AudioLinks
 
 
 V2IP_AUDIO_EP_ID_NONE = 0xFF
@@ -27,7 +27,7 @@ _AUDIO_LINK_SIZE = 20
 _LOGGER = logging.getLogger(__name__)
 
 class AudioCommandOpcode(IntEnum):
-    '''Opcodes for V2IP audio sub-commands.'''
+    '''Opcodes for OneIP audio sub-commands.'''
     UNKNOWN = 0xFFFF
     FEATURES = 0
     MUTE = 1
@@ -75,7 +75,7 @@ class EndpointStatus:
     def __repr__(self) -> str:
         return str(self)
 
-class StreamAddress(V2IPStreamSource):
+class StreamAddress(OneIPStreamSource):
     '''IP stream address for an audio endpoint.'''
     def __init__(self, data:bytes|None) -> None:
         self.data = data
@@ -185,7 +185,7 @@ class AudioEndpointImpl(AudioEndpoint):
         AudioEndpoint.__init__(self, container=container)
         self._id = id
         self._features = features
-        self._address:V2IPStreamSource|None = None
+        self._address:OneIPStreamSource|None = None
         self._parent_id:int|None = None
         self._in_routes_supported:int|None = None
         self._in_routes:int|None = None
@@ -199,8 +199,8 @@ class AudioEndpointImpl(AudioEndpoint):
         return self._features
 
     @property
-    def is_v2ip(self) -> bool:
-        return self.features.is_v2ip_rx or self.features.is_v2ip_tx
+    def is_oneip(self) -> bool:
+        return self.features.is_oneip_rx or self.features.is_oneip_tx
 
     @property
     def is_hdmi(self) -> bool:
@@ -223,11 +223,11 @@ class AudioEndpointImpl(AudioEndpoint):
         return self.features.is_output
 
     @property
-    def address(self) -> V2IPStreamSource|None:
+    def address(self) -> OneIPStreamSource|None:
         return self._address
 
     @address.setter
-    def address(self, address:V2IPStreamSource) -> None:
+    def address(self, address:OneIPStreamSource) -> None:
         self._address = address
 
     @property
@@ -283,7 +283,7 @@ class AudioEndpointImpl(AudioEndpoint):
         serial = ''
         if (self.bay is not None):
             serial = f'{self.bay.device.serial}-'
-        if self.is_v2ip:
+        if self.is_oneip:
             address = self.address
             if (address is None):
                 address = '<unknown>'
@@ -716,7 +716,7 @@ def _pack_audio_param(endpoint_id: int, param: int) -> bytes:
 
 
 class FrameV2IPAudio(FrameBase):
-    '''V2IP audio frame dispatcher that delegates to sub-type frames based on opcode.'''
+    '''OneIP audio frame dispatcher that delegates to sub-type frames based on opcode.'''
     @cached_property
     def _frame(self) -> 'FrameV2IPAudio':
         '''Resolve to the appropriate sub-type frame based on the audio command opcode.'''

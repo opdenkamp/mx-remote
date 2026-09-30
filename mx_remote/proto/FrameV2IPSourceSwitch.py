@@ -4,7 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
 ## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
 ######################################################
-'''Protocol frame for V2IP source switching between encoder and decoder.'''
+'''Protocol frame for OneIP source switching between encoder and decoder.'''
 
 from functools import cached_property
 from .FrameBase import FrameBase
@@ -18,33 +18,33 @@ import logging
 _LOGGER = logging.getLogger(__name__)
 
 class FrameV2IPSourceSwitch(FrameBase):
-    '''V2IP source switch command for routing video and audio streams.'''
+    '''OneIP source switch command for routing video and audio streams.'''
     @staticmethod
     def construct(mxr:DeviceRegistry, target:BayBase, video:BayBase|str|None=None, audio:BayBase|str|None=None) -> FrameBase|None:
-        '''Build a V2IP source switch frame for transmission.'''
+        '''Build a OneIP source switch frame for transmission.'''
         if video is not None:
             if isinstance(video, BayBase):
-                if BayFeaturesMask.V2IP_SOURCE_LOCAL not in video.features and BayFeaturesMask.V2IP_SOURCE_REMOTE not in video.features:
+                if BayFeaturesMask.ONEIP_SOURCE_LOCAL not in video.features and BayFeaturesMask.ONEIP_SOURCE_REMOTE not in video.features:
                     raise Exception(f"{video} is not a v2ip source")
-                if video.v2ip_source is None:
+                if video.oneip_source is None:
                     raise Exception(f"{video} v2ip addresses not known")
 
         if audio is not None:
             if isinstance(audio, BayBase):
-                if BayFeaturesMask.V2IP_SOURCE_LOCAL not in audio.features and BayFeaturesMask.V2IP_SOURCE_REMOTE not in audio.features:
+                if BayFeaturesMask.ONEIP_SOURCE_LOCAL not in audio.features and BayFeaturesMask.ONEIP_SOURCE_REMOTE not in audio.features:
                     raise Exception(f"{audio} is not a v2ip source")
-                if audio.v2ip_source is None:
+                if audio.oneip_source is None:
                     raise Exception(f"{audio} v2ip addresses not known")
 
         payload = target.device.remote_id.byte_value
         if video is not None:
-            video_ip = video.v2ip_source.video.ip if isinstance(video, BayBase) else video.split(':', 1)[0] # pyright: ignore[reportOptionalMemberAccess]
+            video_ip = video.oneip_source.video.ip if isinstance(video, BayBase) else video.split(':', 1)[0] # pyright: ignore[reportOptionalMemberAccess]
             ip = socket.inet_aton(video_ip)
             payload += bytes([int(ip[0]), int(ip[1]), int(ip[2]), int(ip[3])])
         else:
             payload += bytes([0, 0, 0, 0])
         if audio is not None:
-            audio_ip = audio.v2ip_source.audio.ip if isinstance(audio, BayBase) else audio.split(':', 1)[0] # pyright: ignore[reportOptionalMemberAccess]
+            audio_ip = audio.oneip_source.audio.ip if isinstance(audio, BayBase) else audio.split(':', 1)[0] # pyright: ignore[reportOptionalMemberAccess]
             ip = socket.inet_aton(audio_ip)
             payload += bytes([int(ip[0]), int(ip[1]), int(ip[2]), int(ip[3])])
         else:
@@ -95,4 +95,4 @@ class FrameV2IPSourceSwitch(FrameBase):
                 sink_bay.on_mxr_update(SelectedBays(self.video_bay, self.audio_bay))
 
     def __str__(self) -> str:
-        return f"V2IP source switch: {self.target_device} -> {self.video}={self.video_bay}/{self.audio}={self.audio_bay}"
+        return f"OneIP source switch: {self.target_device} -> {self.video}={self.video_bay}/{self.audio}={self.audio_bay}"

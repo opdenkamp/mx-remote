@@ -44,7 +44,7 @@ def rx(sender, opcode, payload=b'', protocol=0x2B):
 
 def hello(n):
     rx(uid(n), 0x00, struct.pack('<H', 0x2B) + name('ONEIP') + name('P8SN12345678')
-                   + name('5.0.0') + struct.pack('<I', int(DeviceFeature.V2IP_SINK)))
+                   + name('5.0.0') + struct.pack('<I', int(DeviceFeature.ONEIP_SINK)))
     return mx.get_by_uid(MxrDeviceUid(uid(n)))
 
 def lockable_tree(status0, status1):
@@ -55,7 +55,7 @@ def lockable_tree(status0, status1):
     p[44:48] = struct.pack('<I', AudioFeatures.FEATURE_OUTPUT)
     p[48:52] = struct.pack('<I', status0)
     p[52], p[53] = 1, 1                        # endpoint 1
-    p[60:64] = struct.pack('<I', AudioFeatures.FEATURE_INPUT | AudioFeatures.FEATURE_V2IP_RX | LOCK)
+    p[60:64] = struct.pack('<I', AudioFeatures.FEATURE_INPUT | AudioFeatures.FEATURE_ONEIP_RX | LOCK)
     p[64:68] = struct.pack('<I', status1)
     return bytes(p)
 

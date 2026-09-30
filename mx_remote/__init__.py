@@ -9,7 +9,7 @@
 mx_remote - Python 3 library for interfacing with MX Remote compatible devices.
 
 Provides device discovery, video/audio routing, volume control, remote control
-key passthrough, V2IP (OneIP) streaming, and multiviewer control over a local
+key passthrough, OneIP streaming, and multiviewer control over a local
 network using UDP multicast or broadcast.
 
 Main entry point:
@@ -31,3 +31,9 @@ from .Interface import *
 from .const import VERSION
 from .proto.Constants import MXR_PROTOCOL_VERSION, RCKey, RCAction, RCType
 from .main import mxr_console, mxr_main, proto_parser
+# The V2IP spelling of a name here, from before the rename to OneIP.
+from .deprecated import module_getattr as _module_getattr
+# Installed through globals() so the generated stubs carry no __getattr__, which
+# would make a type checker read every unknown name as Any instead of reporting
+# it; to a type checker the old names do not exist.
+globals()['__getattr__'] = _module_getattr(__name__, globals())

@@ -163,6 +163,17 @@ A 24-byte header, then the payload:
 
 Built by `proto/Factory.py::create_mxr_frame`, decoded by `proto/FrameHeader.py`.
 
+## Public names
+
+V2IP and FPGA are the firmware's internal names. What a user reads - API
+names, docstrings, log messages, console output, docs - says OneIP and video
+processor instead (`oneip_settings`, `OneIPVideoProcessorFeature`), including
+for a name ported from the firmware or the Rust crate, which keep the internal
+spelling. Wire-level code under `proto/` that mirrors a firmware struct may keep
+it too. The names released before the rename resolve through
+`mx_remote/deprecated.py`, and `tests/deprecated.py` fails on any new public
+name spelled V2IP or FPGA.
+
 ## Working on the protocol
 
 When adding or editing a `Frame*` class, byte layouts **must match the MatrixOS firmware C

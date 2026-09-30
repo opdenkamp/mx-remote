@@ -4,16 +4,16 @@
 ## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
 ## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
 ######################################################
-'''V2IP (Video over IP) stream source details for OneIP devices.'''
+'''OneIP stream source details for a device.'''
 
 import logging
 from typing import Any
-from ..Interface import DeviceV2IPDetails, V2IPStreamSource
+from ..Interface import DeviceOneIPDetails, OneIPStreamSource
 
 _LOGGER = logging.getLogger(__name__)
 
-class DeviceV2IPDetailsImpl(DeviceV2IPDetails):
-	'''Concrete implementation of V2IP stream source details for a device.'''
+class DeviceV2IPDetailsImpl(DeviceOneIPDetails):
+	'''Concrete implementation of OneIP stream source details for a device.'''
 
 	def __init__(self) -> None:
 		self._video = None
@@ -29,41 +29,41 @@ class DeviceV2IPDetailsImpl(DeviceV2IPDetails):
 		return (self._video is not None) and (self._audio is not None) and (self._arc is not None)
 
 	@property
-	def video(self) -> V2IPStreamSource|None:
+	def video(self) -> OneIPStreamSource|None:
 		return self._video
 
 	@video.setter
-	def video(self, source:V2IPStreamSource) -> None:
+	def video(self, source:OneIPStreamSource) -> None:
 		if source != self._video:
 			_LOGGER.debug(f"changed: {str(source)}")
 			self._video = source
 
 	@property
-	def audio(self) -> V2IPStreamSource|None:
+	def audio(self) -> OneIPStreamSource|None:
 		return self._audio
 
 	@audio.setter
-	def audio(self, source:V2IPStreamSource) -> None:
+	def audio(self, source:OneIPStreamSource) -> None:
 		if source != self._audio:
 			_LOGGER.debug(f"changed: {str(source)}")
 			self._audio = source
 
 	@property
-	def anc(self) -> V2IPStreamSource|None:
+	def anc(self) -> OneIPStreamSource|None:
 		return self._anc
 
 	@anc.setter
-	def anc(self, source:V2IPStreamSource) -> None:
+	def anc(self, source:OneIPStreamSource) -> None:
 		if source != self._anc:
 			_LOGGER.debug(f"changed: {str(source)}")
 			self._anc = source
 
 	@property
-	def arc(self) -> V2IPStreamSource|None:
+	def arc(self) -> OneIPStreamSource|None:
 		return self._arc
 
 	@arc.setter
-	def arc(self, source:V2IPStreamSource) -> None:
+	def arc(self, source:OneIPStreamSource) -> None:
 		if source != self._arc:
 			_LOGGER.debug(f"changed: {str(self._arc)} -> {str(source)}")
 			self._arc = source
@@ -77,7 +77,7 @@ class DeviceV2IPDetailsImpl(DeviceV2IPDetails):
 		self._tx_rate = rate
 
 	def __eq__(self, value:Any) -> bool:
-		if not isinstance(value, DeviceV2IPDetails):
+		if not isinstance(value, DeviceOneIPDetails):
 			return False
 		return self.has_config \
 			and value.has_config \

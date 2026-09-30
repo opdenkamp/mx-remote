@@ -225,12 +225,12 @@ print('0x43 SELECT   : dispatched to the change-source sub-frame and processed')
 # ---- the V2IP switch frames need a device that has V2IP bays and known stream
 #      addresses, so they get their own rather than reshaping the one above.
 V2 = bytes(range(80, 96))
-V2FEAT = (1 << 5) | (1 << 6) | int(mx_remote.DeviceFeature.V2IP_SOURCE) | int(mx_remote.DeviceFeature.V2IP_SINK)
+V2FEAT = (1 << 5) | (1 << 6) | int(mx_remote.DeviceFeature.ONEIP_SOURCE) | int(mx_remote.DeviceFeature.ONEIP_SINK)
 rx(0x00, struct.pack('<H', 0x28) + nm('OneIP') + nm('P8SN99999999') + nm('5.2.0')
         + struct.pack('<I', V2FEAT), uid=V2)
 v2dev = mx.get_by_uid(MxrDeviceUid(V2))
-SRC_LOCAL = int(mx_remote.BayFeaturesMask.V2IP_SOURCE_LOCAL)
-SINK_LOCAL = int(mx_remote.BayFeaturesMask.V2IP_SINK_LOCAL)
+SRC_LOCAL = int(mx_remote.BayFeaturesMask.ONEIP_SOURCE_LOCAL)
+SINK_LOCAL = int(mx_remote.BayFeaturesMask.ONEIP_SINK_LOCAL)
 rx(0x02, bay_rec(0, 0, 0, 'V2 In', feat=SRC_LOCAL) + bay_rec(1, 1, 0, 'V2 Out', feat=SINK_LOCAL), uid=V2)
 v2in, v2out = v2dev.get_by_portnum(0), v2dev.get_by_portnum(1)
 
@@ -240,7 +240,7 @@ def stream_entry(video, audio, anc):
         out += bytes(int(x) for x in ip.split('.')) + struct.pack('<H', port) + bytes(2)
     return out
 rx(0x26, stream_entry(('239.5.5.1', 50020), ('239.5.5.2', 50022), ('239.5.5.3', 50021)), uid=V2)
-assert v2in.v2ip_source is not None, 'the source bay needs stream addresses'
+assert v2in.oneip_source is not None, 'the source bay needs stream addresses'
 assert mx.get_by_stream_ip(ip='239.5.5.1', audio=False) is not None, 'stream ip must resolve'
 
 # ---- 0x1F V2IP_SOURCE_SWITCH: target uid, then video and audio ips big-endian
@@ -271,16 +271,16 @@ print('0x44 mapping: dispatched and processed')
 RX = bytes(range(0xA0, 0xB0))
 MAPPED = bytes(range(0xB0, 0xC0))
 rx(0x00, struct.pack('<H', 0x28) + nm('ONEIP-RX') + nm('P8SN77777777') + nm('5.2.0')
-        + struct.pack('<I', int(mx_remote.DeviceFeature.V2IP_SINK)), uid=RX)
+        + struct.pack('<I', int(mx_remote.DeviceFeature.ONEIP_SINK)), uid=RX)
 rxdev = mx.get_by_uid(MxrDeviceUid(RX))
 # count<<1 | is_input, the port of the first bay, then a uid per bay from 8
 rx(0x44, struct.pack('<HH', (1 << 1) | 1, 1) + bytes([0xA5] * 4) + MAPPED, uid=RX)
 assert rxdev.get_by_portnum(1) is None, 'fixture: the bay must not exist before its mapping'
-SRC_REMOTE = int(mx_remote.BayFeaturesMask.V2IP_SOURCE_REMOTE)
+SRC_REMOTE = int(mx_remote.BayFeaturesMask.ONEIP_SOURCE_REMOTE)
 rx(0x02, bay_rec(1, 0, 0, 'Input 1', feat=SRC_REMOTE), uid=RX)
 early = rxdev.get_by_portnum(1)
 assert early is not None and early.mode == 'Input', early
-assert early.v2ip_uid == MxrDeviceUid(MAPPED), 'the mapping sent ahead of its bay was lost'
+assert early.oneip_uid == MxrDeviceUid(MAPPED), 'the mapping sent ahead of its bay was lost'
 print('0x44 early  : applied when the bay arrived')
 
 # A page names the bay it starts at by its port, and its entries run on from
@@ -293,8 +293,8 @@ def page(is_input, first_port, uids):
 
 def transceiver(uid, serial):
     rx(0x00, struct.pack('<H', 0x2A) + nm('ONEIP') + nm(serial) + nm('5.2.0')
-            + struct.pack('<I', int(mx_remote.DeviceFeature.V2IP_SINK)), uid=uid)
-    SINK_REMOTE = int(mx_remote.BayFeaturesMask.V2IP_SINK_REMOTE)
+            + struct.pack('<I', int(mx_remote.DeviceFeature.ONEIP_SINK)), uid=uid)
+    SINK_REMOTE = int(mx_remote.BayFeaturesMask.ONEIP_SINK_REMOTE)
     rx(0x02, b''.join([bay_rec(p, 0, n, 'Input %d' % (n + 1), feat=SRC_REMOTE) for p, n in ((0, 0), (1, 1), (2, 2))]
                       + [bay_rec(p, 1, n, 'Output %d' % (n + 1), feat=SINK_REMOTE) for p, n in ((16, 0), (17, 1))]), uid=uid)
     return mx.get_by_uid(MxrDeviceUid(uid))
@@ -308,7 +308,7 @@ ins, outs = uids(0x11, 3), uids(0x21, 2)
 rx(0x44, page(True, 0, ins), uid=TRX)
 rx(0x44, page(False, 16, outs), uid=TRX)
 for port, uid in ((0, ins[0]), (1, ins[1]), (2, ins[2]), (16, outs[0]), (17, outs[1])):
-    assert trx.get_by_portnum(port).v2ip_uid == MxrDeviceUid(uid), 'bay on port %d' % port
+    assert trx.get_by_portnum(port).oneip_uid == MxrDeviceUid(uid), 'bay on port %d' % port
 print('0x44 ports  : an output page starting at port 16 reaches Output 1')
 
 # A page that starts past the first bay covers only the bays from there, and
@@ -318,23 +318,23 @@ trx2 = transceiver(TRX2, 'TRX2')
 first, later = uids(0x31, 3), uids(0x41, 2)
 rx(0x44, page(True, 0, first), uid=TRX2)
 rx(0x44, page(True, 1, later), uid=TRX2)
-assert [trx2.get_by_portnum(p).v2ip_uid for p in (0, 1, 2)] == [MxrDeviceUid(u) for u in (first[0], later[0], later[1])]
+assert [trx2.get_by_portnum(p).oneip_uid for p in (0, 1, 2)] == [MxrDeviceUid(u) for u in (first[0], later[0], later[1])]
 print('0x44 pages  : a later page leaves the bays before it alone')
 
 # A page whose first bay is not configured yet is filed once that bay arrives,
 # for the bays after it as well, which may have arrived first.
 TRX3 = bytes(range(0xE0, 0xF0))
 rx(0x00, struct.pack('<H', 0x2A) + nm('ONEIP') + nm('TRX3') + nm('5.2.0')
-        + struct.pack('<I', int(mx_remote.DeviceFeature.V2IP_SINK)), uid=TRX3)
+        + struct.pack('<I', int(mx_remote.DeviceFeature.ONEIP_SINK)), uid=TRX3)
 trx3 = mx.get_by_uid(MxrDeviceUid(TRX3))
-SINK_REMOTE = int(mx_remote.BayFeaturesMask.V2IP_SINK_REMOTE)
+SINK_REMOTE = int(mx_remote.BayFeaturesMask.ONEIP_SINK_REMOTE)
 rx(0x02, bay_rec(18, 1, 2, 'Output 3', feat=SINK_REMOTE), uid=TRX3)
 waiting = uids(0x51, 2)
 rx(0x44, page(False, 17, waiting), uid=TRX3)
-assert trx3.get_by_portnum(18).v2ip_uid != MxrDeviceUid(waiting[1]), 'filed before its first bay'
+assert trx3.get_by_portnum(18).oneip_uid != MxrDeviceUid(waiting[1]), 'filed before its first bay'
 rx(0x02, bay_rec(17, 1, 1, 'Output 2', feat=SINK_REMOTE), uid=TRX3)
-assert trx3.get_by_portnum(17).v2ip_uid == MxrDeviceUid(waiting[0])
-assert trx3.get_by_portnum(18).v2ip_uid == MxrDeviceUid(waiting[1])
+assert trx3.get_by_portnum(17).oneip_uid == MxrDeviceUid(waiting[0])
+assert trx3.get_by_portnum(18).oneip_uid == MxrDeviceUid(waiting[1])
 print('0x44 wait   : a page waits for the bay it starts at')
 
 print('ALL OK')

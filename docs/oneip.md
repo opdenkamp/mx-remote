@@ -1,6 +1,12 @@
-# OneIP and V2IP
+# OneIP
 
 Streaming endpoints, stream sources and statistics.
+
+Releases up to 5.11 named this API after the firmware's internal names: V2IP
+for OneIP and FPGA for the video processor, as in `device.v2ip_settings` or
+`V2IPFpgaFeature`. Those spellings still work, with a `DeprecationWarning`,
+and will be removed in a future major release; see
+[the API reference](api.md#names-from-before-oneip).
 
 ## Pulse-Eight OneIP Devices
 
@@ -8,8 +14,8 @@ Streaming endpoints, stream sources and statistics.
 
 ```python
 # stream source addresses
-if device.is_v2ip and device.v2ip_sources:
-    for source in device.v2ip_sources:
+if device.is_oneip and device.oneip_sources:
+    for source in device.oneip_sources:
         print(f"Video: {source.video.ip}:{source.video.port}")
         print(f"Audio: {source.audio.ip}:{source.audio.port}")
 
@@ -17,8 +23,8 @@ if device.is_v2ip and device.v2ip_sources:
 # A configuration frame names its subject in the payload, so a controller's
 # write for a transceiver reaches the transceiver's record - the controller's
 # own stays empty, which is what the device always meant.
-if device.v2ip_details:
-    details = device.v2ip_details
+if device.oneip_details:
+    details = device.oneip_details
     print(f"Video: {details.video}")
     print(f"TX rate: {details.tx_rate}")   # None when the sender offered no rate
 
@@ -31,7 +37,7 @@ if device.v2ip_details:
 # mode, so call this again inside the minute to keep the 1Hz reports coming.
 await device.read_stats(enable=True)   # start collecting
 # ... later ...
-stats = device.v2ip_stats
+stats = device.oneip_stats
 
 # what the sink's decoder recovered from the codestream it is being given.
 # Three answers, and they mean different things:
@@ -69,7 +75,7 @@ the query is sent, so a single tick can carry an answer read fractionally
 before the switch.
 
 ```python
-before = device.v2ip_stats.decoder.reading.updates
+before = device.oneip_stats.decoder.reading.updates
 await sink.switch_source(...)
 # ... wait until reading.updates - before >= 2 (mod 65536) ...
 ```
@@ -104,21 +110,21 @@ the other where it is.
 # what the sink reports. Trust this block only from a device whose hello carries
 # CONFIG_INITIALISED - firmware without it builds the block over uninitialised
 # stack, where the valid bit itself is noise.
-scaling = device.v2ip_details.scaling
+scaling = device.oneip_details.scaling
 print(scaling.auto_scaling)        # None when the sender did not say
 print(scaling.configured_mode)     # (signal type, refresh), None when it has none
 
 # a mode is given as a depth and a colour space, never as a packed signal-type
 # word read back off the wire: a sink with no mode reports the word carrying the
 # index for "no depth", which a receiver decodes to zero and drops in silence.
-mode = mx_remote.V2IPOutputMode(svd=16, depth=12,
+mode = mx_remote.OneIPOutputMode(svd=16, depth=12,
                                 colour=mx_remote.VideoColourSpace.YUV422, refresh=60)
 
-await device.set_v2ip_auto_scaling(False)   # turn it off before setting a mode
-await device.set_v2ip_output_mode(mode)
-await device.set_v2ip_auto_scaling(True)    # back on, if that is what you want
+await device.set_oneip_auto_scaling(False)   # turn it off before setting a mode
+await device.set_oneip_output_mode(mode)
+await device.set_oneip_auto_scaling(True)    # back on, if that is what you want
 
-await device.clear_v2ip_output_mode()       # the only way to say "no mode"
+await device.clear_oneip_output_mode()       # the only way to say "no mode"
 ```
 
 **Set the mode with automatic scaling off.** A sink scaling automatically
@@ -127,19 +133,19 @@ in silence. Setting the mode first and turning automatic scaling back on
 afterwards is the order that survives, because the mode is checked while
 automatic scaling is still off.
 
-Nothing acknowledges any of these. `set_v2ip_output_mode` returns False for a
+Nothing acknowledges any of these. `set_oneip_output_mode` returns False for a
 mode no sink would take, but a True only says the frame went out: the sink
 weighs the format against the display's EDID and against what its own output
-stage can produce, and refuses silently either way. Read `v2ip_details.scaling`
+stage can produce, and refuses silently either way. Read `oneip_details.scaling`
 back on the device's next report to learn what it did.
 
 A scaling change makes the device rebuild and rebroadcast its sink block, so
-expect `device.v2ip_sink` to read empty for a moment afterwards - see
+expect `device.oneip_sink` to read empty for a moment afterwards - see
 [what an empty sink block means](#what-an-empty-sink-block-means).
 
 ## What an empty sink block means
 
-`device.v2ip_sink` addresses that read as unset mean "no route, or the sink
+`device.oneip_sink` addresses that read as unset mean "no route, or the sink
 could not work one out", never "definitely not subscribed". This is the one part
 of a device configuration with no validity marker of its own, so a sink with
 nothing to say sends zeros and the library stores them. A sender leaves it
@@ -163,29 +169,29 @@ device's configuration sends it zeroed, and the library ignores that copy.
 
 ## Device settings
 
-A V2IP device reports its settings in its configuration: decoder auto-disable,
+A OneIP device reports its settings in its configuration: decoder auto-disable,
 HDMI off without signal, IR modulation, the status and network LEDs, quiet fan,
 CEC combo keys, and the infrared profiles. Each sits behind its own bit, so a
 device reports only the settings it has, and a write changes one without
 restating the rest.
 
 ```python
-from mx_remote import V2IPDeviceSetting
+from mx_remote import OneIPDeviceSetting
 
-settings = device.v2ip_settings             # None until the device has reported
-print(settings.get(V2IPDeviceSetting.FAN_QUIET))   # None: the device lacks it
+settings = device.oneip_settings             # None until the device has reported
+print(settings.get(OneIPDeviceSetting.FAN_QUIET))   # None: the device lacks it
 print(settings.ir_profile, settings.ir_profile_sink)
 
-await device.set_v2ip_setting(V2IPDeviceSetting.STATUS_LED, False)
-await device.set_v2ip_ir_profile(2)
-await device.set_v2ip_sink_ir_profile(mx_remote.V2IP_IR_PROFILE_NOT_SET)  # follow the global port
+await device.set_oneip_setting(OneIPDeviceSetting.STATUS_LED, False)
+await device.set_oneip_ir_profile(2)
+await device.set_oneip_sink_ir_profile(mx_remote.ONEIP_IR_PROFILE_NOT_SET)  # follow the global port
 ```
 
 A write returns False, without sending anything, for whatever the device would
 ignore in silence: a setting it has not reported, a profile out of range, or a
 device that has reported no settings at all. So a True is never a change that
 does not happen, though nothing acknowledges it either: the device answers by
-reporting its settings, and until then `v2ip_settings` reads back what was
+reporting its settings, and until then `oneip_settings` reads back what was
 written.
 
 A write from another controller is cached only as far as the device takes it.
@@ -200,14 +206,14 @@ after midnight, Monday first; a window that ends before it starts runs past
 midnight, and one that ends where it starts means none that day.
 
 ```python
-from mx_remote import V2IPPowerSaveSchedule
+from mx_remote import OneIPPowerSaveSchedule
 
 print(settings.auto_power_save)            # idle minutes, 0 for never
 print(settings.power_save_schedule)        # e.g. "mon 22:00-07:00, ..."
-print(settings.get(V2IPDeviceSetting.CLOCK_SET))
+print(settings.get(OneIPDeviceSetting.CLOCK_SET))
 
-await device.set_v2ip_auto_power_save(30)
-await device.set_v2ip_power_save_schedule(V2IPPowerSaveSchedule(
+await device.set_oneip_auto_power_save(30)
+await device.set_oneip_power_save_schedule(OneIPPowerSaveSchedule(
     start=(22 * 60,) * 5 + (0, 0), end=(7 * 60,) * 5 + (0, 0)))  # weeknights
 ```
 
@@ -221,48 +227,48 @@ same.
 A device that announces `DeviceFeature.VLAN` tags its uplink by a VLAN
 configuration: its own VLAN id, one per external port (the SFP port, the UTP
 port with PoE, then the UTP port), and the port pinned as the uplink. Ids run
-0 to `V2IP_VLAN_ID_MAX`, 0 meaning untagged; ports are numbered from 1 on the
+0 to `ONEIP_VLAN_ID_MAX`, 0 meaning untagged; ports are numbered from 1 on the
 wire, 0 meaning detect the uplink.
 
 ```python
-from mx_remote import V2IPVlan
+from mx_remote import OneIPVlan
 
-vlan = device.v2ip_vlan          # None until the device reports one
+vlan = device.oneip_vlan          # None until the device reports one
 print(vlan.device, vlan.port, vlan.pinned_uplink_port, vlan.active_uplink_port)
 print(vlan.is_pending, vlan.revert_s)
 
-await device.set_v2ip_vlan(V2IPVlan(device=10, port=(0, 20, 0), uplink=2))
+await device.set_oneip_vlan(OneIPVlan(device=10, port=(0, 20, 0), uplink=2))
 ```
 
-Only the device knows what it runs, so `v2ip_vlan` is read only from the device
+Only the device knows what it runs, so `oneip_vlan` is read only from the device
 describing itself, and a write is not cached. The device applies a change at
 once and reverts it after `revert_s` seconds unless the mesh controller, hearing
 it report the change as pending, confirms it.
 
 Only the ids, the uplink and the trunk bit are written. Refused before sending:
 a device without the VLAN feature or that has not reported its configuration, an
-id above `V2IP_VLAN_ID_MAX`, an uplink that names no port, and an SFP uplink on
+id above `ONEIP_VLAN_ID_MAX`, an uplink that names no port, and an SFP uplink on
 a device that reports no SFP port. The write goes out as a settings write that
 carries no setting plus the block, so a receiver that predates the block sees a
 frame it already understood.
 
 ### Test pattern, tone and lip-sync
 
-A sink whose video processor reports `V2IPFpgaFeature.SINK_TEST_PATTERN` draws a
+A sink whose video processor reports `OneIPVideoProcessorFeature.SINK_TEST_PATTERN` draws a
 test card on its output: a pattern, a test tone, and a lip-sync flash that marks
 a frame and beeps a set number of sample periods after it.
 
 ```python
-from mx_remote import V2IPTestPattern, V2IPTestSync, V2IPTestTone, V2IPToneMode
+from mx_remote import OneIPTestPattern, OneIPTestSync, OneIPTestTone, OneIPToneMode
 
-await sink.request_v2ip_testcard()                        # the sink reports straight back
-await sink.set_v2ip_test_pattern(V2IPTestPattern.FLAT, 0x3050A0)
-await sink.set_v2ip_test_tone(V2IPTestTone(mode=V2IPToneMode.CONTINUOUS,
+await sink.request_oneip_testcard()                        # the sink reports straight back
+await sink.set_oneip_test_pattern(OneIPTestPattern.FLAT, 0x3050A0)
+await sink.set_oneip_test_tone(OneIPTestTone(mode=OneIPToneMode.CONTINUOUS,
                                            freq=1000, level=-20, channels=2, rate=48000))
-await sink.set_v2ip_test_sync(V2IPTestSync(period=60, lead=0, offset=0, beep_ms=40))
-await sink.set_v2ip_test_pattern(V2IPTestPattern.OFF)
+await sink.set_oneip_test_sync(OneIPTestSync(period=60, lead=0, offset=0, beep_ms=40))
+await sink.set_oneip_test_pattern(OneIPTestPattern.OFF)
 
-print(sink.v2ip_testcard)   # None until the sink has reported
+print(sink.oneip_testcard)   # None until the sink has reported
 ```
 
 A pattern runs until it is turned off, and holds the output on while it does.
@@ -271,28 +277,28 @@ every client records it against the sink; a write is not cached. A sink with the
 feature but without the module that draws the test card does not answer.
 
 Each value is checked against the ranges the sink accepts, since it drops what
-falls outside them in silence: see `V2IPTestTone.is_valid()` and
-`V2IPTestSync.is_valid()`. A tone turned off goes out whatever else it holds,
+falls outside them in silence: see `OneIPTestTone.is_valid()` and
+`OneIPTestSync.is_valid()`. A tone turned off goes out whatever else it holds,
 as the sink stops it regardless. The frame needs protocol 0x2B, so a sink
 announcing less is refused as well.
 
 ### Every device at once
 
-One broadcast changes settings on every V2IP device of the mesh. Each device
+One broadcast changes settings on every OneIP device of the mesh. Each device
 applies the settings it has and ignores the rest, and none below protocol 0x2A
 applies any.
 
 ```python
-from mx_remote import V2IPDeviceSettings
+from mx_remote import OneIPDeviceSettings
 
-await mx.set_all_v2ip_device_settings(V2IPDeviceSettings(
-    valid=V2IPDeviceSetting.STATUS_LED | V2IPDeviceSetting.AUTO_POWER_SAVE,
-    flags=V2IPDeviceSetting.STATUS_LED,      # the LED on
+await mx.set_all_oneip_device_settings(OneIPDeviceSettings(
+    valid=OneIPDeviceSetting.STATUS_LED | OneIPDeviceSetting.AUTO_POWER_SAVE,
+    flags=OneIPDeviceSetting.STATUS_LED,      # the LED on
     auto_power_save=30))
 ```
 
 Nothing is cached from it: each device that applies a change reports its
-settings, and its `v2ip_settings` reads that. What every device would ignore is
+settings, and its `oneip_settings` reads that. What every device would ignore is
 refused rather than sent - no setting at all, one only a device reports about
 itself, a profile out of range, or a schedule time that is not a time of day.
 
@@ -304,8 +310,8 @@ await device.mesh_promote()   # promote to mesh master
 await device.mesh_remove()    # remove from mesh
 
 # firmware versions
-if device.v2ip_firmware_versions:
-    for fw_type, fw in device.v2ip_firmware_versions.items():
+if device.oneip_firmware_versions:
+    for fw_type, fw in device.oneip_firmware_versions.items():
         print(f"{fw_type}: {fw.version}")
 ```
 

@@ -52,7 +52,7 @@ for state, name, settled in ((0,'Unknown',False), (1,'Healthy',True), (2,'Bad',T
     f = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x3F, stats(state)), ADDR)
     f.process()
     dev = mx.get_by_uid(mx_remote.MxrDeviceUid(UID))
-    st = dev.v2ip_stats.rx.decoder_state
+    st = dev.oneip_stats.rx.decoder_state
     assert int(st) == state and str(st) == name, (st, name)
     assert st.settled == settled, (st, settled)
     print(f'0x3F : state {state} -> {st} (settled={st.settled})')
@@ -367,9 +367,9 @@ f = process_mxr_frame(mx, time.time(), req, ADDR)
 assert f.is_request and len(f.payload) == 17, (f.is_request, len(f.payload))
 assert f.stats_enabled is True, f.stats_enabled
 
-before = mx.get_by_uid(mx_remote.MxrDeviceUid(UID)).v2ip_stats
+before = mx.get_by_uid(mx_remote.MxrDeviceUid(UID)).oneip_stats
 f.process()
-assert mx.get_by_uid(mx_remote.MxrDeviceUid(UID)).v2ip_stats is before, \
+assert mx.get_by_uid(mx_remote.MxrDeviceUid(UID)).oneip_stats is before, \
     'a request must not overwrite the cached report'
 
 off = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x3F, UID + bytes([0])), ADDR)

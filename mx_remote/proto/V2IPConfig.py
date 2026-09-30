@@ -9,15 +9,15 @@
 from typing import Any
 from ..compat import override
 from ..Uid import MxrDeviceUid
-from ..Interface import V2IPStreamSource, V2IPStreamSources, V2IPAudioFormat
+from ..Interface import OneIPStreamSource, OneIPStreamSources, OneIPAudioFormat
 import socket
 import struct
 
-# Re-exported for back-compat: V2IPAudioFormat lives in Interface so abstract types can reference it.
-__all__ = ["V2IPAudioFormat", "V2IPStreamSourceImpl", "V2IPConfig", "V2IPStreamSourcesImpl", "parse_v2ip_av_source"]
+# Re-exported for back-compat: OneIPAudioFormat lives in Interface so abstract types can reference it.
+__all__ = ["OneIPAudioFormat", "V2IPStreamSourceImpl", "V2IPConfig", "V2IPStreamSourcesImpl", "parse_v2ip_av_source"]
 
-class V2IPStreamSourceImpl(V2IPStreamSource):
-    '''Concrete implementation of a V2IP stream source with IP and port.'''
+class V2IPStreamSourceImpl(OneIPStreamSource):
+    '''Concrete implementation of a OneIP stream source with IP and port.'''
 
     def __init__(self, label:str, data:bytes) -> None:
         self._label = label
@@ -55,7 +55,7 @@ class V2IPStreamSourceImpl(V2IPStreamSource):
         return result if (result is NotImplemented) else (not result)
 
 class V2IPConfig:
-    '''V2IP source configuration for a single port with video, audio, and ancillary streams.'''
+    '''OneIP source configuration for a single port with video, audio, and ancillary streams.'''
     def __init__(self, frame:'FrameBase', port:int, payload:bytes) -> None:
         if len(payload) < 40:
             raise Exception(f"invalid size: {len(payload)}")
@@ -72,19 +72,19 @@ class V2IPConfig:
 
     @property
     def uid(self) -> MxrDeviceUid:
-        '''Device UID of the V2IP source.'''
+        '''Device UID of the OneIP source.'''
         return MxrDeviceUid(self.payload[0:16])
 
     def __repr__(self) -> str:
         return str(self)
 
     def __str__(self) -> str:
-        return f"V2IP port {self.port} source uid {self.uid} - {self.video} {self.audio} {self.anc}"
+        return f"OneIP port {self.port} source uid {self.uid} - {self.video} {self.audio} {self.anc}"
 
-class V2IPStreamSourcesImpl(V2IPStreamSources):
-    '''Concrete collection of V2IP stream sources (video, audio, ancillary, ARC).'''
+class V2IPStreamSourcesImpl(OneIPStreamSources):
+    '''Concrete collection of OneIP stream sources (video, audio, ancillary, ARC).'''
 
-    def __init__(self, video:V2IPStreamSource, audio:V2IPStreamSource, anc:V2IPStreamSource, arc:V2IPStreamSource|None=None, uid:MxrDeviceUid|None=None) -> None:
+    def __init__(self, video:OneIPStreamSource, audio:OneIPStreamSource, anc:OneIPStreamSource, arc:OneIPStreamSource|None=None, uid:MxrDeviceUid|None=None) -> None:
         self._video = video
         self._audio = audio
         self._anc = anc
@@ -98,38 +98,38 @@ class V2IPStreamSourcesImpl(V2IPStreamSources):
 
     @property
     @override
-    def video(self) -> V2IPStreamSource:
+    def video(self) -> OneIPStreamSource:
         return self._video
 
     @video.setter
-    def video(self, stream:V2IPStreamSource) -> None:
+    def video(self, stream:OneIPStreamSource) -> None:
         self._video = stream
 
     @property
     @override
-    def audio(self) -> V2IPStreamSource:
+    def audio(self) -> OneIPStreamSource:
         return self._audio
 
     @audio.setter
-    def audio(self, stream:V2IPStreamSource) -> None:
+    def audio(self, stream:OneIPStreamSource) -> None:
         self._audio = stream
 
     @property
     @override
-    def anc(self) -> V2IPStreamSource:
+    def anc(self) -> OneIPStreamSource:
         return self._anc
 
     @anc.setter
-    def anc(self, stream:V2IPStreamSource) -> None:
+    def anc(self, stream:OneIPStreamSource) -> None:
         self._anc = stream
 
     @property
     @override
-    def arc(self) -> V2IPStreamSource|None:
+    def arc(self) -> OneIPStreamSource|None:
         return self._arc
 
     @arc.setter
-    def arc(self, stream:V2IPStreamSource|None) -> None:
+    def arc(self, stream:OneIPStreamSource|None) -> None:
         self._arc = stream
 
     def __eq__(self, other:Any) -> bool:

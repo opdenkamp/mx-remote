@@ -78,7 +78,7 @@ short.process()   # must be a no-op, not a misattribution
 print('short report: dropped, not misattributed')
 
 # ---- 0x3C device config with dscp
-from mx_remote.proto.Constants import MXR_V2IP_DSCP_SET
+from mx_remote.proto.Constants import MXR_ONEIP_DSCP_SET
 def av_source(ips):
     out = b''
     for ip, port in ips:
@@ -86,14 +86,14 @@ def av_source(ips):
     return out
 cfg = UID \
     + av_source([('239.1.1.1', 50020), ('239.1.1.2', 50022), ('239.1.1.3', 50021)]) \
-    + bytes([60, MXR_V2IP_DSCP_SET | 34, MXR_V2IP_DSCP_SET | 46, MXR_V2IP_DSCP_SET | 0]) + bytes(4) \
+    + bytes([60, MXR_ONEIP_DSCP_SET | 34, MXR_ONEIP_DSCP_SET | 46, MXR_ONEIP_DSCP_SET | 0]) + bytes(4) \
     + av_source([('0.0.0.0', 0)]) + bytes(2) \
     + struct.pack('<HHB3s', 0, 60, 1, b'\0\0\0') \
     + bytes(24)
 f = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x3C, cfg), ADDR)
 print('0x3C cfg    :', f)
 f.process()
-d = dev.v2ip_details
+d = dev.oneip_details
 print('  rate', d.tx_rate, '| dscp', d.dscp)
 assert d.tx_rate == 60 and (d.dscp.video, d.dscp.audio, d.dscp.anc) == (34, 46, 0)
 
@@ -101,7 +101,7 @@ assert d.tx_rate == 60 and (d.dscp.video, d.dscp.audio, d.dscp.anc) == (34, 46, 
 cfg2 = bytearray(cfg); cfg2[40:44] = bytes([0, 0, 0, 0])
 f = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x3C, bytes(cfg2)), ADDR)
 f.process()
-d = dev.v2ip_details
+d = dev.oneip_details
 print('  after address-only write: rate', d.tx_rate, '| dscp', d.dscp)
 assert d.tx_rate == 60 and d.dscp.audio == 46
 

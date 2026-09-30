@@ -31,7 +31,7 @@ def opcode(frame):
 
 def hello(uid, protocol, serial):
     return create_mxr_frame(uid, HELLO, struct.pack('<H', protocol) + name('ONEIP') + name(serial)
-                            + name('5.0.0') + struct.pack('<I', int(mx_remote.DeviceFeature.V2IP_SINK)))
+                            + name('5.0.0') + struct.pack('<I', int(mx_remote.DeviceFeature.ONEIP_SINK)))
 
 def client():
     mx = mx_remote.Remote(open_connection=False)

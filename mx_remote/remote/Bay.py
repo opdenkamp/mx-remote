@@ -16,7 +16,7 @@ from ..proto.BayConfig import BayConfig
 from ..proto.Data import VolumeMuteStatus
 from ..proto.FrameV2IPSourceSwitch import FrameV2IPSourceSwitch
 from ..proto.FrameV2IPManualSourceSwitch import FrameV2IPManualSourceSwitch
-from ..proto.V2IPConfig import V2IPAudioFormat
+from ..proto.V2IPConfig import OneIPAudioFormat
 from ..proto.FrameEDIDProfile import FrameEDIDProfile
 from ..proto.FrameBayHide import FrameBayHide
 from ..proto.FrameSetName import FrameSetName
@@ -31,7 +31,7 @@ from ..Interface import (
     DeviceBase,
     BayLink,
     MxrCallbacks,
-    V2IPStreamSources,
+    OneIPStreamSources,
     AmpZoneSettings,
     DeviceStatus,
     SelectedBays,
@@ -132,8 +132,8 @@ class Bay(BayBase):
 
     @property
     @override
-    def v2ip_source(self) -> V2IPStreamSources|None:
-        return self.device.v2ip_source(self)
+    def oneip_source(self) -> OneIPStreamSources|None:
+        return self.device.oneip_source(self)
 
     @property
     @override
@@ -155,9 +155,9 @@ class Bay(BayBase):
         # source uid from MXR_OP_SYS_BAY_V2IP_SOURCES, falling back to the bay
         # mapping uid if the sources frame hasn't supplied one. Yields a single
         # stable bay_uid regardless of who advertises the source.
-        if self.is_v2ip_source:
+        if self.is_oneip_source:
             src_uid:MxrDeviceUid|None = None
-            stream = self.v2ip_source
+            stream = self.oneip_source
             if (stream is not None) and (stream.uid is not None) and not stream.uid.empty:
                 src_uid = stream.uid
             elif (self._v2ip_uid is not None) and not self._v2ip_uid.empty:
@@ -168,16 +168,16 @@ class Bay(BayBase):
 
     @property
     @override
-    def v2ip_uid(self) -> MxrDeviceUid|None:
+    def oneip_uid(self) -> MxrDeviceUid|None:
         return self._v2ip_uid
 
-    @v2ip_uid.setter
-    def v2ip_uid(self, uid:MxrDeviceUid|None) -> None:
+    @oneip_uid.setter
+    def oneip_uid(self, uid:MxrDeviceUid|None) -> None:
         self._v2ip_uid = uid
 
     @property
     @override
-    def v2ip_device(self) -> DeviceBase|None:
+    def oneip_device(self) -> DeviceBase|None:
         return self.device.registry.get_by_uid(self._v2ip_uid)
 
     @property
@@ -232,24 +232,24 @@ class Bay(BayBase):
     @property
     @override
     def is_local(self) -> bool:
-        return not self.is_v2ip_remote
+        return not self.is_oneip_remote
 
     @property
     @override
-    def is_v2ip_remote(self) -> bool:
-        return BayFeaturesMask.V2IP_SINK_REMOTE in self.features or BayFeaturesMask.V2IP_SOURCE_REMOTE in self.features
+    def is_oneip_remote(self) -> bool:
+        return BayFeaturesMask.ONEIP_SINK_REMOTE in self.features or BayFeaturesMask.ONEIP_SOURCE_REMOTE in self.features
 
     @property
     @override
-    def is_v2ip_source(self) -> bool:
-        return BayFeaturesMask.V2IP_SOURCE_LOCAL in self.features \
-            or BayFeaturesMask.V2IP_SOURCE_REMOTE in self.features
+    def is_oneip_source(self) -> bool:
+        return BayFeaturesMask.ONEIP_SOURCE_LOCAL in self.features \
+            or BayFeaturesMask.ONEIP_SOURCE_REMOTE in self.features
 
     @property
     @override
-    def is_v2ip_sink(self) -> bool:
-        return BayFeaturesMask.V2IP_SINK_LOCAL in self.features \
-            or BayFeaturesMask.V2IP_SINK_REMOTE in self.features
+    def is_oneip_sink(self) -> bool:
+        return BayFeaturesMask.ONEIP_SINK_LOCAL in self.features \
+            or BayFeaturesMask.ONEIP_SINK_REMOTE in self.features
 
     @property
     @override
@@ -282,7 +282,7 @@ class Bay(BayBase):
         return BayFeaturesMask.HDMI_IN in self.features \
             or BayFeaturesMask.AUDIO_DIG_IN in self.features \
             or BayFeaturesMask.AUDIO_ANA_IN in self.features \
-            or self.is_v2ip_source
+            or self.is_oneip_source
 
     @property
     @override
@@ -291,7 +291,7 @@ class Bay(BayBase):
             or BayFeaturesMask.AUDIO_AMP_OUT in self.features \
             or BayFeaturesMask.AUDIO_DIG_OUT in self.features \
             or BayFeaturesMask.AUDIO_ANA_OUT in self.features \
-            or self.is_v2ip_sink
+            or self.is_oneip_sink
 
     @property
     @override
@@ -466,9 +466,9 @@ class Bay(BayBase):
         '''Return 'ip:port' for an active sink subscription that doesn't map to any
         known input bay; None otherwise (no sink state, no active stream, or the
         multicast resolves to a registered source bay).'''
-        if not self.is_output or not self.is_v2ip_sink:
+        if not self.is_output or not self.is_oneip_sink:
             return None
-        sink = self.device.v2ip_sink
+        sink = self.device.oneip_sink
         if sink is None or sink.addresses is None:
             return None
         stream = sink.addresses.audio if audio else sink.addresses.video
@@ -489,7 +489,7 @@ class Bay(BayBase):
                 lep = bay.audio_endpoint.link(self.device.registry)
                 if (lep is not None) and (lep.bay is not None):
                     rv += lep.bay.available_audio_sources
-            # if self.is_v2ip_sink:
+            # if self.is_oneip_sink:
             #     rv.append(bay)
             # elif (bay.is_audio):
             #     rv.append(bay)
@@ -859,22 +859,22 @@ class Bay(BayBase):
         return False
 
     @override
-    async def select_audio_source(self, source:int|BayBase|str|None, endpoint:str|None=None, audio_fmt:V2IPAudioFormat|None=None) -> bool:
+    async def select_audio_source(self, source:int|BayBase|str|None, endpoint:str|None=None, audio_fmt:OneIPAudioFormat|None=None) -> bool:
         '''Select the audio source for this output bay.
 
         ``source`` may be an input port number, a source ``BayBase``, or a raw
-        ``"ip[:port]"`` multicast address string. The manual V2IP source switch
+        ``"ip[:port]"`` multicast address string. The manual OneIP source switch
         frame (0x24) is used when ``audio_fmt`` is provided (so the receiver's
         sample rate and channel count can be overridden) or when ``source`` is a
         raw address (so its destination port is carried -- the legacy 0x1F frame
         has no port field). A raw address without a port defaults to the standard
-        V2IP audio port. video/anc are sent as 0.0.0.0:0 (no change).
+        OneIP audio port. video/anc are sent as 0.0.0.0:0 (no change).
 
         True means the frame was sent, not that the sink applied it: none of
         these frames is acknowledged, so a sink that declines the route answers
         nothing. Confirm by waiting for ``audio_source`` to change.
         '''
-        if not self.is_v2ip_sink:
+        if not self.is_oneip_sink:
             return False
         if isinstance(source, int):
             source = self.device.get_by_portnum(source)
@@ -895,10 +895,10 @@ class Bay(BayBase):
         # is requested; a known input bay with neither still uses 0x1F.
         if (audio_fmt is not None) or isinstance(source, str):
             if isinstance(source, BayBase):
-                if (source.v2ip_source is None) or (source.v2ip_source.audio is None):
+                if (source.oneip_source is None) or (source.oneip_source.audio is None):
                     return False
-                audio_ip = source.v2ip_source.audio.ip
-                audio_port = source.v2ip_source.audio.port
+                audio_ip = source.oneip_source.audio.ip
+                audio_port = source.oneip_source.audio.port
             else:
                 host, _, port_s = source.partition(':')
                 audio_ip = host
@@ -927,15 +927,15 @@ class Bay(BayBase):
     async def select_video_source(self, port:int, opt:bool=True) -> bool:
         '''Select the video source for this output bay by port number.
 
-        On the V2IP path True means the switch frame was sent, not that the sink
+        On the OneIP path True means the switch frame was sent, not that the sink
         applied it: the frame carries no acknowledgement, so a sink that declines
         the route answers nothing. A sink that does switch announces it, so
         confirm by waiting for ``video_source`` to change. The HTTP path used for
-        a non-V2IP output does check for a response.
+        a non-OneIP output does check for a response.
         '''
         if not self.is_output:
             return False
-        if self.is_v2ip_sink:
+        if self.is_oneip_sink:
             source_bay = self.device.get_by_portnum(port)
             if source_bay is not None:
                 frame = FrameV2IPSourceSwitch.construct(mxr=self.device.registry, target=self, video=source_bay)
@@ -1150,7 +1150,7 @@ class Bay(BayBase):
         self.bay = data.bay
         self._on_mxr_bay_status(data.status)
         self._signal_snapshot = data.signal_snapshot
-        if BayStatusMask.SIGNAL_DETECTED not in data.status or not self.device.is_v2ip:
+        if BayStatusMask.SIGNAL_DETECTED not in data.status or not self.device.is_oneip:
             self.signal_type = data.signal_type
         if self.is_output:
             self.video_source = self.device.get_by_portnum(data.video_source)
@@ -1240,10 +1240,10 @@ class Bay(BayBase):
             self.mirroring = data
 
     def __str__(self) -> str:
-        if self.is_v2ip_source:
-            if self.v2ip_source is None:
+        if self.is_oneip_source:
+            if self.oneip_source is None:
                 return f"{self.device.serial} {self.bay_label} <unknown mcast address>"
-            return f"{self.device.serial} {self.bay_label} {self.v2ip_source.video}"
+            return f"{self.device.serial} {self.bay_label} {self.oneip_source.video}"
         return f"{self.device.serial} {self.bay_label}"
 
     def __eq__(self, other:Any) -> bool:

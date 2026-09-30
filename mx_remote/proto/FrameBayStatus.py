@@ -53,7 +53,7 @@ class FrameBayStatus(FrameBase):
 
         if (self.status is not None):
             self.bay.on_mxr_update(self.status)
-            if BayStatusMask.SIGNAL_DETECTED not in self.status or not self.bay.device.is_v2ip:
+            if BayStatusMask.SIGNAL_DETECTED not in self.status or not self.bay.device.is_oneip:
                 self.bay.on_mxr_update(SignalStatus(detected=BayStatusMask.SIGNAL_DETECTED in self.status, description=self.signal_type))
 
     def __str__(self) -> str:

@@ -36,8 +36,8 @@ def name(s, sz=16):
     b = s.encode('ascii')[:sz]
     return b + bytes(sz - len(b))
 
-feat = (1 << 5) | (1 << 6) | int(mx_remote.DeviceFeature.V2IP_SOURCE) \
-     | int(mx_remote.DeviceFeature.V2IP_SINK) | int(mx_remote.DeviceFeature.MULTIVIEWER)
+feat = (1 << 5) | (1 << 6) | int(mx_remote.DeviceFeature.ONEIP_SOURCE) \
+     | int(mx_remote.DeviceFeature.ONEIP_SINK) | int(mx_remote.DeviceFeature.MULTIVIEWER)
 rx(0x00, struct.pack('<H', 0x28) + name('MX-1') + name('P8SN12345678')
         + name('5.0.0') + struct.pack('<I', feat))
 dev = mx.get_by_uid(mx_remote.MxrDeviceUid(UID))
@@ -48,14 +48,14 @@ def bay(port, mode, num, nm, feat=None):
     return bytes([port, mode, num, 0, 0]) + name(nm) + name(nm) + name('1080p') \
          + struct.pack('<I', 0) + struct.pack('<I', feat)
 rx(0x02, bay(0, 0, 0, 'In 1') + bay(1, 1, 0, 'Out 1')
-        + bay(2, 1, 1, 'Sink 1', feat=int(mx_remote.BayFeaturesMask.V2IP_SINK_LOCAL))
-        + bay(3, 0, 1, 'V2IP In', feat=int(mx_remote.BayFeaturesMask.V2IP_SOURCE_LOCAL)))
+        + bay(2, 1, 1, 'Sink 1', feat=int(mx_remote.BayFeaturesMask.ONEIP_SINK_LOCAL))
+        + bay(3, 0, 1, 'V2IP In', feat=int(mx_remote.BayFeaturesMask.ONEIP_SOURCE_LOCAL)))
 out = dev.get_by_portnum(1)
 sink = dev.get_by_portnum(2)
 v2src = dev.get_by_portnum(3)
 
 # 0x26 gives the source bay its stream addresses, which the switch builder requires.
-# Entries are positional and Device.v2ip_source() indexes by bay number, so send
+# Entries are positional and Device.oneip_source() indexes by bay number, so send
 # two identical good ones rather than depend on which offset applies here.
 def entry(ips):
     out = bytes(range(1, 17))
@@ -64,8 +64,8 @@ def entry(ips):
     return out
 good = entry([('239.1.1.1', 50020), ('239.1.1.2', 50022), ('239.1.1.3', 50021)])
 rx(0x26, good + good)
-assert v2src.v2ip_source is not None, 'source bay must have v2ip addresses'
-print('v2ip source :', v2src.v2ip_source.video)
+assert v2src.oneip_source is not None, 'source bay must have v2ip addresses'
+print('v2ip source :', v2src.oneip_source.video)
 print('output bay  :', out)
 assert out is not None and out.is_output
 

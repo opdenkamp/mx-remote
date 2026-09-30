@@ -24,7 +24,7 @@ assert decode_enum(RCKey, 9999) is None, 'RCKey has no UNKNOWN, so unknown is No
 assert decode_enum(RCAction, 99) is None
 assert decode_enum(UtpLinkSpeed, 7) == UtpLinkSpeed.UNKNOWN
 # and never a confident wrong answer
-assert decode_enum(FirmwareType, 99) != FirmwareType.FPGA
+assert decode_enum(FirmwareType, 99) != FirmwareType.VIDEO_PROCESSOR
 print('helper : unknown -> UNKNOWN where defined, else None; never clamped')
 
 # --- a frame carrying an unknown value must not kill the receive path
