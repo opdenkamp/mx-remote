@@ -24,7 +24,7 @@ import mx_remote
 from mx_remote import DeviceFeature, MxrDeviceUid, VideoColourSpace
 from mx_remote.Interface import V2IPOutputMode
 from mx_remote.proto.Constants import (MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
-                                       MXR_SCALING_FLAG_OPTIONS_VALID)
+                                       MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_OPTIONS2_VALID)
 from mx_remote.proto.Factory import create_mxr_frame
 
 ADDR = ('192.0.2.9', 8812)
@@ -157,5 +157,56 @@ rx(uid(0x10), 0x3C, last_payload())
 signal, hz = sink.v2ip_details.scaling.configured_mode
 assert (signal.value, hz) == (0x6210, 60), (hex(signal.value), hz)
 print('round trip  :', signal, hz, 'Hz')
+
+# ------------------------------------------------------------- a sink's report
+
+INIT = SINK | int(DeviceFeature.CONFIG_INITIALISED)
+MANUAL = struct.pack('<HHB', 0x6210, 60,
+                     MXR_SCALING_FLAG_MODE_VALID | MXR_SCALING_FLAG_OPTIONS_VALID
+                     | MXR_SCALING_FLAG_AUTO_SCALING)
+
+def report(subject, scaling, sender=None):
+    '''A 0x3C naming subject, carrying a multicast address and this scaling block.'''
+    p = bytearray(88)
+    p[0:16] = subject
+    p[16:22] = bytes([239, 1, 2, 3]) + struct.pack('<H', 5004)   # video
+    p[32:38] = bytes([239, 1, 2, 4]) + struct.pack('<H', 5006)   # anc
+    p[40] = 0xFF
+    p[56:61] = scaling
+    rx(sender if (sender is not None) else subject, 0x3C, bytes(p))
+
+def sink_with_a_mode(n, features=INIT):
+    dev = hello(uid(n), features)
+    report(uid(n), MANUAL)
+    assert dev.v2ip_details.scaling.configured_mode is not None, dev.v2ip_details.scaling
+    return dev
+
+# A sink's own report carries its whole scaling state, so one with the options
+# and no mode says it no longer scales to a mode of its own.
+own = sink_with_a_mode(0x30)
+calls = []
+own.register_callback(lambda d: calls.append(d))
+report(uid(0x30), struct.pack('<HHB', 0, 0, MXR_SCALING_FLAG_OPTIONS_VALID | MXR_SCALING_FLAG_AUTO_SCALING))
+assert own.v2ip_details.scaling.configured_mode is None, 'the old mode is still held'
+assert own.v2ip_details.scaling.auto_scaling is True, own.v2ip_details.scaling
+assert calls, 'turning the mode off was not reported'
+print('mode dropped:', own.v2ip_details.scaling)
+
+# Without the whole state, a frame with no mode says nothing about the mode.
+# A report carrying the second options group but not the first:
+dev = sink_with_a_mode(0x31)
+report(uid(0x31), struct.pack('<HHB', 0, 0, MXR_SCALING_FLAG_OPTIONS2_VALID))
+assert dev.v2ip_details.scaling.configured_mode is not None, 'a report without the options marker dropped the mode'
+# a sender whose options bit may be uninitialised memory:
+dev = sink_with_a_mode(0x32, features=SINK)
+report(uid(0x32), struct.pack('<HHB', 0, 0, MXR_SCALING_FLAG_OPTIONS_VALID))
+assert dev.v2ip_details.scaling.configured_mode is not None, 'an uninitialised sender dropped the mode'
+# and a controller's options-only write, which lands: it turns auto scaling off.
+dev = sink_with_a_mode(0x33)
+hello(uid(0x34), int(DeviceFeature.MANAGER) | int(DeviceFeature.CONFIG_INITIALISED), model='Ctrl')
+report(uid(0x33), struct.pack('<HHB', 0, 0, MXR_SCALING_FLAG_OPTIONS_VALID), sender=uid(0x34))
+assert dev.v2ip_details.scaling.auto_scaling is False, 'the controller\'s write did not land'
+assert dev.v2ip_details.scaling.configured_mode is not None, 'a controller\'s write dropped the mode'
+print('mode kept   : no options marker, uninitialised sender, controller write')
 
 print('ALL OK')

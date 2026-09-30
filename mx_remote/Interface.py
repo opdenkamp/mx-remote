@@ -1636,7 +1636,11 @@ class V2IPDscpConfig:
 
 class DeviceV2IPDetails:
     """ V2IP stream source details for a device """
-    def __init__(self, video:V2IPStreamSource|None, audio:V2IPStreamSource|None, anc:V2IPStreamSource|None, arc:V2IPStreamSource|None, tx_rate:int|None, scaling:DeviceV2IPScalingSettings|None, dscp:V2IPDscpConfig|None=None) -> None:
+    def __init__(self, video:V2IPStreamSource|None, audio:V2IPStreamSource|None, anc:V2IPStreamSource|None, arc:V2IPStreamSource|None, tx_rate:int|None, scaling:DeviceV2IPScalingSettings|None, dscp:V2IPDscpConfig|None=None, whole_scaling:bool=False) -> None:
+        '''whole_scaling says the scaling block is the sink's whole state rather
+        than a write of one part of it, so a mode it does not carry is a mode
+        the sink no longer has.'''
+        self._whole_scaling = whole_scaling
         self._video = video
         self._audio = audio
         self._anc = anc
@@ -1718,6 +1722,10 @@ class DeviceV2IPDetails:
         group is replaced whole behind its own marker, which is what keeps the
         marker itself - and so the knowledge that the device has those options -
         from being taken back by a later write that carries another group.
+
+        A sink's own report with the options marker carries its whole scaling
+        state, so there a missing mode is one the sink dropped rather than one
+        the frame did not carry.
         """
         incoming = self._scaling
         if (incoming is None) or (previous is None):
@@ -1728,11 +1736,14 @@ class DeviceV2IPDetails:
         if not mode_valid and not options_valid and not options2_valid:
             # carries no scaling at all
             return previous
-        mode = incoming.mode if mode_valid else previous.mode
-        refresh = incoming.refresh if mode_valid else previous.refresh
+        mode_dropped = self._whole_scaling and options_valid and not mode_valid
+        mode = incoming.mode if (mode_valid or mode_dropped) else previous.mode
+        refresh = incoming.refresh if (mode_valid or mode_dropped) else previous.refresh
         flags = previous.flags
         if mode_valid:
             flags |= MXR_SCALING_FLAG_MODE_VALID
+        elif mode_dropped:
+            flags &= ~MXR_SCALING_FLAG_MODE_VALID
         if options_valid:
             # Replace AUTO_SCALING alone rather than the whole upper nibble: on a
             # receiver-capable unit running firmware that leaves mxr_scaling_config

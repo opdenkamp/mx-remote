@@ -367,7 +367,14 @@ class FrameV2IPDeviceConfiguration(FrameBase):
 
     @cached_property
     def details(self) -> DeviceV2IPDetails:
-        return DeviceV2IPDetails(video=self.video, audio=self.audio, anc=self.anc, arc=self.arc, tx_rate=self.options.tx_rate, scaling=self.scaling, dscp=self.options.dscp)
+        # A sink's own report carries its whole scaling state, so one with the
+        # options but no mode says manual scaling is off. Only from a sender
+        # that initialises the block: from any other, the options bit may be junk.
+        sender = self.remote_device
+        whole_scaling = self.target_self and (sender is not None) and sender.config_initialised
+        return DeviceV2IPDetails(video=self.video, audio=self.audio, anc=self.anc, arc=self.arc,
+                                 tx_rate=self.options.tx_rate, scaling=self.scaling,
+                                 dscp=self.options.dscp, whole_scaling=whole_scaling)
 
     @cached_property
     def video_processor_features(self) -> V2IPFpgaFeature|None:

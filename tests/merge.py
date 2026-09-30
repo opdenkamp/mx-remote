@@ -39,8 +39,8 @@ def cfg(addrs=None, rate=0, dscp=None, scaling=(0, 0, 0)):
     assert len(out) == 88, len(out)
     return out
 
-def rx(payload):
-    f = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x3C, payload), ADDR)
+def rx(payload, sender=UID):
+    f = process_mxr_frame(mx, time.time(), create_mxr_frame(sender, 0x3C, payload), ADDR)
     f.process()
     return dev.v2ip_details
 
@@ -77,8 +77,14 @@ d = rx(cfg(addrs=[('239.9.9.1', 0), ('239.9.9.2', 0), ('239.9.9.3', 0)]))
 assert d.video.ip == '239.9.9.1', f"port 0 accepted: {d.video}"
 print('invalid    : unicast and port-0 both rejected, cache intact')
 
-# 5. OPTIONS-ONLY scaling write must keep mode/refresh and clear auto-scaling
-d = rx(cfg(scaling=(0, 0, MXR_SCALING_FLAG_OPTIONS_VALID)))
+# 5. OPTIONS-ONLY scaling write must keep mode/refresh and clear auto-scaling.
+#    A controller's: the sink's own report with the options marker is its whole
+#    scaling state, where a missing mode is one it dropped.
+CTRL = bytes(range(0x41, 0x51))
+mgr = struct.pack('<H', 0x28) + nm('Ctrl') + nm('CTRL0001') + nm('4.7.9') \
+    + struct.pack('<I', int(DeviceFeature.MANAGER))
+mx.process_frame(time.time(), create_mxr_frame(CTRL, 0x00, mgr), ADDR)
+d = rx(cfg(scaling=(0, 0, MXR_SCALING_FLAG_OPTIONS_VALID)), sender=CTRL)
 print('opts-only  : scaling', sc(d))
 assert d.scaling.mode == 0x1050 and d.scaling.refresh == 60, 'mode lost on options-only write'
 assert (d.scaling.flags & MXR_SCALING_FLAG_AUTO_SCALING) == 0, 'auto-scaling not cleared'
