@@ -80,6 +80,18 @@ bit, and the range of the infrared profiles.
 
 .. autoclass:: mx_remote.V2IPPowerSaveSchedule
    :members:
+
+.. autoclass:: mx_remote.V2IPVlan
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.V2IPVlanFlag
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.V2IP_VLAN_PORTS
+
+.. autodata:: mx_remote.proto.Constants.V2IP_VLAN_PORT_SFP
+
+.. autodata:: mx_remote.proto.Constants.V2IP_VLAN_ID_MAX
 ```
 
 ## Mesh time

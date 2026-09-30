@@ -333,6 +333,33 @@ V2IP_IR_PROFILE_MAX = 18
 """One past the highest infrared profile: the default profile is 0, the Atlona
 profile 1, and user-defined profiles 1 to 16 are 2 to 17."""
 
+class V2IPVlanFlag(IntFlag):
+	'''The flags of a V2IP device's VLAN configuration.'''
+	VALID   = (1 << 0)
+	'''The block carries a configuration. A block without it carries nothing,
+	whatever its other bytes hold.'''
+	TRUNK   = (1 << 1)
+	'''Untagged frames arriving on the uplink are dropped instead of reaching the
+	device.'''
+	PENDING = (1 << 2)
+	'''Reported by the device: the configuration is applied, and reverted unless
+	the mesh controller confirms it. Never written.'''
+	CONFIRM = (1 << 3)
+	'''Sent by the mesh controller: a pending configuration it heard, which the
+	device then keeps.'''
+	HAS_SFP = (1 << 4)
+	'''Reported by the device: it has an SFP port. Never written.'''
+
+V2IP_VLAN_PORTS = 3
+"""The external network ports a V2IPVlan covers, in the order of its port
+field: the SFP port, the UTP port with PoE, then the UTP port."""
+
+V2IP_VLAN_PORT_SFP = 0
+"""The index of the SFP port in V2IPVlan.port."""
+
+V2IP_VLAN_ID_MAX = 4094
+"""The highest VLAN id: 0 means untagged, and 4095 is reserved by IEEE 802.1Q."""
+
 BAY_FEATURE_DOLBY_IN_POS = 24
 
 class BayFeaturesMask(IntFlag):

@@ -24,6 +24,7 @@ from ..Interface import (
 	DeviceV2IPScalingSettings,
 	V2IPDeviceSettings,
 	V2IPPowerSaveSchedule,
+	V2IPVlan,
 	TimeZone,
 	DeviceClock,
 	V2IPOutputMode,
@@ -66,10 +67,10 @@ import time
 
 from ..Interface import DeviceBase, BayBase, DeviceRegistry
 from ..proto.FrameBase import FrameBase
-from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, DeviceFeature, MxrSignalType, V2IPDeviceSetting, V2IPFpgaFeature,
+from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, DeviceFeature, MxrSignalType, V2IPDeviceSetting, V2IPFpgaFeature, V2IPVlanFlag,
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                               MXR_SCALING_FLAG_OPTIONS_VALID, V2IP_DEVICE_SETTING_SWITCHES,
-                              V2IP_IR_PROFILE_MAX, V2IP_IR_PROFILE_NOT_SET)
+                              V2IP_IR_PROFILE_MAX, V2IP_IR_PROFILE_NOT_SET, V2IP_VLAN_PORT_SFP)
 from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
 
 _LOGGER = logging.getLogger(__name__)
@@ -101,6 +102,7 @@ class Device(DeviceBase):
 		self._v2ip_sink:DeviceV2IPSink|None = None
 		self._v2ip_features:V2IPFpgaFeature|None = None
 		self._v2ip_settings:V2IPDeviceSettings|None = None
+		self._v2ip_vlan:V2IPVlan|None = None
 		self._time_zone:TimeZone|None = None
 		self._clock:DeviceClock|None = None
 		self._mesh_master_uid:MxrDeviceUid|None = None
@@ -356,6 +358,11 @@ class Device(DeviceBase):
 	@override
 	def clock(self) -> datetime|None:
 		return self._clock.now() if (self._clock is not None) else None
+
+	@property
+	@override
+	def v2ip_vlan(self) -> V2IPVlan|None:
+		return self._v2ip_vlan
 
 	def _merge_v2ip_settings(self, frame:V2IPDeviceSettings) -> None:
 		'''Fold a settings block onto the cached one.
@@ -858,6 +865,10 @@ class Device(DeviceBase):
 			self.v2ip_features = data
 		elif isinstance(data, V2IPDeviceSettings):
 			self._merge_v2ip_settings(data)
+		elif isinstance(data, V2IPVlan):
+			if (self._v2ip_vlan != data):
+				self._v2ip_vlan = data
+				self.call_callbacks()
 		elif isinstance(data, TimeZone):
 			if (self._time_zone != data):
 				self._time_zone = data
@@ -1225,6 +1236,41 @@ class Device(DeviceBase):
 			return False
 		return self._send_v2ip_settings(V2IPDeviceSettings(
 			valid=V2IPDeviceSetting.POWER_SAVE_SCHEDULE, power_save=schedule))
+
+	async def set_v2ip_vlan(self, vlan:V2IPVlan) -> bool:
+		'''Change this V2IP device's VLAN configuration.
+
+		Writes the VLAN ids, the pinned uplink and the TRUNK flag of vlan; its
+		other flags and the fields only the device reports are not sent.
+		Refused before anything is sent unless the device announces
+		DeviceFeature.VLAN and has reported its configuration, every id is at
+		most V2IP_VLAN_ID_MAX, and the uplink is detected or names a port the
+		device has.
+
+		The device applies the change at once and reverts it unless the mesh
+		controller, hearing the device report it, confirms it. Nothing is cached
+		here: v2ip_vlan reads what the device reports, and its is_pending whether
+		it is still to be confirmed.
+		'''
+		why = None
+		if not vlan.is_valid():
+			why = 'a VLAN id is out of range or the uplink names no port'
+		elif (self.features is None) or (DeviceFeature.VLAN not in self.features):
+			why = 'the device does not take VLANs'
+		elif ((reported := self._v2ip_vlan) is None):
+			why = 'it has not reported its VLAN configuration'
+		elif (vlan.pinned_uplink_port == V2IP_VLAN_PORT_SFP) and not reported.has_sfp:
+			why = 'the device has no SFP port'
+		if (why is not None):
+			_LOGGER.warning(f"not changing the VLAN configuration of {self}: {why}")
+			return False
+		written = V2IPVlan(flags=(V2IPVlanFlag.VALID | (vlan.flags & V2IPVlanFlag.TRUNK)),
+		                   device=vlan.device, port=tuple(vlan.port), uplink=vlan.uplink)
+		frame = FrameV2IPDeviceConfiguration.construct_vlan(
+			mxr=self.registry, target=self, target_uid=self.remote_id, vlan=written)
+		if (frame is None):
+			return False
+		return self.registry.transmit(frame.frame) == len(frame.frame)
 
 	def _send_v2ip_settings(self, settings:V2IPDeviceSettings) -> bool:
 		'''The one send behind the device settings commands.'''

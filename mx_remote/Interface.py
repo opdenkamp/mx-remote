@@ -1893,6 +1893,80 @@ class V2IPPowerSaveSchedule:
     def __repr__(self) -> str:
         return str(self)
 
+def _vlan_port_index(wire:int) -> int|None:
+    '''A port index from its 1-based wire form.'''
+    return (wire - 1) if (1 <= wire <= V2IP_VLAN_PORTS) else None
+
+@dataclass(frozen=True)
+class V2IPVlan:
+    """
+    VLAN tagging on a V2IP device's uplink.
+
+    Only the device knows what it runs, so this is what it reported about
+    itself. A change written to it is applied at once and stays PENDING until
+    the mesh controller confirms it, which proves the device still reaches the
+    mesh and the mesh still reaches it; unconfirmed, the device reverts it.
+    """
+    flags: V2IPVlanFlag = V2IPVlanFlag(0)
+    """The block's flags."""
+    device: int = 0
+    """The VLAN id of the device's own traffic, 0 for untagged."""
+    port: tuple[int, ...] = (0,) * V2IP_VLAN_PORTS
+    """The VLAN id each downlink port carries, 0 to share the device's untagged
+    traffic, indexed as V2IP_VLAN_PORTS orders them."""
+    uplink: int = 0
+    """The port pinned as the uplink as 1 + its index, 0 to detect it."""
+    active_uplink: int = 0
+    """Reported by the device: the port in use as the uplink, as 1 + its index."""
+    revert_s: int = 0
+    """Reported by the device: the seconds before a pending configuration is
+    reverted."""
+
+    @property
+    def trunk(self) -> bool:
+        """Whether untagged frames arriving on the uplink are dropped."""
+        return V2IPVlanFlag.TRUNK in self.flags
+
+    @property
+    def is_pending(self) -> bool:
+        """Whether the device reverts this configuration unless the mesh
+        controller confirms it."""
+        return V2IPVlanFlag.PENDING in self.flags
+
+    @property
+    def has_sfp(self) -> bool:
+        """Whether the device has an SFP port."""
+        return V2IPVlanFlag.HAS_SFP in self.flags
+
+    @property
+    def pinned_uplink_port(self) -> int|None:
+        """The index of the port pinned as the uplink, None when the device
+        detects it."""
+        return _vlan_port_index(self.uplink)
+
+    @property
+    def active_uplink_port(self) -> int|None:
+        """The index of the port the device uses as its uplink, None for a value
+        that names no port."""
+        return _vlan_port_index(self.active_uplink)
+
+    def is_valid(self) -> bool:
+        """Whether every VLAN id is at most V2IP_VLAN_ID_MAX and the uplink is
+        detected or names a port."""
+        ids = (self.device,) + tuple(self.port)
+        return (len(self.port) == V2IP_VLAN_PORTS) \
+            and all((0 <= i <= V2IP_VLAN_ID_MAX) for i in ids) \
+            and ((self.uplink == 0) or (self.pinned_uplink_port is not None))
+
+    def __str__(self) -> str:
+        uplink = f"port {self.pinned_uplink_port}" if (self.pinned_uplink_port is not None) else "detected"
+        rv = f"device {self.device}, ports {'/'.join(str(p) for p in self.port)}, uplink {uplink}"
+        if self.trunk:
+            rv += ", trunk"
+        if self.is_pending:
+            rv += f", pending ({self.revert_s}s)"
+        return rv
+
 class V2IPDeviceSettings:
     """
     The device settings of a V2IP unit, as it reports them and as its controller
@@ -2360,6 +2434,12 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
+    def v2ip_vlan(self) -> V2IPVlan|None:
+        '''The VLAN configuration this V2IP device last reported about itself,
+        None until it has reported one.'''
+
+    @property
+    @abstractmethod
     def time_zone(self) -> TimeZone|None:
         '''The time zone this device announced for its mesh, None until it has.
 
@@ -2619,6 +2699,10 @@ class DeviceBase(ABC):
     @abstractmethod
     async def set_v2ip_power_save_schedule(self, schedule:V2IPPowerSaveSchedule) -> bool:
         '''set the device's daily power save windows'''
+
+    @abstractmethod
+    async def set_v2ip_vlan(self, vlan:V2IPVlan) -> bool:
+        '''change the device's VLAN configuration'''
 
     @abstractmethod
     async def get_log(self) -> str|None:

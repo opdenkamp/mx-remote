@@ -216,6 +216,36 @@ goes out at 176 bytes: a receiver with the schedule ignores the settings of a
 shorter frame, and one whose settings end at the idle minutes takes it all the
 same.
 
+### VLAN
+
+A device that announces `DeviceFeature.VLAN` tags its uplink by a VLAN
+configuration: its own VLAN id, one per external port (the SFP port, the UTP
+port with PoE, then the UTP port), and the port pinned as the uplink. Ids run
+0 to `V2IP_VLAN_ID_MAX`, 0 meaning untagged; ports are numbered from 1 on the
+wire, 0 meaning detect the uplink.
+
+```python
+from mx_remote import V2IPVlan
+
+vlan = device.v2ip_vlan          # None until the device reports one
+print(vlan.device, vlan.port, vlan.pinned_uplink_port, vlan.active_uplink_port)
+print(vlan.is_pending, vlan.revert_s)
+
+await device.set_v2ip_vlan(V2IPVlan(device=10, port=(0, 20, 0), uplink=2))
+```
+
+Only the device knows what it runs, so `v2ip_vlan` is read only from the device
+describing itself, and a write is not cached. The device applies a change at
+once and reverts it after `revert_s` seconds unless the mesh controller, hearing
+it report the change as pending, confirms it.
+
+Only the ids, the uplink and the trunk bit are written. Refused before sending:
+a device without the VLAN feature or that has not reported its configuration, an
+id above `V2IP_VLAN_ID_MAX`, an uplink that names no port, and an SFP uplink on
+a device that reports no SFP port. The write goes out as a settings write that
+carries no setting plus the block, so a receiver that predates the block sees a
+frame it already understood.
+
 ### Every device at once
 
 One broadcast changes settings on every V2IP device of the mesh. Each device

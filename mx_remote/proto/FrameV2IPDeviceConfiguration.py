@@ -14,8 +14,8 @@ from .FrameHeader import FrameHeader
 from ..Uid import MxrDeviceUid
 from ..Interface import (DeviceBase, DeviceRegistry, DeviceV2IPDetails, DeviceV2IPScalingSettings,
                          DeviceV2IPSink, V2IPAudioFormat, V2IPDeviceSettings, V2IPDscpConfig,
-                         V2IPPowerSaveSchedule, V2IPStreamSource)
-from .Constants import (V2IPDeviceSetting, V2IPFpgaFeature, MXR_SCALING_FLAG_AUTO_SCALING,
+                         V2IPPowerSaveSchedule, V2IPStreamSource, V2IPVlan)
+from .Constants import (V2IPDeviceSetting, V2IPFpgaFeature, V2IPVlanFlag, MXR_SCALING_FLAG_AUTO_SCALING,
                         MXR_SCALING_FLAG_MODE_VALID,
                         MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_OPTIONS2_VALID,
                         MXR_SCALING_OPTIONS2_SETTINGS, MxrSignalType, v2ip_dscp_value,
@@ -37,6 +37,9 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #             s8 ir_profile, s8 ir_profile_sink, u16 idle minutes before power
 #             save, then the power save schedule: 7 x u16 start at 144,
 #             7 x u16 end at 158, and 4 reserved
+#   176..192  VLAN: u16 flags, u16 device id, 3 x u16 port ids (SFP, UTP with
+#             PoE, UTP), u8 pinned uplink, u8 uplink in use, u8 revert
+#             seconds, 3 reserved
 #
 # Each of those blocks was appended behind what came before it, leaving every
 # offset ahead of it where it was, so the length is what says whether one is
@@ -99,6 +102,9 @@ _WITH_SETTINGS_SIZE = _SETTINGS_OFFSET + _SETTINGS_SIZE
 _SCHEDULE_SIZE      = 28
 '''The power save schedule, behind the idle minutes: seven start times, then
 seven end times.'''
+_VLAN_OFFSET        = _SETTINGS_OFFSET + _SETTINGS_SIZE + _SCHEDULE_SIZE + 4
+'''The VLAN configuration, behind the whole 48-byte settings block.'''
+_VLAN_SIZE          = 16
 
 def settings_block(settings:V2IPDeviceSettings) -> bytes:
     '''The 48-byte device settings block.
@@ -320,6 +326,28 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         payload += settings_block(settings)
         return FrameBase.construct_base(target=target, mxr=mxr, opcode=_OPCODE, payload=bytes(payload))
 
+    @staticmethod
+    def construct_vlan(mxr:DeviceRegistry, target:Any, target_uid:MxrDeviceUid,
+                       vlan:V2IPVlan) -> FrameBase|None:
+        '''Build the 0x3C write that changes a device's VLAN configuration and
+        nothing else.
+
+        192 bytes: the frame construct_settings() builds, with a settings block
+        that carries no setting, then the VLAN block at 176..192. A receiver
+        reads that block only from a frame long enough to hold it, so one that
+        predates it takes the frame as that settings write.
+
+        The block goes out as given; the caller clears what a writer does not set.
+        '''
+        frame = FrameV2IPDeviceConfiguration.construct_settings(
+            mxr=mxr, target=target, target_uid=target_uid, settings=V2IPDeviceSettings())
+        if (frame is None):
+            return None
+        payload = (frame.payload or b"") + struct.pack('<HH3HBBB', int(vlan.flags), vlan.device, *vlan.port,
+                                              vlan.uplink, vlan.active_uplink, vlan.revert_s)
+        payload += bytes(_VLAN_OFFSET + _VLAN_SIZE - len(payload))
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=_OPCODE, payload=payload)
+
     @property
     def target_uid(self) -> MxrDeviceUid|None:
         return self.payload_uuid(idx=0)
@@ -438,6 +466,26 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         reported = dev.v2ip_settings
         return frame.as_applied_to(reported.valid if (reported is not None) else V2IPDeviceSetting(0))
 
+    @cached_property
+    def vlan(self) -> V2IPVlan|None:
+        '''The VLAN configuration the subject reports; None when the frame stops
+        in front of it, the block is not valid, or another device sent it.
+
+        Only the device knows what it runs. A controller's frame about it is a
+        write the device may yet revert, or the confirmation of one.
+        '''
+        if (self.payload is None) or (len(self.payload) < (_VLAN_OFFSET + _VLAN_SIZE)):
+            return None
+        if not self.target_self:
+            return None
+        flags, device, p0, p1, p2, uplink, active, revert = \
+            struct.unpack_from('<HH3HBBB', self.payload, _VLAN_OFFSET)
+        flags = V2IPVlanFlag(flags)
+        if V2IPVlanFlag.VALID not in flags:
+            return None
+        return V2IPVlan(flags=flags, device=device, port=(p0, p1, p2), uplink=uplink,
+                        active_uplink=active, revert_s=revert)
+
     def process(self) -> None:
         '''Update the cache of the device this configuration names, not of its sender.'''
         if ((dev := self.subject_device) is None):
@@ -449,9 +497,12 @@ class FrameV2IPDeviceConfiguration(FrameBase):
             dev.on_mxr_update(features)
         if ((settings := self.settings) is not None):
             dev.on_mxr_update(settings)
+        if ((vlan := self.vlan) is not None):
+            dev.on_mxr_update(vlan)
 
     def __str__(self) -> str:
         sink_str = f" sink=[{self.sink}]" if (self.sink is not None) else ""
         fpga_str = f" fpga={self.video_processor_features}" if (self.video_processor_features is not None) else ""
         settings_str = f" settings=[{self.settings}]" if (self.settings is not None) else ""
-        return f"V2IP device configuration self={self.target_self} {self.video} {self.audio} {self.anc} {self.arc} options={self.options}{sink_str}{fpga_str}{settings_str}"
+        vlan_str = f" vlan=[{self.vlan}]" if (self.vlan is not None) else ""
+        return f"V2IP device configuration self={self.target_self} {self.video} {self.audio} {self.anc} {self.arc} options={self.options}{sink_str}{fpga_str}{settings_str}{vlan_str}"

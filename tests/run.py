@@ -49,6 +49,7 @@ SUITES = [
     'v2ipsettings', # a V2IP device's settings, read and written
     'ping',         # a ping is answered with a hello, and sent only where answered
     'mesh',         # the time zone, time and settings a whole mesh shares
+    'v2ipvlan',     # a V2IP device's VLAN configuration, read and written
 ]
 
 def main() -> int:
