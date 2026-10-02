@@ -35,7 +35,7 @@ from ..Interface import (
 )
 from ..proto.BayConfig import BayConfig
 from ..proto.FrameHello import FrameHello
-from ..proto.FrameMeshOperation import MeshOperation, FrameMeshOperation
+from ..proto.FrameMeshOperation import AUTO_ADDRESSES_PROTOCOL, MeshOperation, FrameMeshOperation
 from ..proto.FrameV2IPStats import FrameV2IPStats
 from ..proto.FrameNetworkStatus import NetworkPortStatus
 from ..proto.FrameReboot import FrameReboot
@@ -1056,6 +1056,30 @@ class Device(DeviceBase):
 				return False
 			return True
 		return False
+
+	async def auto_assign_oneip_source_addresses(self) -> bool:
+		'''Hand this OneIP source's stream addresses back to automatic assignment,
+		undoing addresses that were set on it by hand.
+
+		The device takes this only from management, which this client announces
+		itself as. Nothing acknowledges it: the device's next configuration
+		report carries the addresses it ends up with, and oneip_details reads
+		them.
+
+		Refused for a device that is not a OneIP source, and for one below
+		protocol 0x2B, which predates the operation and ignores it.
+		'''
+		if (self.features is None) or (DeviceFeature.ONEIP_SOURCE not in self.features):
+			_LOGGER.warning(f"not handing the addresses of {self} back to automatic assignment: it is not a OneIP source")
+			return False
+		if (self.protocol != 0) and (self.protocol < AUTO_ADDRESSES_PROTOCOL):
+			_LOGGER.warning(f"not handing the addresses of {self} back to automatic assignment: it advertises "
+			                f"protocol {self.protocol:02X} and the operation needs {AUTO_ADDRESSES_PROTOCOL:02X}")
+			return False
+		frame = FrameMeshOperation.construct(mxr=self.registry, target=self, operation=MeshOperation.AUTO_ADDRESSES)
+		if (frame is None):
+			return False
+		return self.registry.transmit(frame.frame) == len(frame.frame)
 
 	async def mesh_remove(self) -> bool:
 		'''Remove this device from the mesh network.'''

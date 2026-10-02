@@ -308,12 +308,19 @@ itself, a profile out of range, or a schedule time that is not a time of day.
 # mesh operations
 await device.mesh_promote()   # promote to mesh master
 await device.mesh_remove()    # remove from mesh
+await source.auto_assign_oneip_source_addresses()  # drop addresses set by hand
 
 # firmware versions
 if device.oneip_firmware_versions:
     for fw_type, fw in device.oneip_firmware_versions.items():
         print(f"{fw_type}: {fw.version}")
 ```
+
+A OneIP source acts on `auto_assign_oneip_source_addresses()` only from
+management, which this client announces itself as, and nothing acknowledges it:
+the source's next configuration report carries the addresses it ends up with, in
+`oneip_details`. A device that is not a source, or announces less than protocol
+0x2B, would ignore the operation, so it is refused before anything is sent.
 
 ### Time zone and time
 

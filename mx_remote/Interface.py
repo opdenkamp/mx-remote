@@ -2805,6 +2805,10 @@ class DeviceBase(ABC):
         '''promote to mesh master'''
 
     @abstractmethod
+    async def auto_assign_oneip_source_addresses(self) -> bool:
+        '''hand this OneIP source's stream addresses back to automatic assignment'''
+
+    @abstractmethod
     async def mesh_remove(self) -> bool:
         '''remove from mesh'''
 

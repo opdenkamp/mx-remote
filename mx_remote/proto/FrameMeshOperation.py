@@ -22,6 +22,8 @@ class MeshOperation(IntEnum):
     REGENERATE_ADDRESSES = 3
     REPORT_CONTROLLER = 4
     PROMOTE_CONTROLLER = 5
+    AUTO_ADDRESSES = 6
+    '''Hand the target's source addresses back to automatic assignment.'''
     REPORT_MEMBERSHIP = 0xFF
 
     def __str__(self) -> str:
@@ -37,6 +39,8 @@ class MeshOperation(IntEnum):
             return "report controller"
         if self.value == MeshOperation.PROMOTE_CONTROLLER.value:
             return "promote controller"
+        if self.value == MeshOperation.AUTO_ADDRESSES.value:
+            return "automatic addresses"
         if self.value == MeshOperation.REPORT_MEMBERSHIP.value:
             return "report membership"
         return "unknown"
@@ -65,6 +69,13 @@ _WIRE_SIZE = 40
 # caps between the two, so nothing is lost by that.
 _ACCEPT_PROTOCOL = 0x1A
 _INSTALLER_PROTOCOL = 0x1D
+
+AUTO_ADDRESSES_PROTOCOL = 0x2B
+'''The first protocol version whose devices can act on AUTO_ADDRESSES.
+
+Not the stamp: that is this opcode's, and a device between the two takes the
+frame and ignores an operation it does not know. Not every device on this
+version has it either, but none below it does.'''
 
 class FrameMeshOperation(FrameBase):
     ''' Mesh operation '''

@@ -20,6 +20,7 @@ import mx_remote
 from mx_remote import MxrDeviceUid, OneIPDeviceSetting as S, OneIPDeviceSettings, OneIPPowerSaveSchedule
 from mx_remote.proto.Constants import (ONEIP_IR_PROFILE_MAX, ONEIP_IR_PROFILE_NOT_SET,
                                        ONEIP_MINUTES_PER_DAY)
+from mx_remote.proto.Constants import MXR_OPCODE_VERSIONS
 from mx_remote.proto.Factory import create_mxr_frame
 
 ADDR = ('192.0.2.9', 8812)
@@ -164,5 +165,42 @@ for ok in (OneIPDeviceSettings(valid=S.IR_PROFILE, ir_profile=ONEIP_IR_PROFILE_M
                start=(ONEIP_MINUTES_PER_DAY - 1,) * 7))):
     assert call(mx.set_all_oneip_device_settings(ok)) is True, f'{ok} was refused'
 print('all refused : what every device would ignore is not sent')
+
+# -------------------------------------------- a source's automatic addresses
+
+# Mesh operation 6 names the source, with the parameter and padding zero, and
+# is stamped as every mesh operation is.
+def device(uid, protocol, features, serial):
+    rx_from(uid, 0x00, struct.pack('<H', protocol) + name('OneIP') + name(serial) + name('5.0.0')
+                       + struct.pack('<I', int(features)), protocol=protocol)
+    return mx.get_by_uid(MxrDeviceUid(uid))
+
+def rx_from(uid, opcode, payload, protocol):
+    frame = bytearray(create_mxr_frame(uid, opcode, payload))
+    frame[2] = protocol
+    mx.process_frame(time.time(), bytes(frame), ADDR)
+
+SOURCE = mx_remote.DeviceFeature.ONEIP_SOURCE
+src = device(bytes([0x50]) * 16, 0x2B, SOURCE, 'AA0001')
+old = device(bytes([0x51]) * 16, 0x2A, SOURCE, 'AA0002')
+sink_only = device(bytes([0x52]) * 16, 0x2B, mx_remote.DeviceFeature.ONEIP_SINK, 'AA0003')
+
+sent.clear()
+assert call(src.auto_assign_oneip_source_addresses()) is True
+frame = sent.pop()
+assert opcode(frame) == 0x3B and frame[2] == MXR_OPCODE_VERSIONS[0x3B], (opcode(frame), frame[2])
+p = frame[24:]
+assert len(p) == 40, 'a receiver drops a mesh operation shorter than 40 bytes'
+assert p[:4] == bytes([6, 0, 0, 0]), p[:4].hex()
+assert p[4:20] == bytes([0x50]) * 16, 'the frame names another device'
+assert p[20:] == bytes(20), 'the parameter and padding'
+
+refused(old.auto_assign_oneip_source_addresses(), 'a source below 0x2B, which ignores the operation')
+refused(sink_only.auto_assign_oneip_source_addresses(), 'a device that is not a source')
+
+mx.transmit = lambda data: 0
+assert call(src.auto_assign_oneip_source_addresses()) is False, 'a failed send reported success'
+mx.transmit = lambda data: (sent.append(data), len(data))[1]
+print('auto addrs  : mesh operation 6 to a source on 0x2B; anything else is refused')
 
 print('ALL OK')
