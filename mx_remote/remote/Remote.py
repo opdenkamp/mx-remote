@@ -23,8 +23,8 @@ from .ConnectionAsync import ConnectionAsync
 from ..const import MXR_HELLO_INTERVAL_MIN, MXR_HELLO_INTERVAL_RAND, __version__
 from .Device import Device
 from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, mxr_broadcast_address, OneIPDeviceSettings, OneIPPowerSaveSchedule
-from ..proto.Constants import MXR_PROTOCOL_VERSION
-from ..proto.FrameDiscover import constructFrameDiscover
+from ..proto.Constants import MXR_PROTOCOL_VERSION, DeviceFeature
+from ..proto.FrameDiscover import FrameDiscover, constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
 from ..proto.FrameHello import FrameHello, constructFrameHello
 from ..proto.FramePing import FramePing
@@ -48,6 +48,42 @@ _LOGGER = logging.getLogger(__name__)
 # announcement itself, and the requests for one - discover asks everyone, ping
 # asks one device.
 _ACCEPT_UNANNOUNCED = (0x00, 0x01, 0x4A)
+
+# How long a discover to every device stands in for asking any one of them, in
+# seconds. Each device answers it with everything it holds, after a jitter of up
+# to a few seconds, so asking one again inside this window repeats an answer
+# already on its way.
+_DISCOVER_COVERS = 60
+
+# What this client had heard of a device before a frame from it: whether it had
+# gone offline, and its reboot toggle as last announced.
+_Heard = tuple[bool, bool]
+
+def _heard(device:DeviceBase) -> _Heard:
+    features = device.features
+    return (not device.online,
+            (features is not None) and (DeviceFeature.BOOT_BIT in features))
+
+def _missed_state(before:_Heard|None, device:DeviceBase) -> bool:
+    '''Whether a device just heard may hold state this client never received.
+
+    A device repeats a frame only for a short while after it changes, so
+    whatever it sent before this client first heard it, or while it was out of
+    earshot, may not come again. before is None for a device this frame
+    registered.
+
+    Not asked: a device whose reboot toggle flipped, or that is about to reboot,
+    because a booting device sends everything it holds; and a management client,
+    which holds nothing to send.
+    '''
+    features = device.features
+    if (features is None) or (DeviceFeature.MANAGER in features) \
+            or (DeviceFeature.STATUS_REBOOTING in features):
+        return False
+    if (before is None):
+        return True
+    away, boot_bit = before
+    return away and (boot_bit == (DeviceFeature.BOOT_BIT in features))
 
 class Remote(DeviceRegistry, ConnectionCallbacks):
     ''' Main component that handles the network connections and registration of remote devices '''
@@ -85,6 +121,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._target_ip = target_ip
         self._port = port
         self._discover_timeout = 0
+        self._state_request:MxrDeviceUid|None = None
         self._addr_filter = addr_filter
         self._svd = SvdMap()
         if open_connection:
@@ -403,6 +440,21 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         _LOGGER.debug("discovering devices")
         return self.transmit(pkt.frame)
 
+    def _request_state(self, device:MxrDeviceUid) -> None:
+        '''Ask one device for everything it holds, with a discover naming it.
+
+        Skipped while a discover to every device is recent enough to have
+        covered it. A receiver that predates the named form answers it as a
+        discover to every device, so each one asked costs the whole mesh's state
+        on such a network.
+        '''
+        if ((time.time() - self._discover_timeout) < _DISCOVER_COVERS):
+            return
+        pkt = FrameDiscover.construct(mxr=self, target=device)
+        if (pkt is not None):
+            _LOGGER.debug(f"asking {self.uid_to_user_string(device)} for its state")
+            self.transmit(pkt.frame)
+
     def _send_to_all(self, frame:FrameBase|None) -> bool:
         '''Send a frame to every device, True when all of it was written.'''
         if (frame is None):
@@ -520,8 +572,13 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self.tx_discover()
 
     def process_frame(self, timestamp:float, data: bytes, addr: tuple[str, int]) -> None:
-        '''Decode and process a received mx_remote frame.'''
+        '''Decode and process a received mx_remote frame.
+
+        A device that may hold state this client missed is left in
+        _state_request rather than asked here, so replaying a capture sends
+        nothing; on_datagram_received does the asking.'''
         proc = False
+        self._state_request = None
         try:
             frame = process_mxr_frame(mxr=self, timestamp=timestamp, data=data, addr=addr)
             if (frame is not None) and (frame.header.protocol > MXR_PROTOCOL_VERSION):
@@ -557,7 +614,12 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             raise
         try:
             if (frame is not None) and proc:
+                known = self.remotes.get(frame.remote_id)
+                before = None if (known is None) else _heard(known)
                 frame.process()
+                device = self.remotes.get(frame.remote_id)
+                if (device is not None) and _missed_state(before, device):
+                    self._state_request = frame.remote_id
         except Exception:
             _LOGGER.warning(f"failed to process frame: {traceback.format_exc()}")
             raise
@@ -566,6 +628,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         '''Called when a UDP frame was received.'''
         timestamp = time.time()
         self.process_frame(timestamp=timestamp, data=data, addr=addr)
+        if (self._state_request is not None):
+            self._request_state(self._state_request)
 
     @override
     def on_mxr_update(self, data:Any) -> None:

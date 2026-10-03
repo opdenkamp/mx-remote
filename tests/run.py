@@ -52,6 +52,7 @@ SUITES = [
     'v2ipvlan',     # a V2IP device's VLAN configuration, read and written
     'v2iptestcard', # a V2IP sink's test pattern, tone and lip-sync flash
     'audiolock',    # an audio endpoint's status, and locking its source
+    'staterequest', # a device that may have missed state is asked for it
     'deprecated',   # the V2IP names 5.11.0 exported still resolve, with a warning
 ]
 

@@ -48,8 +48,8 @@ mx.on_datagram_received(create_mxr_frame(peer, PING, OURS), ADDR)
 assert [opcode(f) for f in sent] == [HELLO], 'a ping from a stranger went unanswered'
 print('answer      : a stranger\'s ping for this client is answered with a hello')
 
-sent.clear()
 mx.on_datagram_received(hello(peer, 0x2A, 'PR0002'), ADDR)
+sent.clear()
 mx.on_datagram_received(create_mxr_frame(peer, PING, bytes(range(0x40, 0x50))), ADDR)
 assert sent == [], 'a ping for another device was answered'
 print('answer      : a ping for another device is not')

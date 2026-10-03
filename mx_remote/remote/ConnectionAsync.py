@@ -39,8 +39,11 @@ _LOGGER = logging.getLogger(__name__)
 #
 # The answer to a discover goes to the group, is jittered so a mesh does not
 # reply at once, and is expensive - Remote._background_probe() rate-limits it and
-# stops once every device reports complete. After that the device's own periodic
-# broadcast maintains the state, at worst about 75 seconds stale.
+# stops once every device reports complete. After that a device repeats a frame
+# in only a couple of periodic broadcasts after it changes, and resends
+# everything only every few minutes. So a device first heard, or heard again
+# after it went offline, is asked on its own with a discover whose payload is
+# its 16-byte uid - see Remote._request_state().
 #
 # Signal status (0x31) is the one opcode with a targeted request form of its own,
 # an empty payload or a 16-byte uid, which this library does not send.

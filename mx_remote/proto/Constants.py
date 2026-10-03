@@ -256,6 +256,7 @@ class DeviceFeature(IntFlag):
 	VLAN               = (1 << 28)
 	'''Tags its uplink by the VLAN configuration it reports, and takes one written to it.'''
 	BOOT_BIT           = (1 << 31)
+	'''Flips on every reboot, so a peer that sees it change knows the device restarted.'''
 
 class OneIPVideoProcessorFeature(IntFlag):
 	'''What a OneIP device's video processor supports, as the device reports it in
