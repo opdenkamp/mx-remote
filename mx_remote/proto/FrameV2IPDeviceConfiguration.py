@@ -14,8 +14,8 @@ from .FrameHeader import FrameHeader
 from ..Uid import MxrDeviceUid
 from ..Interface import (DeviceBase, DeviceRegistry, DeviceOneIPDetails, DeviceOneIPScalingSettings,
                          DeviceOneIPSink, OneIPAudioFormat, OneIPDeviceSettings, OneIPDscpConfig,
-                         OneIPPowerSaveSchedule, OneIPStreamSource, OneIPVlan)
-from .Constants import (ONEIP_DEVICE_SETTINGS_PTP, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag, MXR_SCALING_FLAG_AUTO_SCALING,
+                         OneIPPowerSaveSchedule, OneIPPtpState, OneIPStreamSource, OneIPVlan, _wire_enum)
+from .Constants import (ONEIP_DEVICE_SETTINGS_PTP, OneIPPtpFlag, OneIPPtpLock, OneIPPtpMode, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag, MXR_SCALING_FLAG_AUTO_SCALING,
                         MXR_SCALING_FLAG_MODE_VALID,
                         MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_OPTIONS2_VALID,
                         MXR_SCALING_OPTIONS2_SETTINGS, MxrSignalType, oneip_dscp_value,
@@ -41,6 +41,9 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #   176..192  VLAN: u16 flags, u16 device id, 3 x u16 port ids (SFP, UTP with
 #             PoE, UTP), u8 pinned uplink, u8 uplink in use, u8 revert
 #             seconds, 3 reserved
+#   192..216  PTP state: u8 flags, u8 mode, u8 domain, u8 IEEE 1588
+#             portState, u8 lock, 3 reserved, then the 8-byte clock identity
+#             and the 8-byte grandmaster clock identity
 #
 # Each of those blocks was appended behind what came before it, leaving every
 # offset ahead of it where it was, so the length is what says whether one is
@@ -109,6 +112,9 @@ each.'''
 _VLAN_OFFSET        = _SETTINGS_OFFSET + _SETTINGS_SIZE + _SCHEDULE_SIZE + 4
 '''The VLAN configuration, behind the whole 48-byte settings block.'''
 _VLAN_SIZE          = 16
+_PTP_STATE_OFFSET   = _VLAN_OFFSET + _VLAN_SIZE
+'''The PTP state, behind the VLAN configuration.'''
+_PTP_STATE_SIZE     = 24
 
 def settings_block(settings:OneIPDeviceSettings) -> bytes:
     '''The 48-byte device settings block.
@@ -499,6 +505,26 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         return OneIPVlan(flags=flags, device=device, port=(p0, p1, p2), uplink=uplink,
                         active_uplink=active, revert_s=revert)
 
+    @cached_property
+    def ptp(self) -> OneIPPtpState|None:
+        '''The PTP state the subject reports; None when the frame stops in front
+        of it or another device sent it.
+
+        Only the device can read its own video processor, so a controller's
+        frame about it carries none. A block without OneIPPtpFlag.VALID says the
+        device has no state now, which replaces what it reported before, so it
+        is returned as it is rather than as None.
+        '''
+        if (self.payload is None) or (len(self.payload) < (_PTP_STATE_OFFSET + _PTP_STATE_SIZE)):
+            return None
+        if not self.target_self:
+            return None
+        flags, mode, domain, port_state, lock, clock, grandmaster = \
+            struct.unpack_from('<BBBBB3x8s8s', self.payload, _PTP_STATE_OFFSET)
+        return OneIPPtpState(flags=OneIPPtpFlag(flags), mode=_wire_enum(OneIPPtpMode, mode), domain=domain,
+                             port_state=port_state, lock=_wire_enum(OneIPPtpLock, lock),
+                             clock_identity=clock, grandmaster_identity=grandmaster)
+
     def process(self) -> None:
         '''Update the cache of the device this configuration names, not of its sender.'''
         if ((dev := self.subject_device) is None):
@@ -512,10 +538,14 @@ class FrameV2IPDeviceConfiguration(FrameBase):
             dev.on_mxr_update(settings)
         if ((vlan := self.vlan) is not None):
             dev.on_mxr_update(vlan)
+        if ((ptp := self.ptp) is not None):
+            dev.on_mxr_update(ptp)
 
     def __str__(self) -> str:
         sink_str = f" sink=[{self.sink}]" if (self.sink is not None) else ""
         fpga_str = f" video processor={self.video_processor_features}" if (self.video_processor_features is not None) else ""
         settings_str = f" settings=[{self.settings}]" if (self.settings is not None) else ""
         vlan_str = f" vlan=[{self.vlan}]" if (self.vlan is not None) else ""
-        return f"OneIP device configuration self={self.target_self} {self.video} {self.audio} {self.anc} {self.arc} options={self.options}{sink_str}{fpga_str}{settings_str}{vlan_str}"
+        ptp_str = "" if (self.ptp is None) else \
+            f" ptp=[{self.ptp}]" if (OneIPPtpFlag.VALID in self.ptp.flags) else " ptp=none"
+        return f"OneIP device configuration self={self.target_self} {self.video} {self.audio} {self.anc} {self.arc} options={self.options}{sink_str}{fpga_str}{settings_str}{vlan_str}{ptp_str}"

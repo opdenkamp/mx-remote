@@ -1947,6 +1947,50 @@ def _vlan_port_index(wire:int) -> int|None:
     return (wire - 1) if (1 <= wire <= ONEIP_VLAN_PORTS) else None
 
 @dataclass(frozen=True)
+class OneIPPtpState:
+    """
+    A OneIP device's PTP state, as it reports it about itself.
+
+    Only the device can read its own video processor, so this is never written
+    to a device, and a controller's frame about one carries none.
+    """
+    flags: OneIPPtpFlag = OneIPPtpFlag(0)
+    """The block's flags."""
+    mode: OneIPPtpMode|int = OneIPPtpMode.OFF
+    """The mode the video processor runs; a raw int for one this library does
+    not name."""
+    domain: int = 0
+    """The domain the video processor runs in."""
+    port_state: int = 0
+    """The IEEE 1588 portState."""
+    lock: OneIPPtpLock|int = OneIPPtpLock.UNLOCKED
+    """How far the clock has locked; a raw int for a value this library does
+    not name."""
+    clock_identity: bytes = bytes(8)
+    """The device's own clock identity."""
+    grandmaster_identity: bytes = bytes(8)
+    """The clock identity of the grandmaster the device runs on, all zero
+    while it runs on none."""
+
+    @property
+    def followed(self) -> bool:
+        """Whether the device locked to a master since its PTP started, so its
+        mesh holds a time."""
+        return OneIPPtpFlag.FOLLOWED in self.flags
+
+    @property
+    def grandmaster(self) -> bytes|None:
+        """The grandmaster the device runs on, None while it runs on none."""
+        return self.grandmaster_identity if any(self.grandmaster_identity) else None
+
+    def __str__(self) -> str:
+        mode = self.mode.name.lower() if isinstance(self.mode, OneIPPtpMode) else self.mode
+        lock = self.lock.name.lower() if isinstance(self.lock, OneIPPtpLock) else self.lock
+        gm = self.grandmaster.hex(':') if (self.grandmaster is not None) else 'none'
+        return (f"{mode} domain {self.domain} port state {self.port_state} {lock}"
+                f"{' followed' if self.followed else ''} clock {self.clock_identity.hex(':')} grandmaster {gm}")
+
+@dataclass(frozen=True)
 class OneIPVlan:
     """
     VLAN tagging on a OneIP device's uplink.
@@ -2622,6 +2666,13 @@ class DeviceBase(ABC):
     def oneip_vlan(self) -> OneIPVlan|None:
         '''The VLAN configuration this OneIP device last reported about itself,
         None until it has reported one.'''
+
+    @property
+    @abstractmethod
+    def oneip_ptp(self) -> OneIPPtpState|None:
+        '''The PTP state this OneIP device last reported about itself, None
+        until it has reported one, and while it has no PTP to report: none on
+        its video processor, or in power save.'''
 
     @property
     @abstractmethod

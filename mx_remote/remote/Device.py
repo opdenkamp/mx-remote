@@ -10,6 +10,7 @@ from .Bay import Bay
 from ..Interface import (
 	MxrCallbacks,
 	OneIPStreamSources,
+	OneIPPtpState,
 	AmpDolbySettings,
 	DeviceStatus,
 	DeviceOneIPDetails,
@@ -75,7 +76,7 @@ from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, DeviceFeature, M
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                               MXR_SCALING_FLAG_OPTIONS_VALID, ONEIP_DEVICE_SETTING_SWITCHES,
                               ONEIP_IR_PROFILE_MAX, ONEIP_IR_PROFILE_NOT_SET, ONEIP_VLAN_PORT_SFP,
-                              ONEIP_PTP_DOMAIN_MAX, OneIPPtpMode)
+                              ONEIP_PTP_DOMAIN_MAX, OneIPPtpFlag, OneIPPtpMode)
 from ..proto.FrameV2IPAudio import FrameV2IPAudio
 from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
 from ..proto.FrameV2IPTestcard import (FrameV2IPTestcard, TESTCARD_REQUEST, TESTCARD_SET,
@@ -111,6 +112,7 @@ class Device(DeviceBase):
 		self._v2ip_features:OneIPVideoProcessorFeature|None = None
 		self._v2ip_settings:OneIPDeviceSettings|None = None
 		self._v2ip_vlan:OneIPVlan|None = None
+		self._v2ip_ptp:OneIPPtpState|None = None
 		self._v2ip_testcard:OneIPTestcard|None = None
 		self._time_zone:TimeZone|None = None
 		self._clock:DeviceClock|None = None
@@ -372,6 +374,11 @@ class Device(DeviceBase):
 	@override
 	def oneip_vlan(self) -> OneIPVlan|None:
 		return self._v2ip_vlan
+
+	@property
+	@override
+	def oneip_ptp(self) -> OneIPPtpState|None:
+		return self._v2ip_ptp
 
 	@property
 	@override
@@ -882,6 +889,12 @@ class Device(DeviceBase):
 		elif isinstance(data, OneIPVlan):
 			if (self._v2ip_vlan != data):
 				self._v2ip_vlan = data
+				self.call_callbacks()
+		elif isinstance(data, OneIPPtpState):
+			# A block without its valid bit is the device reporting no state.
+			ptp = data if (OneIPPtpFlag.VALID in data.flags) else None
+			if (self._v2ip_ptp != ptp):
+				self._v2ip_ptp = ptp
 				self.call_callbacks()
 		elif isinstance(data, OneIPTestcard):
 			if (self._v2ip_testcard != data):

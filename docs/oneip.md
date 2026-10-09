@@ -240,6 +240,17 @@ await device.set_oneip_ptp_priority1(128)            # lower wins
 A mode this library does not name and a domain above `ONEIP_PTP_DOMAIN_MAX` are
 refused before they are sent, and not cached from another controller's write.
 
+What the device's clock is actually doing is its PTP state, which only the
+device reports about itself and nothing writes:
+
+```python
+ptp = device.oneip_ptp        # None: no report yet, no PTP, or in power save
+if ptp is not None:
+    print(ptp.mode, ptp.domain, ptp.lock, ptp.port_state)   # port_state per IEEE 1588
+    print(ptp.followed)       # locked to a master since PTP started
+    print(ptp.grandmaster)    # its clock identity, None while there is none
+```
+
 ### VLAN
 
 A device that announces `DeviceFeature.VLAN` tags its uplink by a VLAN

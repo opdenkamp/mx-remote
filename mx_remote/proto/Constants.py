@@ -356,6 +356,24 @@ class OneIPPtpMode(IntEnum):
 ONEIP_PTP_DOMAIN_MAX = 127
 """The highest PTP domain a OneIP device runs in."""
 
+class OneIPPtpFlag(IntFlag):
+	'''The flags of a OneIP device's PTP state.'''
+	VALID    = (1 << 0)
+	'''The device runs PTP and the block holds its state. A block without it
+	holds nothing: the device has no PTP, or is in power save.'''
+	FOLLOWED = (1 << 1)
+	'''The device locked to a master since its PTP started, so its mesh holds
+	a time.'''
+
+class OneIPPtpLock(IntEnum):
+	'''How far a OneIP device's PTP clock has locked to its master.'''
+	UNLOCKED = 0
+	'''Not locked.'''
+	LOCKING  = 1
+	'''Locking.'''
+	LOCKED   = 2
+	'''Locked.'''
+
 ONEIP_MINUTES_PER_DAY = 24 * 60
 """Minutes in a day: every time in a power save schedule is below this."""
 
