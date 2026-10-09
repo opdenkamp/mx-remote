@@ -94,6 +94,52 @@ bit, and the range of the infrared profiles.
 .. autodata:: mx_remote.proto.Constants.ONEIP_VLAN_ID_MAX
 ```
 
+## OneIP PTP
+
+A device's PTP settings, which it reports and a controller writes, and the PTP
+state only the device reports.
+
+```{eval-rst}
+.. autoclass:: mx_remote.OneIPPtpState
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OneIPPtpMode
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OneIPPtpFlag
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OneIPPtpLock
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.ONEIP_DEVICE_SETTINGS_PTP
+
+.. autodata:: mx_remote.proto.Constants.ONEIP_PTP_DOMAIN_MAX
+```
+
+## Unit status and commands
+
+A unit's health and IP configuration, and the commands sent to one unit.
+
+```{eval-rst}
+.. autoclass:: mx_remote.UnitStatus
+   :members:
+
+.. autoclass:: mx_remote.UnitNetConfig
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.UnitFlag
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.UnitCommandKind
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.UnitCommandFlag
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.UNIT_MAX_TEMPERATURES
+```
+
 ## OneIP test card
 
 A sink's test pattern, tone and lip-sync flash, and the ranges it accepts.
