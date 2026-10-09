@@ -222,6 +222,24 @@ goes out at 176 bytes: a receiver with the schedule ignores the settings of a
 shorter frame, and one whose settings end at the idle minutes takes it all the
 same.
 
+### PTP
+
+A device's PTP mode, domain and grandmaster priority1 are settings like the
+others, each behind its own bit.
+
+```python
+from mx_remote import OneIPPtpMode
+
+print(settings.ptp_mode, settings.ptp_domain, settings.ptp_priority1)
+
+await device.set_oneip_ptp_mode(OneIPPtpMode.AUTO)   # follow, or lead when no one does
+await device.set_oneip_ptp_domain(0)                 # up to ONEIP_PTP_DOMAIN_MAX
+await device.set_oneip_ptp_priority1(128)            # lower wins
+```
+
+A mode this library does not name and a domain above `ONEIP_PTP_DOMAIN_MAX` are
+refused before they are sent, and not cached from another controller's write.
+
 ### VLAN
 
 A device that announces `DeviceFeature.VLAN` tags its uplink by a VLAN
@@ -300,7 +318,8 @@ await mx.set_all_oneip_device_settings(OneIPDeviceSettings(
 Nothing is cached from it: each device that applies a change reports its
 settings, and its `oneip_settings` reads that. What every device would ignore is
 refused rather than sent - no setting at all, one only a device reports about
-itself, a profile out of range, or a schedule time that is not a time of day.
+itself, a profile, PTP mode or PTP domain out of range, or a schedule time that
+is not a time of day.
 
 ## Mesh and firmware
 

@@ -290,8 +290,9 @@ class OneIPDeviceSetting(IntFlag):
 	'''The device settings a OneIP configuration can carry, each on its own bit.
 
 	The same bits serve as the settings a frame carries and as the values of the
-	on/off ones among them. IR_PROFILE to POWER_SAVE_SCHEDULE carry a value
-	elsewhere in the block and have no on/off value of their own.
+	on/off ones among them. IR_PROFILE to POWER_SAVE_SCHEDULE and the PTP
+	settings carry a value elsewhere in the block and have no on/off value of
+	their own.
 
 	A device reports every setting it has, so one it never reports is one it
 	does not have.'''
@@ -325,6 +326,12 @@ class OneIPDeviceSetting(IntFlag):
 	CLOCK_SET          = (1 << 13)
 	'''The device's clock has been set, on/off. Reported by the device itself
 	and never written.'''
+	PTP_MODE           = (1 << 14)
+	'''The PTP mode the device runs.'''
+	PTP_DOMAIN         = (1 << 15)
+	'''The PTP domain the device runs in.'''
+	PTP_PRIORITY1      = (1 << 16)
+	'''The priority1 the device announces as a PTP grandmaster.'''
 
 ONEIP_DEVICE_SETTING_SWITCHES = OneIPDeviceSetting(0xFF)
 """The settings that are on or off, as opposed to carrying a value, and that
@@ -332,6 +339,22 @@ can be written."""
 
 ONEIP_DEVICE_SETTINGS_REPORTED_ONLY = OneIPDeviceSetting.IR_PROFILES | OneIPDeviceSetting.CLOCK_SET
 """The settings only a device reports about itself, which no write carries."""
+
+ONEIP_DEVICE_SETTINGS_PTP = OneIPDeviceSetting.PTP_MODE | OneIPDeviceSetting.PTP_DOMAIN \
+	| OneIPDeviceSetting.PTP_PRIORITY1
+"""The PTP settings."""
+
+class OneIPPtpMode(IntEnum):
+	'''How a OneIP device takes part in PTP.'''
+	OFF      = 0
+	'''No PTP.'''
+	FOLLOWER = 1
+	'''Follows a grandmaster, and never becomes one.'''
+	AUTO     = 2
+	'''Follows a grandmaster, or becomes one when there is none.'''
+
+ONEIP_PTP_DOMAIN_MAX = 127
+"""The highest PTP domain a OneIP device runs in."""
 
 ONEIP_MINUTES_PER_DAY = 24 * 60
 """Minutes in a day: every time in a power save schedule is below this."""

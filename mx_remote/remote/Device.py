@@ -74,7 +74,8 @@ from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, DeviceFeature, M
                               OneIPTestPattern, OneIPToneMode,
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                               MXR_SCALING_FLAG_OPTIONS_VALID, ONEIP_DEVICE_SETTING_SWITCHES,
-                              ONEIP_IR_PROFILE_MAX, ONEIP_IR_PROFILE_NOT_SET, ONEIP_VLAN_PORT_SFP)
+                              ONEIP_IR_PROFILE_MAX, ONEIP_IR_PROFILE_NOT_SET, ONEIP_VLAN_PORT_SFP,
+                              ONEIP_PTP_DOMAIN_MAX, OneIPPtpMode)
 from ..proto.FrameV2IPAudio import FrameV2IPAudio
 from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
 from ..proto.FrameV2IPTestcard import (FrameV2IPTestcard, TESTCARD_REQUEST, TESTCARD_SET,
@@ -1283,6 +1284,36 @@ class Device(DeviceBase):
 			return False
 		return self._send_v2ip_settings(OneIPDeviceSettings(
 			valid=OneIPDeviceSetting.POWER_SAVE_SCHEDULE, power_save=schedule))
+
+	async def set_oneip_ptp_mode(self, mode:OneIPPtpMode) -> bool:
+		'''Set the PTP mode this OneIP device runs.
+
+		A mode this library does not name is refused, since a device ignores it.
+		The terms of set_oneip_setting() apply.
+		'''
+		if not (OneIPPtpMode.OFF <= mode <= OneIPPtpMode.AUTO):
+			_LOGGER.warning(f"not setting PTP mode {mode} on {self}: no such mode")
+			return False
+		return self._send_v2ip_settings(OneIPDeviceSettings(
+			valid=OneIPDeviceSetting.PTP_MODE, ptp_mode=mode))
+
+	async def set_oneip_ptp_domain(self, domain:int) -> bool:
+		'''Set the PTP domain this OneIP device runs in, at most
+		ONEIP_PTP_DOMAIN_MAX. The terms of set_oneip_setting() apply.'''
+		if not (0 <= domain <= ONEIP_PTP_DOMAIN_MAX):
+			_LOGGER.warning(f"not setting PTP domain {domain} on {self}: no such domain")
+			return False
+		return self._send_v2ip_settings(OneIPDeviceSettings(
+			valid=OneIPDeviceSetting.PTP_DOMAIN, ptp_domain=domain))
+
+	async def set_oneip_ptp_priority1(self, priority1:int) -> bool:
+		'''Set the priority1 this OneIP device announces as a PTP grandmaster,
+		lower winning. The terms of set_oneip_setting() apply.'''
+		if not (0 <= priority1 <= 0xFF):
+			_LOGGER.warning(f"not setting PTP priority1 {priority1} on {self}: the field holds 0 to 255")
+			return False
+		return self._send_v2ip_settings(OneIPDeviceSettings(
+			valid=OneIPDeviceSetting.PTP_PRIORITY1, ptp_priority1=priority1))
 
 	async def set_oneip_vlan(self, vlan:OneIPVlan) -> bool:
 		'''Change this OneIP device's VLAN configuration.

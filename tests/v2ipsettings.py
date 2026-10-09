@@ -296,6 +296,59 @@ assert target.oneip_settings == before, 'a failed send moved the cache'
 wire(True)
 print('send failed : False, cache unmoved')
 
+# ----------------------------------------------------------------------- PTP
+PTP = int(S.PTP_MODE | S.PTP_DOMAIN | S.PTP_PRIORITY1)
+def cfg_ptp(subject, valid, ptp, flags=0):
+    '''As cfg_ps() with no power save, then the PTP mode, domain and priority1 at
+    172, 173 and 174. The reserved byte behind them stays poisoned.'''
+    out = bytearray(cfg_ps(subject, valid, flags))
+    out[172:175] = bytes(ptp)
+    return bytes(out)
+
+# One byte each behind the schedule. Each value differs, so one read from a
+# neighbour's offset shows, and priority1 has its top bit set, so a signed read
+# shows too.
+ptp = hello(uid(0x20), SINK)
+rx(uid(0x20), 0x3C, cfg_ptp(uid(0x20), PTP, (2, 0x5A, 0x80)))
+s = ptp.oneip_settings
+assert s.ptp_mode is mx_remote.OneIPPtpMode.AUTO, s.ptp_mode
+assert s.ptp_domain == 0x5A, s.ptp_domain
+assert s.ptp_priority1 == 0x80, s.ptp_priority1
+print('ptp         :', s)
+
+# A bit claiming PTP settings its frame is too short to hold is not a setting.
+ptp_short = hello(uid(0x21), SINK)
+rx(uid(0x21), 0x3C, cfg_ptp(uid(0x21), PTP | int(S.AUTO_POWER_SAVE), (1, 3, 4))[:174])
+s = ptp_short.oneip_settings
+assert s.auto_power_save == 0, 'the settings it holds'
+assert (s.ptp_mode, s.ptp_domain, s.ptp_priority1) == (None, None, None), s
+print('ptp short   : 174 bytes carries no PTP settings')
+
+# A controller's PTP write is cached only within the ranges a device takes.
+rx(uid(0x20), 0x3C, cfg_ptp(uid(0x20), PTP, (1, 3, 4)))
+rx(uid(0x04), 0x3C, cfg_ptp(uid(0x20), PTP, (3, 128, 9)))
+s = ptp.oneip_settings
+assert s.ptp_priority1 == 9, 'the write itself did not land'
+assert s.ptp_mode is mx_remote.OneIPPtpMode.FOLLOWER, 'an unnamed mode was cached'
+assert s.ptp_domain == 3, 'a domain past the last was cached'
+print('ptp ctrl    : cached as far as the device takes it')
+
+# Each write puts its byte at its offset in the block, behind its own bit.
+for setter, value, bit, at in ((ptp.set_oneip_ptp_mode, mx_remote.OneIPPtpMode.FOLLOWER, S.PTP_MODE, 44),
+                               (ptp.set_oneip_ptp_domain, 0x7F, S.PTP_DOMAIN, 45),
+                               (ptp.set_oneip_ptp_priority1, 0x80, S.PTP_PRIORITY1, 46)):
+    assert call(setter(value)) is True, bit
+    block = sent[-1][24 + 128:]
+    assert struct.unpack('<I', block[:4])[0] == int(bit), f'{bit!r}: valid'
+    assert block[44:48] == bytes([int(value) if i == at else 0 for i in range(44, 48)]), block[44:48].hex()
+s = ptp.oneip_settings
+assert (s.ptp_mode, s.ptp_domain, s.ptp_priority1) == (mx_remote.OneIPPtpMode.FOLLOWER, 0x7F, 0x80), s
+refused(ptp.set_oneip_ptp_mode(3), 'a PTP mode with no name')
+refused(ptp.set_oneip_ptp_domain(mx_remote.ONEIP_PTP_DOMAIN_MAX + 1), 'a PTP domain past the last')
+refused(ptp.set_oneip_ptp_priority1(0x100), 'a priority1 past the field')
+refused(power.set_oneip_ptp_domain(1), 'a setting the device does not have')
+print('ptp write   : each value behind its own bit, nothing out of range sent')
+
 # What the builder writes, the decoder reads back as the same settings.
 assert call(target.set_oneip_ir_profile(7)) is True
 rx(uid(0x10), 0x3C, sent[-1][24:])

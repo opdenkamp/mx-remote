@@ -157,12 +157,18 @@ for why, settings in (
                                                               ir_profile_sink=ONEIP_IR_PROFILE_NOT_SET - 1)),
         ('minutes past the field', OneIPDeviceSettings(valid=S.AUTO_POWER_SAVE, auto_power_save=0x10000)),
         ('a time past midnight', OneIPDeviceSettings(valid=S.POWER_SAVE_SCHEDULE, power_save=OneIPPowerSaveSchedule(
-            start=(ONEIP_MINUTES_PER_DAY,) * 7)))):
+            start=(ONEIP_MINUTES_PER_DAY,) * 7))),
+        ('a PTP mode with no name', OneIPDeviceSettings(valid=S.PTP_MODE, ptp_mode=3)),
+        ('a PTP domain past the last', OneIPDeviceSettings(valid=S.PTP_DOMAIN, ptp_domain=128)),
+        ('a priority1 past the field', OneIPDeviceSettings(valid=S.PTP_PRIORITY1, ptp_priority1=0x100))):
     refused(mx.set_all_oneip_device_settings(settings), why)
 for ok in (OneIPDeviceSettings(valid=S.IR_PROFILE, ir_profile=ONEIP_IR_PROFILE_MAX - 1),
            OneIPDeviceSettings(valid=S.IR_PROFILE_SINK, ir_profile_sink=ONEIP_IR_PROFILE_NOT_SET),
            OneIPDeviceSettings(valid=S.POWER_SAVE_SCHEDULE, power_save=OneIPPowerSaveSchedule(
-               start=(ONEIP_MINUTES_PER_DAY - 1,) * 7))):
+               start=(ONEIP_MINUTES_PER_DAY - 1,) * 7)),
+           OneIPDeviceSettings(valid=S.PTP_MODE, ptp_mode=2),
+           OneIPDeviceSettings(valid=S.PTP_DOMAIN, ptp_domain=127),
+           OneIPDeviceSettings(valid=S.PTP_PRIORITY1, ptp_priority1=0xFF)):
     assert call(mx.set_all_oneip_device_settings(ok)) is True, f'{ok} was refused'
 print('all refused : what every device would ignore is not sent')
 

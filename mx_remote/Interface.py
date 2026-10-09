@@ -2117,7 +2117,8 @@ class OneIPDeviceSettings:
     def __init__(self, valid:OneIPDeviceSetting=OneIPDeviceSetting(0),
                  flags:OneIPDeviceSetting=OneIPDeviceSetting(0), ir_profiles:int=0,
                  ir_profile:int=0, ir_profile_sink:int=0, auto_power_save:int=0,
-                 power_save:OneIPPowerSaveSchedule|None=None) -> None:
+                 power_save:OneIPPowerSaveSchedule|None=None, ptp_mode:OneIPPtpMode|int=OneIPPtpMode.OFF,
+                 ptp_domain:int=0, ptp_priority1:int=0) -> None:
         self._valid = OneIPDeviceSetting(valid)
         self._flags = OneIPDeviceSetting(flags)
         self._ir_profiles = ir_profiles
@@ -2125,6 +2126,9 @@ class OneIPDeviceSettings:
         self._ir_profile_sink = ir_profile_sink
         self._auto_power_save = auto_power_save
         self._power_save = power_save if (power_save is not None) else OneIPPowerSaveSchedule()
+        self._ptp_mode = int(ptp_mode)
+        self._ptp_domain = ptp_domain
+        self._ptp_priority1 = ptp_priority1
 
     @property
     def valid(self) -> OneIPDeviceSetting:
@@ -2180,6 +2184,29 @@ class OneIPDeviceSettings:
             return None
         return self._power_save
 
+    @property
+    def ptp_mode(self) -> OneIPPtpMode|int|None:
+        """The PTP mode, a raw int for one this library does not name, None
+        while it is not reported."""
+        if (OneIPDeviceSetting.PTP_MODE not in self._valid):
+            return None
+        return _wire_enum(OneIPPtpMode, self._ptp_mode)
+
+    @property
+    def ptp_domain(self) -> int|None:
+        """The PTP domain, up to ONEIP_PTP_DOMAIN_MAX, None while it is not reported."""
+        if (OneIPDeviceSetting.PTP_DOMAIN not in self._valid):
+            return None
+        return self._ptp_domain
+
+    @property
+    def ptp_priority1(self) -> int|None:
+        """The priority1 the device announces as a PTP grandmaster, lower
+        winning, None while it is not reported."""
+        if (OneIPDeviceSetting.PTP_PRIORITY1 not in self._valid):
+            return None
+        return self._ptp_priority1
+
     def merge(self, previous:'OneIPDeviceSettings|None') -> 'OneIPDeviceSettings':
         """
         Fold this received block onto the cached one.
@@ -2203,31 +2230,46 @@ class OneIPDeviceSettings:
             auto_power_save=(self._auto_power_save if (OneIPDeviceSetting.AUTO_POWER_SAVE in valid)
                              else previous._auto_power_save),
             power_save=(self._power_save if (OneIPDeviceSetting.POWER_SAVE_SCHEDULE in valid)
-                        else previous._power_save))
+                        else previous._power_save),
+            ptp_mode=(self._ptp_mode if (OneIPDeviceSetting.PTP_MODE in valid)
+                      else previous._ptp_mode),
+            ptp_domain=(self._ptp_domain if (OneIPDeviceSetting.PTP_DOMAIN in valid)
+                        else previous._ptp_domain),
+            ptp_priority1=(self._ptp_priority1 if (OneIPDeviceSetting.PTP_PRIORITY1 in valid)
+                           else previous._ptp_priority1))
 
     def as_applied_to(self, reported:OneIPDeviceSetting) -> 'OneIPDeviceSettings':
         """
         This block limited to what a device takes from a write about it.
 
-        A device applies a setting only if it has it, a profile only within its
-        range, and never what only it can report about itself.
+        A device applies a setting only if it has it, a profile, PTP mode or PTP
+        domain only within its range, and never what only it can report about
+        itself.
         """
         valid = (self._valid & reported) & ~ONEIP_DEVICE_SETTINGS_REPORTED_ONLY
         if not (0 <= self._ir_profile < ONEIP_IR_PROFILE_MAX):
             valid &= ~OneIPDeviceSetting.IR_PROFILE
         if not (ONEIP_IR_PROFILE_NOT_SET <= self._ir_profile_sink < ONEIP_IR_PROFILE_MAX):
             valid &= ~OneIPDeviceSetting.IR_PROFILE_SINK
+        if (self._ptp_mode > OneIPPtpMode.AUTO):
+            valid &= ~OneIPDeviceSetting.PTP_MODE
+        if (self._ptp_domain > ONEIP_PTP_DOMAIN_MAX):
+            valid &= ~OneIPDeviceSetting.PTP_DOMAIN
         return OneIPDeviceSettings(valid=valid, flags=self._flags, ir_profiles=self._ir_profiles,
                                   ir_profile=self._ir_profile, ir_profile_sink=self._ir_profile_sink,
-                                  auto_power_save=self._auto_power_save, power_save=self._power_save)
+                                  auto_power_save=self._auto_power_save, power_save=self._power_save,
+                                  ptp_mode=self._ptp_mode, ptp_domain=self._ptp_domain,
+                                  ptp_priority1=self._ptp_priority1)
 
     def __eq__(self, other:Any) -> bool:
         if not isinstance(other, OneIPDeviceSettings):
             return NotImplemented
         return ((self._valid, self._flags, self._ir_profiles, self._ir_profile, self._ir_profile_sink,
-                 self._auto_power_save, self._power_save)
+                 self._auto_power_save, self._power_save, self._ptp_mode, self._ptp_domain,
+                 self._ptp_priority1)
                 == (other._valid, other._flags, other._ir_profiles, other._ir_profile, other._ir_profile_sink,
-                    other._auto_power_save, other._power_save))
+                    other._auto_power_save, other._power_save, other._ptp_mode, other._ptp_domain,
+                    other._ptp_priority1))
 
     def __ne__(self, other:Any) -> bool:
         result = self.__eq__(other)
@@ -2249,6 +2291,12 @@ class OneIPDeviceSettings:
             parts.append(f"auto_power_save={self.auto_power_save}")
         if (self.power_save_schedule is not None):
             parts.append(f"power_save=[{self.power_save_schedule}]")
+        if ((mode := self.ptp_mode) is not None):
+            parts.append(f"ptp_mode={mode.name.lower() if isinstance(mode, OneIPPtpMode) else mode}")
+        if (self.ptp_domain is not None):
+            parts.append(f"ptp_domain={self.ptp_domain}")
+        if (self.ptp_priority1 is not None):
+            parts.append(f"ptp_priority1={self.ptp_priority1}")
         return " ".join(parts)
 
     def __repr__(self) -> str:
@@ -2847,6 +2895,18 @@ class DeviceBase(ABC):
     @abstractmethod
     async def set_oneip_power_save_schedule(self, schedule:OneIPPowerSaveSchedule) -> bool:
         '''set the device's daily power save windows'''
+
+    @abstractmethod
+    async def set_oneip_ptp_mode(self, mode:OneIPPtpMode) -> bool:
+        '''set the PTP mode the device runs'''
+
+    @abstractmethod
+    async def set_oneip_ptp_domain(self, domain:int) -> bool:
+        '''set the PTP domain the device runs in'''
+
+    @abstractmethod
+    async def set_oneip_ptp_priority1(self, priority1:int) -> bool:
+        '''set the priority1 the device announces as a PTP grandmaster'''
 
     @abstractmethod
     async def set_oneip_vlan(self, vlan:OneIPVlan) -> bool:
