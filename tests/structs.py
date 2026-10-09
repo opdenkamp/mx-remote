@@ -51,6 +51,26 @@ f.process()
 assert f.bay.signal_detected is True
 print('0x39 : handler set signal detected on the reporting bay')
 
+# --- 0x39 packs one 32-byte record per bay: 28 bytes of fields, padded to 8.
+#     The padding is poisoned, and the middle record names a port no bay sits
+#     on, which skips that record without ending the frame.
+def status_record(port, desc):
+    r = bytearray([0xA5] * 32)
+    r[0:2] = struct.pack('<H', port)
+    r[2:16] = desc
+    r[20:28] = struct.pack('<II', (1 << 3), (1 << 1))
+    return bytes(r)
+p = status_record(0, b'1080p60 444 8b') + status_record(9, b'480i60 422 12 ') + status_record(1, b'2160p50 420 10')
+f = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x39, p), ADDR)
+print('0x39 :', f)
+assert [r.signal_type for r in f.records] == ['1080p60 444 8b', '480i60 422 12 ', '2160p50 420 10']
+f.process()
+dev = mx.get_by_uid(mx_remote.MxrDeviceUid(UID))
+assert dev.get_by_portnum(0).signal_type == '1080p60 444 8b'
+assert dev.get_by_portnum(1).signal_type == '2160p50 420 10', 'a record behind the first was not read'
+assert dev.get_by_portnum(1).signal_detected is True
+print('0x39 : every record in the frame reached its bay')
+
 # --- bay config: description and signal type are separate fields
 rec = bytes([0,0,0,0,0]) + nm('In 1') + nm('In 1') + sigdesc + sigtype + struct.pack('<I',0) + struct.pack('<I',2)
 b = BayConfig(rec)
