@@ -11,6 +11,8 @@ from ..Interface import (
 	MxrCallbacks,
 	OneIPStreamSources,
 	OneIPPtpState,
+	UnitNetConfig,
+	UnitStatus,
 	AmpDolbySettings,
 	DeviceStatus,
 	DeviceOneIPDetails,
@@ -76,7 +78,9 @@ from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, DeviceFeature, M
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                               MXR_SCALING_FLAG_OPTIONS_VALID, ONEIP_DEVICE_SETTING_SWITCHES,
                               ONEIP_IR_PROFILE_MAX, ONEIP_IR_PROFILE_NOT_SET, ONEIP_VLAN_PORT_SFP,
-                              ONEIP_PTP_DOMAIN_MAX, OneIPPtpFlag, OneIPPtpMode)
+                              ONEIP_PTP_DOMAIN_MAX, OneIPPtpFlag, OneIPPtpMode, UnitCommandFlag,
+                              UnitCommandKind)
+from ..proto.FrameUnitCommand import FrameUnitCommand
 from ..proto.FrameV2IPAudio import FrameV2IPAudio
 from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
 from ..proto.FrameV2IPTestcard import (FrameV2IPTestcard, TESTCARD_REQUEST, TESTCARD_SET,
@@ -113,6 +117,7 @@ class Device(DeviceBase):
 		self._v2ip_settings:OneIPDeviceSettings|None = None
 		self._v2ip_vlan:OneIPVlan|None = None
 		self._v2ip_ptp:OneIPPtpState|None = None
+		self._unit_status:UnitStatus|None = None
 		self._v2ip_testcard:OneIPTestcard|None = None
 		self._time_zone:TimeZone|None = None
 		self._clock:DeviceClock|None = None
@@ -379,6 +384,11 @@ class Device(DeviceBase):
 	@override
 	def oneip_ptp(self) -> OneIPPtpState|None:
 		return self._v2ip_ptp
+
+	@property
+	@override
+	def unit_status(self) -> UnitStatus|None:
+		return self._unit_status
 
 	@property
 	@override
@@ -890,6 +900,10 @@ class Device(DeviceBase):
 			if (self._v2ip_vlan != data):
 				self._v2ip_vlan = data
 				self.call_callbacks()
+		elif isinstance(data, UnitStatus):
+			if (self._unit_status != data):
+				self._unit_status = data
+				self.call_callbacks()
 		elif isinstance(data, OneIPPtpState):
 			# A block without its valid bit is the device reporting no state.
 			ptp = data if (OneIPPtpFlag.VALID in data.flags) else None
@@ -1038,7 +1052,11 @@ class Device(DeviceBase):
 		return None
 
 	async def reboot(self) -> bool:
-		'''Send a reboot command to the device.'''
+		'''Send a reboot command to the device.
+
+		A device on protocol 0x2C or later takes it only from its mesh
+		controller or a management application, which this client announces
+		itself as.'''
 		frame = FrameReboot.construct(mxr=self.registry, target=self)
 		if frame is not None:
 			if self.registry.transmit(frame.frame) != len(frame.frame):
@@ -1046,6 +1064,62 @@ class Device(DeviceBase):
 			self._rebooting = True
 			return True
 		return False
+
+	async def clear_unit_status(self) -> bool:
+		'''Clear this unit's current system status. The terms of
+		upgrade_unit_video_processor() apply.'''
+		return self._unit_command(UnitCommandKind.CLEAR_STATUS)
+
+	async def upgrade_unit_video_processor(self, force:bool=False) -> bool:
+		'''Upgrade this unit's video processor to the latest image it holds, or
+		flash that image again when force is set and it already runs it.
+
+		Nothing acknowledges it: unit_status reads what the unit reports next.
+		False for a device that is not a OneIP unit, and for one below 0x2C,
+		which predates the command.
+		'''
+		flags = UnitCommandFlag.FORCE if force else UnitCommandFlag(0)
+		return self._unit_command(UnitCommandKind.VIDEO_PROCESSOR_UPGRADE, flags)
+
+	async def set_unit_dhcp(self) -> bool:
+		'''Switch this unit to an IP configuration from DHCP. The terms of
+		set_unit_network() apply.'''
+		return self._unit_command(UnitCommandKind.NET_CONFIG, UnitCommandFlag.DHCP, UnitNetConfig())
+
+	async def set_unit_network(self, network:UnitNetConfig) -> bool:
+		'''Give this unit a static IP configuration.
+
+		The address must be one a unit can hold and the netmask a run of ones
+		from the top; anything else is refused before it is sent.
+
+		The unit applies the change at once and reverts it unless its mesh
+		controller, hearing the unit report it, confirms it in time.
+		unit_status.network_pending says whether it still waits, and
+		confirm_unit_network() confirms it. Otherwise as
+		upgrade_unit_video_processor().
+		'''
+		if not network.is_valid():
+			_LOGGER.warning(f"not setting network [{network}] on {self}: not an address and netmask a unit can hold")
+			return False
+		return self._unit_command(UnitCommandKind.NET_CONFIG, network=network)
+
+	async def confirm_unit_network(self) -> bool:
+		'''Keep this unit's pending IP configuration, as its mesh controller does
+		when it hears the unit at its new address. The terms of
+		upgrade_unit_video_processor() apply.'''
+		return self._unit_command(UnitCommandKind.NET_CONFIRM)
+
+	def _unit_command(self, command:UnitCommandKind, flags:UnitCommandFlag=UnitCommandFlag(0),
+	                  network:UnitNetConfig|None=None) -> bool:
+		'''The one send behind the unit command methods.'''
+		if not self.is_oneip:
+			_LOGGER.warning(f"not sending {command.name} to {self}: not a OneIP unit")
+			return False
+		frame = FrameUnitCommand.construct(mxr=self.registry, target=self, command=command,
+		                                   flags=flags, network=network)
+		if (frame is None):
+			return False
+		return (self.registry.transmit(frame.frame) == len(frame.frame))
 
 	async def ping(self) -> bool:
 		'''Ask this device to announce itself now.

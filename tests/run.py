@@ -51,6 +51,7 @@ SUITES = [
     'mesh',         # the time zone, time and settings a whole mesh shares
     'v2ipvlan',     # a V2IP device's VLAN configuration, read and written
     'v2ipptp',      # a V2IP device's PTP state
+    'unit',         # a unit's status report, and the commands sent to one unit
     'v2iptestcard', # a V2IP sink's test pattern, tone and lip-sync flash
     'audiolock',    # an audio endpoint's status, and locking its source
     'staterequest', # a device that may have missed state is asked for it

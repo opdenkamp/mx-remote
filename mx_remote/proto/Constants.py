@@ -10,7 +10,7 @@
 from enum import IntEnum, IntFlag
 from typing import TypeVar
 
-MXR_PROTOCOL_VERSION = 0x2B
+MXR_PROTOCOL_VERSION = 0x2C
 """Highest mx_remote protocol version this library understands.
 
 Mirrors the firmware's own protocol version. Bump
@@ -113,6 +113,8 @@ MXR_OPCODE_VERSIONS: dict[int, int] = {
     0x4C: 0x2A,  # V2IP_SETTINGS_ALL
     0x4D: 0x2A,  # TIME
     0x4E: 0x2B,  # V2IP_TESTCARD
+    0x4F: 0x2C,  # SYS_UNIT_STATUS
+    0x50: 0x2C,  # SYS_UNIT_COMMAND
 }
 """Per-opcode minimum compatible protocol version, mirroring the firmware's
 own opcode table. Transmitters stamp the
@@ -355,6 +357,65 @@ class OneIPPtpMode(IntEnum):
 
 ONEIP_PTP_DOMAIN_MAX = 127
 """The highest PTP domain a OneIP device runs in."""
+
+class UnitFlag(IntFlag):
+	'''The flags of a unit's status report.'''
+	REBOOT_REQUIRED            = (1 << 0)
+	'''A changed setting takes effect after a reboot.'''
+	VIDEO_PROCESSOR_UPGRADE    = (1 << 1)
+	'''A newer video processor image is available.'''
+	DHCP                       = (1 << 2)
+	'''The IP configuration comes from DHCP.'''
+	NET_PENDING                = (1 << 3)
+	'''The IP configuration was changed through the mesh, and is reverted
+	unless the mesh controller confirms it in time.'''
+	FAN_QUIET                  = (1 << 4)
+	'''The fan runs in quiet mode.'''
+	EXTERNAL_PSU               = (1 << 5)
+	'''Powered by an external supply rather than PoE.'''
+	VIDEO_PROCESSOR_CONFIGURED = (1 << 6)
+	'''The video processor runs with its IP configured. Without it the encoder
+	and decoder health carry nothing.'''
+	ENCODER_ACTIVE             = (1 << 7)
+	'''The encoder is enabled.'''
+	DECODER_ACTIVE             = (1 << 8)
+	'''The decoder is enabled.'''
+	AUTO_DISABLE               = (1 << 9)
+	'''The decoder disables itself without a display.'''
+	AUTO_DISABLE_ACTIVE        = (1 << 10)
+	'''The decoder disabled itself without a display.'''
+	OFF_NO_SIGNAL              = (1 << 11)
+	'''The HDMI output switches off without a signal.'''
+	OFF_NO_SIGNAL_ACTIVE       = (1 << 12)
+	'''The HDMI output switched off without a signal.'''
+	POWER_CHECK                = (1 << 13)
+	'''Display power is checked before the decoder is enabled.'''
+	BOOT_COUNT                 = (1 << 14)
+	'''The boot count is reported.'''
+	FAN_SPEED                  = (1 << 15)
+	'''The fan speed is reported.'''
+
+class UnitCommandKind(IntEnum):
+	'''What a unit command asks of its unit.'''
+	CLEAR_STATUS            = 0
+	'''Clear the current system status.'''
+	VIDEO_PROCESSOR_UPGRADE = 1
+	'''Upgrade the video processor to the latest image.'''
+	NET_CONFIG              = 2
+	'''Change the IP configuration.'''
+	NET_CONFIRM             = 3
+	'''Keep a pending IP configuration.'''
+
+class UnitCommandFlag(IntFlag):
+	'''The flags of a unit command.'''
+	FORCE = (1 << 0)
+	'''With VIDEO_PROCESSOR_UPGRADE: flash the image even if it is running
+	already.'''
+	DHCP  = (1 << 1)
+	'''With NET_CONFIG: use DHCP, ignoring the addresses.'''
+
+UNIT_MAX_TEMPERATURES = 6
+"""The most temperature sensors a unit reports."""
 
 class OneIPPtpFlag(IntFlag):
 	'''The flags of a OneIP device's PTP state.'''

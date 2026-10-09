@@ -7,8 +7,9 @@ from mx_remote.proto.FrameV2IPDeviceConfiguration import V2IPDeviceOptions
 from mx_remote.Interface import DeviceOneIPDetails, OneIPDscpConfig
 
 print('version', mx_remote.const.VERSION, 'proto', hex(MXR_PROTOCOL_VERSION))
-assert MXR_PROTOCOL_VERSION == 0x2B
+assert MXR_PROTOCOL_VERSION == 0x2C
 assert MXR_OPCODE_VERSIONS[0x49] == 0x28 and MXR_OPCODE_VERSIONS[0x3C] == 0x11
+assert MXR_OPCODE_VERSIONS[0x4F] == 0x2C and MXR_OPCODE_VERSIONS[0x50] == 0x2C  # SYS_UNIT_STATUS, SYS_UNIT_COMMAND
 assert DeviceFeature.VIDEO_WALL == (1 << 24)
 
 # --- dscp: 0 is a legal marking, only the set bit says it is there

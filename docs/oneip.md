@@ -332,6 +332,42 @@ refused rather than sent - no setting at all, one only a device reports about
 itself, a profile, PTP mode or PTP domain out of range, or a schedule time that
 is not a time of day.
 
+## Unit status and commands
+
+A unit on protocol 0x2C reports its health and IP configuration with its
+periodic broadcast, and within a few seconds of a change to its flags, status
+or addresses.
+
+```python
+from mx_remote import UnitFlag
+
+status = device.unit_status     # None until the unit has reported
+print(status.uptime, status.boot_count, status.reboot_count)
+print(status.network)           # address, netmask, gateway, two DNS servers
+print(status.fan_rpm, status.temperatures, status.status_message)
+print(UnitFlag.DHCP in status.flags, status.network_pending)
+```
+
+A unit takes a command only from its mesh controller or a management
+application, which this client announces itself as:
+
+```python
+from mx_remote import UnitNetConfig
+
+await device.clear_unit_status()
+await device.upgrade_unit_video_processor(force=False)
+await device.set_unit_network(UnitNetConfig(
+    ip='10.1.2.3', netmask='255.255.255.0', gateway='10.1.2.254', dns1='10.1.2.254'))
+await device.confirm_unit_network()    # keep it, once the unit reports it
+await device.set_unit_dhcp()
+```
+
+A changed IP configuration applies at once and reverts unless the mesh
+controller confirms it in time; `status.network_pending` says whether it still
+waits. Each command returns False without sending for a device that is not a
+OneIP unit, one below 0x2C, or an address and netmask a unit cannot hold.
+Nothing acknowledges a command: `unit_status` reads what the unit reports next.
+
 ## Mesh and firmware
 
 ```python

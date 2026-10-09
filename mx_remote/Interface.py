@@ -42,7 +42,7 @@ def mxr_valid_addresses() -> list[str]:
     Get the list of valid local_ip addresses that can be used
 
     Returns:
-        addresses (list[str]): list of IP addressses that can be used for the local_ip parameter
+        list[str]: the IP addresses that can be used for the local_ip parameter
     """
     addresses:list[str] = []
     for iface in netifaces.interfaces():
@@ -1947,6 +1947,89 @@ def _vlan_port_index(wire:int) -> int|None:
     return (wire - 1) if (1 <= wire <= ONEIP_VLAN_PORTS) else None
 
 @dataclass(frozen=True)
+class UnitNetConfig:
+    """An IP configuration: the addresses a unit uses, or is told to use."""
+    ip: str = '0.0.0.0'
+    """The address."""
+    netmask: str = '0.0.0.0'
+    """The netmask."""
+    gateway: str = '0.0.0.0'
+    """The gateway."""
+    dns1: str = '0.0.0.0'
+    """The primary DNS server."""
+    dns2: str = '0.0.0.0'
+    """The secondary DNS server."""
+
+    @property
+    def addresses(self) -> tuple[str, str, str, str, str]:
+        """The five addresses, in the order the wire carries them."""
+        return (self.ip, self.netmask, self.gateway, self.dns1, self.dns2)
+
+    def is_valid(self) -> bool:
+        """Whether every address parses, the address is one a unit can hold,
+        and the netmask is a run of ones from the top."""
+        try:
+            for address in self.addresses:
+                ipaddress.IPv4Address(address)
+            ip = ipaddress.IPv4Address(self.ip)
+            mask = int(ipaddress.IPv4Address(self.netmask))
+        except ValueError:
+            return False
+        host = ~mask & 0xFFFFFFFF   # all ones from the bottom for a valid netmask
+        return not (ip.is_unspecified or ip.is_multicast or (int(ip) == 0xFFFFFFFF)) \
+            and (mask != 0) and ((host & (host + 1)) == 0)
+
+    def __str__(self) -> str:
+        return f"{self.ip}/{self.netmask} gw {self.gateway} dns {self.dns1} {self.dns2}"
+
+@dataclass(frozen=True)
+class UnitStatus:
+    """
+    A unit's health and IP configuration, as it last reported them.
+
+    A unit reports this about itself with its periodic broadcast, and within a
+    few seconds of a change to its flags, its status or its addresses.
+    """
+    flags: UnitFlag = UnitFlag(0)
+    """The report's flags."""
+    uptime: int = 0
+    """Seconds since the unit booted."""
+    boot_count: int|None = None
+    """How often the unit has booted, None while it does not report it."""
+    reboot_count: int = 0
+    """How often the unit has rebooted."""
+    encoder_health: int = 0
+    """The encoder's health, a mask of the unit's encoder status bits."""
+    decoder_health: int = 0
+    """The decoder's health, a mask of the unit's decoder status and state bits."""
+    network: UnitNetConfig = UnitNetConfig()
+    """The IP configuration in use."""
+    fan_rpm: int|None = None
+    """The fan speed in RPM, None while the unit does not report it."""
+    fan_duty: int = 0
+    """The fan duty cycle, in percent."""
+    status: int = 0
+    """The unit's system status."""
+    net_revert_s: int = 0
+    """Seconds before a pending IP configuration is reverted."""
+    temperatures: tuple[int, ...] = ()
+    """Temperatures in degrees Celsius, at most UNIT_MAX_TEMPERATURES of them."""
+    status_message: str = ''
+    """The message of the current system status."""
+
+    @property
+    def network_pending(self) -> bool:
+        """Whether an IP configuration changed through the mesh waits for the
+        mesh controller to confirm it."""
+        return UnitFlag.NET_PENDING in self.flags
+
+    def __str__(self) -> str:
+        return (f"up {self.uptime}s boots {self.boot_count} reboots {self.reboot_count} "
+                f"encoder {self.encoder_health:#x} decoder {self.decoder_health:#x} net [{self.network}] "
+                f"fan {self.fan_rpm} rpm {self.fan_duty}% status {self.status} '{self.status_message}' "
+                f"temperatures {list(self.temperatures)} flags {self.flags!r}")
+
+@dataclass(frozen=True)
 class OneIPPtpState:
     """
     A OneIP device's PTP state, as it reports it about itself.
@@ -2666,6 +2749,32 @@ class DeviceBase(ABC):
     def oneip_vlan(self) -> OneIPVlan|None:
         '''The VLAN configuration this OneIP device last reported about itself,
         None until it has reported one.'''
+
+    @property
+    @abstractmethod
+    def unit_status(self) -> UnitStatus|None:
+        '''The health and IP configuration this unit last reported, None until
+        it has reported them.'''
+
+    @abstractmethod
+    async def clear_unit_status(self) -> bool:
+        '''clear the unit's current system status'''
+
+    @abstractmethod
+    async def upgrade_unit_video_processor(self, force:bool=False) -> bool:
+        '''upgrade the unit's video processor to the latest image it holds'''
+
+    @abstractmethod
+    async def set_unit_dhcp(self) -> bool:
+        '''switch the unit to an IP configuration from DHCP'''
+
+    @abstractmethod
+    async def set_unit_network(self, network:UnitNetConfig) -> bool:
+        '''give the unit a static IP configuration'''
+
+    @abstractmethod
+    async def confirm_unit_network(self) -> bool:
+        '''keep the unit's pending IP configuration'''
 
     @property
     @abstractmethod

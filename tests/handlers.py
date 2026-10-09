@@ -64,6 +64,7 @@ BASELINE = {
     'FrameTime.FrameTime',
     'FrameTimeZone.FrameTimeZone',
     'FrameTopology.FrameTopology',
+    'FrameUnitStatus.FrameUnitStatus',
     'FrameV2IPAudio.FrameV2IPAudio',
     'FrameV2IPAudio.FrameV2IPAudioChangeSource',
     'FrameV2IPAudio.FrameV2IPAudioConfig',
