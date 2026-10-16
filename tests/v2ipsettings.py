@@ -380,6 +380,23 @@ refused(level.set_oneip_power_save_level(4), 'a power save level with no name')
 refused(ptp.set_oneip_power_save_level(mx_remote.OneIPPowerSaveLevel.LOW), 'a setting the device does not have')
 print('level write : the last byte of the block, nothing unnamed sent')
 
+# Power save disabled is a switch, and a level, ours or another sender's,
+# switches it off unless the same frame states it. A unit without the bit never
+# reports it, so the switch is refused there like any setting it lacks.
+DIS = int(S.POWER_SAVE_DISABLED)
+rx(uid(0x22), 0x3C, cfg_level(uid(0x22), LEVEL | DIS, 1, flags=DIS))
+assert level.oneip_settings.get(S.POWER_SAVE_DISABLED) is True
+rx(uid(0x04), 0x3C, cfg_level(uid(0x22), int(S.POWER_SAVE_LEVEL), 2))
+assert level.oneip_settings.get(S.POWER_SAVE_DISABLED) is False, "another sender's level left it on"
+rx(uid(0x22), 0x3C, cfg_level(uid(0x22), LEVEL | DIS, 2, flags=DIS))
+assert level.oneip_settings.get(S.POWER_SAVE_DISABLED) is True, 'a level stating the bit cleared it'
+assert call(level.set_oneip_power_save_level(mx_remote.OneIPPowerSaveLevel.OFF)) is True
+assert level.oneip_settings.get(S.POWER_SAVE_DISABLED) is False, 'our level left it on'
+assert call(level.set_oneip_setting(S.POWER_SAVE_DISABLED, True)) is True
+assert struct.unpack('<II', sent[-1][24 + 128:24 + 136]) == (DIS, DIS)
+refused(ptp.set_oneip_setting(S.POWER_SAVE_DISABLED, True), 'a unit that never reported the bit')
+print('ps disabled : a switch, and a level switches it off')
+
 # ---------------------------------------------------------- PTP message block
 # The values travel behind the PTP state at 216, in a block of their own. Each
 # differs and the intervals are negative, so an unsigned read or a neighbour's

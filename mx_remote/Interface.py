@@ -2424,14 +2424,18 @@ class OneIPDeviceSettings:
 
         Each bit in this block's ``valid`` replaces its own setting and leaves
         the others alone, so a write about one setting does not clear what was
-        known about the rest.
+        known about the rest. The exception is POWER_SAVE_DISABLED: a device
+        takes a power save level as switching it off.
         """
         if (previous is None):
             previous = OneIPDeviceSettings()
         valid = self._valid
+        flags = (previous._flags & ~valid) | (self._flags & valid)
+        if (OneIPDeviceSetting.POWER_SAVE_LEVEL in valid) and (OneIPDeviceSetting.POWER_SAVE_DISABLED not in valid):
+            flags &= ~OneIPDeviceSetting.POWER_SAVE_DISABLED
         return OneIPDeviceSettings(
             valid=(previous._valid | valid),
-            flags=((previous._flags & ~valid) | (self._flags & valid)),
+            flags=flags,
             ir_profiles=(self._ir_profiles if (OneIPDeviceSetting.IR_PROFILES in valid)
                          else previous._ir_profiles),
             ir_profile=(self._ir_profile if (OneIPDeviceSetting.IR_PROFILE in valid)

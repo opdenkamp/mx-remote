@@ -360,9 +360,14 @@ class OneIPDeviceSetting(IntFlag):
 	'''Sends SAP announcements.'''
 	SAP_INTERVAL       = (1 << 27)
 	'''The seconds between the device's SAP announcements.'''
+	POWER_SAVE_DISABLED = (1 << 28)
+	'''Never powers down by itself: automatic power save and the power save
+	schedule leave the device running, and switching this on wakes a device
+	either has powered down. A power save request still powers it down.
+	Writing POWER_SAVE_LEVEL switches it off.'''
 
 ONEIP_DEVICE_SETTING_SWITCHES = OneIPDeviceSetting(0xFF) | OneIPDeviceSetting.AES67 \
-	| OneIPDeviceSetting.SAP_LISTEN | OneIPDeviceSetting.SAP_ANNOUNCE
+	| OneIPDeviceSetting.SAP_LISTEN | OneIPDeviceSetting.SAP_ANNOUNCE | OneIPDeviceSetting.POWER_SAVE_DISABLED
 """The settings that are on or off, as opposed to carrying a value, and that
 can be written."""
 

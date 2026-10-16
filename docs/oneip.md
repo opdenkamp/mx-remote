@@ -238,6 +238,12 @@ await device.set_oneip_power_save_level(OneIPPowerSaveLevel.LOW)
 A level this library does not name is refused before it is sent, and not cached
 from another controller's write.
 
+`OneIPDeviceSetting.POWER_SAVE_DISABLED` is a switch that keeps a device from
+powering down by itself; a power save request still powers it down. A device
+that takes a power save level switches it off, so a level write, this client's
+or another sender's, clears it unless the same frame states it. Firmware
+without the bit never reports it, and the switch is refused there.
+
 ### PTP
 
 A device's PTP mode, domain and grandmaster priority1 are settings like the
