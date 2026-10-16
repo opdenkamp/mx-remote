@@ -6,14 +6,14 @@
 ######################################################
 '''Protocol frame for SYS_MONITORING_PULSE (opcode 0x2B).
 
-A controller broadcasts this to ask peers to send their monitoring data to
-PMS now. Payload is empty.
+A controller broadcasts this to tell every unit to check its update server for
+new firmware now. Payload is empty.
 '''
 
 from .FrameBase import FrameBase
 
 class FrameMonitoringPulse(FrameBase):
-    '''Monitoring pulse: trigger peers to send monitoring data immediately.'''
+    '''Monitoring pulse: every unit checks its update server for new firmware.'''
 
     def __str__(self) -> str:
         return f"monitoring pulse from {self.remote_device}"
