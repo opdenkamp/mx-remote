@@ -28,7 +28,9 @@ class FrameSysTemperature(FrameBase):
             ptr = ptr + 1
             pl = self.payload_u8(ptr)
             if (pl is not None):
-                rv.append(pl)
+                # Signed: a reading below zero is negative, and a failed
+                # sensor reads -55.
+                rv.append(pl - 0x100 if (pl >= 0x80) else pl)
         return rv
 
     def process(self) -> None:

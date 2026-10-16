@@ -98,9 +98,9 @@ assert '1920x1080' in inp.signal_type, inp.signal_type
 print('0x06 signal : detected=%s type=%r' % (inp.signal_detected, inp.signal_type))
 
 # ---- 0x15 SYS_TEMPERATURE
-rx(0x15, bytes([2, 41, 42]))
+rx(0x15, bytes([3, 41, 0xF6, 0xC9]))
 temps = dev.temperatures
-assert temps, temps
+assert list(temps.values()) == [41, -10, -55], 'readings are signed; a failed sensor reads -55: %s' % temps
 print('0x15 temp   : %s' % (temps,))
 
 # ---- 0x27 BAY_HIDE: addressed by uid, u16 port, then the flag
