@@ -53,12 +53,12 @@ rx(0x03, link(1, 'P8SN00000002', 'Out 2'))
 print('links       : merged ok')
 
 # ---- 0x31 signal status: full 112-byte report for port 1
-def av_details(port, status, svd=16, bpp_idx=2, clock=297000000):
-    hdr   = struct.pack('<HBBB3s', 1, 0x03, 0x00, 8, b'\0\0\0')      # version, support, stream, depth
+def av_details(port, status, svd=16, bpp_idx=2, clock=297000000, support=0x03, active=(0, 0)):
+    hdr   = struct.pack('<HBBB3s', 1, support, 0x00, 8, b'\0\0\0')   # version, support, stream, depth
     avi   = bytes(16)
     audio = bytes(16)
     video = bytes([svd, 1, 8, 1, 0, 0, 0, 0]) + struct.pack('<HIH', 60, 297000000, 0)
-    vsync = bytes(32)
+    vsync = bytes(2) + struct.pack('<H', active[0]) + bytes(8) + struct.pack('<H', active[1]) + bytes(18)
     errs  = struct.pack('<III', 0, 0, 0)
     sig   = bytes([svd, (bpp_idx << 5) | 1])
     baybl = struct.pack('<HI', port, status) + sig + struct.pack('<I', clock)
@@ -82,6 +82,21 @@ assert f.clock_rate == 297000000
 assert int(f.bay_status) == STATUS, hex(int(f.bay_status))
 print('  port', f.port_number, '| status', f.bay_status, '| scaling', f.scaling, '| clock', f.clock_rate)
 f.process()
+
+# ---- the report's status word is applied as a bay configuration's is, and it
+#      is what says whether a signal is detected
+in2 = dev.get_by_portnum(1)
+assert in2.hpd_detected and in2.signal_detected, 'the status word reached no bay'
+rx(0x31, av_details(1, 1 << 4))
+assert in2.hpd_detected and not in2.signal_detected, 'detection followed the stream, not the status'
+# the description follows the device's cases
+rx(0x31, av_details(1, STATUS, support=0x00))
+assert in2.signal_type == 'No Signal', in2.signal_type
+rx(0x31, av_details(1, STATUS, support=0x01))
+assert in2.signal_type == 'Invalid Signal', in2.signal_type
+rx(0x31, av_details(1, STATUS, svd=0, active=(1440, 900)))
+assert in2.signal_type.startswith('1440x900 / '), 'a PC resolution: %s' % in2.signal_type
+print('0x31 status : applied to the bay; no, invalid, or the measured area')
 
 # ---- a truncated (68..111 byte) report must not be attributed to a bay
 short = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x31, av_details(1, 0)[:68]), ADDR)

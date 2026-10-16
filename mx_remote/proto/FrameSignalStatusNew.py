@@ -100,7 +100,8 @@ class SignalStatusAvDetailsVideo:
 
     @property
     def svd(self) -> Svd|None:
-        return self._svd.svd[self._data[0]] if self._data[0] != 0 else None
+        '''The CTA mode, None for a stream whose mode the table lacks.'''
+        return self._svd.svd.get(self._data[0]) if self._data[0] != 0 else None
 
     @property
     def colour_space(self) -> VideoColourSpace|None:
@@ -153,6 +154,11 @@ class SignalStatusAvDetailsVideo:
 #   88..100  av_details_hdmi_link_errors (3 x u32)
 #   100..112 av_details_bay (u16 portnum, u32 status, mxr_signal_type scaling, u32 clock_rate)
 _AV_DETAILS_SIZE = 112
+
+_VSYNC_H_ACTIVE = 58
+_VSYNC_V_ACTIVE = 68
+'''Where the timing block gives the active width and height, which describe a
+stream whose mode the CTA table lacks.'''
 
 class FrameSignalStatusNew(FrameBase):
     ''' signal status changed
@@ -315,26 +321,40 @@ class FrameSignalStatusNew(FrameBase):
         bay = self.bay
         if bay is None:
             return
-        
-        if self.stream_valid and (self.video is not None) and (self.video.svd is not None):
-            signal_type = f'{self.video.svd.horizontal_active}x{self.video.svd.vertical_active} / {self.video.colour_space} / {self.video.colour_depth}bpp'
+
+        # The description follows the device's cases: no signal without a
+        # stream, invalid signal for one detected but not valid, and for a mode
+        # the CTA table lacks the active area its timing measures.
+        details = None
+        if not self.stream_detected:
+            signal_type = 'No Signal'
+        elif not self.stream_valid or (self.video is None):
+            signal_type = 'Invalid Signal'
+        else:
+            if ((svd := self.video.svd) is not None):
+                width, height = svd.horizontal_active, svd.vertical_active
+                details = VideoSignalDetails(
+                    svd=svd.id,
+                    colour=self.video.colour_space,
+                    bpp=self.video.colour_depth,
+                    non_int=(self.stream_flags is not None) and self.stream_flags.video_non_int_clock,
+                    from_report=True)
+            else:
+                width, height = self.payload_u16(_VSYNC_H_ACTIVE), self.payload_u16(_VSYNC_V_ACTIVE)
+            signal_type = f'{width}x{height} / {self.video.colour_space} / {self.video.colour_depth}bpp'
             if (self.stream_flags is not None):
                 if self.stream_flags.video_interlaced:
                     signal_type += ' interlaced'
                 if self.stream_flags.video_hdr:
                     signal_type += ' HDR'
             signal_type += f' / {self.frame_rate}Hz'
-            details = VideoSignalDetails(
-                svd=self.video.svd.id,
-                colour=self.video.colour_space,
-                bpp=self.video.colour_depth,
-                non_int=(self.stream_flags is not None) and self.stream_flags.video_non_int_clock,
-                from_report=True)
-        else:
-            signal_type = 'No Signal'
-            details = None
-        bay.on_mxr_update(SignalStatus(detected=self.stream_valid, description=signal_type,
-                                       details=details))
+        # A unit applies the status word as it does a bay configuration's, and
+        # that is what says whether a signal is detected.
+        status = self.bay_status
+        if (status is not None):
+            bay.on_mxr_update(status)
+        detected = (BayStatusMask.SIGNAL_DETECTED in status) if (status is not None) else self.stream_valid
+        bay.on_mxr_update(SignalStatus(detected=detected, description=signal_type, details=details))
 
     def __str__(self) -> str:
         if (self.payload is None):

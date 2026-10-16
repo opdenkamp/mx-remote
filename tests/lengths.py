@@ -56,7 +56,6 @@ KNOWN = {
     0x1F: 'V2IP_SOURCE_SWITCH   - short payload raises "invalid FrameV2IPSourceSwitch size"',
     0x24: 'V2IP_MANUAL_SRC_SW   - short payload raises "invalid FrameV2IPManualSourceSwitch size"',
     0x29: 'NET_LINK_STATUS      - IndexError and struct.error on all but an empty payload',
-    0x31: 'BAY_SIGNAL_STATUS    - KeyError on a value no enum names, at any length',
     0x3C: 'V2IP_DEVICE_CFG      - short payload raises "invalid v2ip configuration"',
     0x3D: 'AMP_ZONE_SETTINGS    - AttributeError reading a member off a value that is None',
 }
