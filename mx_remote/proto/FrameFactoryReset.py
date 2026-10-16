@@ -6,48 +6,46 @@
 ######################################################
 '''Protocol frame for SYS_FACTORY_RESET (opcode 0x3A).
 
-A mesh controller or management app broadcasts this to factory-reset peers.
-Payload forms:
-    empty            controller-only target (just the sender)
-    >=1, byte 0xFF   broadcast to all peers (controller/management only)
-    >=16             single target uid
-
-Each length is a minimum and they are tested longest first. An update that
-appends a field leaves the fields ahead of it where they are, so an exact
-length would read a grown request as a shorter form - here, as one addressing
-nobody.
+A mesh controller or management app broadcasts this to factory-reset units.
+It addresses them as a reboot does: see manage_target().
 '''
 
 from functools import cached_property
 from .FrameBase import FrameBase
 from ..Uid import MxrDeviceUid
 
+_MANAGE_ALL = 0xFF
+'''The one-byte payload that addresses every unit.'''
+
+def manage_target(frame:FrameBase) -> tuple[bool, MxrDeviceUid|None]|None:
+    '''Whom a reboot or factory reset addresses: (True, None) for every unit,
+    (False, uid) for one, and None for a frame a unit drops.
+
+    A unit takes an empty payload or the single byte 0xFF as every unit, and
+    exactly a 16-byte uid as one; it drops any other length.'''
+    pl = frame.payload or b''
+    if (len(pl) == 0) or (pl == bytes([_MANAGE_ALL])):
+        return (True, None)
+    if (len(pl) == 16):
+        return (False, frame.payload_uuid(0))
+    return None
+
 class FrameFactoryReset(FrameBase):
     '''Factory reset request.'''
 
     @cached_property
     def is_broadcast_all(self) -> bool:
-        '''Whether this asks every peer to reset.
-
-        Tested after the uid form, which is longer: a uid whose first byte is
-        0xFF would otherwise read as a broadcast.'''
-        return (self.target_uid is None) and (len(self) >= 1) and (self.payload_u8(0) == 0xFF)
+        '''Whether this asks every unit to reset.'''
+        return ((target := manage_target(self)) is not None) and target[0]
 
     @cached_property
     def target_uid(self) -> MxrDeviceUid | None:
-        '''Uid of the single peer being reset, None when the request names none.
-
-        A minimum rather than an exact length. A sender that appends a field
-        leaves the uid where it is, so requiring 16 exactly would read a grown
-        request as one addressing nobody - which is the sender resetting itself,
-        a different request altogether.'''
-        if (len(self) >= 16):
-            return self.payload_uuid(0)
-        return None
+        '''Uid of the single unit being reset, None when the request names none.'''
+        return target[1] if ((target := manage_target(self)) is not None) else None
 
     def __str__(self) -> str:
         if self.is_broadcast_all:
-            return f"factory reset (broadcast) from {self.remote_device}"
+            return f"factory reset (every unit) from {self.remote_device}"
         if (uid := self.target_uid) is not None:
             return f"factory reset target {self.uid_to_user_string(uid)} from {self.remote_device}"
-        return f"factory reset from {self.remote_device}"
+        return f"factory reset of no length a unit takes, from {self.remote_device}"
