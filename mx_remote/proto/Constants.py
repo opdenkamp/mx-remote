@@ -690,6 +690,7 @@ class BayStatusMask(IntFlag):
 	FAULT = (1 << 0)
 	HIDDEN = (1 << 1)
 	POWERED = (1 << 2)
+	'''The amplifier zone the bay drives is powered on; only a ProAmp8v2 sets it.'''
 	SIGNAL_DETECTED = (1 << 3)
 	HPD_DETECTED = (1 << 4)
 	SIGNAL_SCRAMBLED = (1 << 5)

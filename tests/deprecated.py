@@ -185,6 +185,42 @@ fn = deprecated(lambda: dev.set_v2ip_output_mode, 'DeviceBase.set_v2ip_output_mo
 assert fn.__func__ is type(dev).set_oneip_output_mode
 print('members     :', sum(map(len, RELEASED_MEMBERS.values())), 'members resolve on live objects')
 
+# ------------------------------------------------ PoE power is zone power
+# Bay status bit 2 says an amplifier zone is powered on. A subclass written
+# against the PoE name is still called, with a warning, and the property
+# still reads.
+class Legacy(mx_remote.MxrCallbacks):
+    def __init__(self):
+        self.poe = []
+    def on_status_poe_powered_changed(self, bay, val):
+        self.poe.append(val)
+class Current(mx_remote.MxrCallbacks):
+    def __init__(self):
+        self.zone = []
+    def on_status_zone_powered_changed(self, bay, val):
+        self.zone.append(val)
+AMP = bytes([0x55]) * 16
+def powered_amp(callbacks):
+    r = Remote(open_connection=False, callbacks=callbacks)
+    r._uid = bytes(range(0x20, 0x30))
+    r.process_frame(0.0, create_mxr_frame(AMP, 0x00, struct.pack('<H', 0x22) + name('PROAMP8') + name('P8SN00000055')
+                                          + name('5.0.0') + struct.pack('<I', 1 << 17)), ('192.0.2.9', 8812))
+    rec = (bytes([9, 1, 0, 0, 0]) + name('Zone 1') + name('Zone 1') + bytes(16)
+           + struct.pack('<II', int(Constants.BayStatusMask.POWERED), int(Constants.BayFeaturesMask.AUDIO_AMP_OUT)))
+    r.process_frame(0.0, create_mxr_frame(AMP, 0x02, rec), ('192.0.2.9', 8812))
+    return r.get_by_uid(mx_remote.MxrDeviceUid(AMP)).get_by_portnum(9)
+current = Current()
+zone = powered_amp(current)
+assert zone.zone_powered and current.zone == [True], current.zone
+legacy = Legacy()
+with warnings.catch_warnings(record=True) as caught:
+    warnings.simplefilter('always')
+    zone = powered_amp(legacy)
+    assert zone.poe_powered is True
+assert legacy.poe == [True], 'a subclass overriding the PoE callback was not called'
+assert sum(issubclass(w.category, DeprecationWarning) for w in caught) == 2, [str(w.message) for w in caught]
+print('zone power  : bit 2 is zone power; the PoE callback and property still work, with a warning')
+
 # ------------------------------------------------------ nothing new is V2IP
 
 # Every public name that is not one of the aliases above is spelled OneIP and

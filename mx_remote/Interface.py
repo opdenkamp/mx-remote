@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import IntEnum
 import time
+import warnings
 from functools import cached_property
 import aiohttp
 import ipaddress
@@ -1176,8 +1177,16 @@ class BayBase(ABC):
 
     @property
     @abstractmethod
+    def zone_powered(self) -> bool:
+        '''True if the amplifier zone the bay drives is powered on. Only a
+        ProAmp8v2 reports it.'''
+
+    @property
     def poe_powered(self) -> bool:
-        '''True if PoE has been enabled (HDBaseT only)'''
+        '''Deprecated: use zone_powered. Bay status bit 2 says an amplifier
+        zone is powered on, not that PoE is.'''
+        warnings.warn("BayBase.poe_powered is deprecated, use zone_powered", DeprecationWarning, stacklevel=2)
+        return self.zone_powered
 
     @property
     @abstractmethod
@@ -3752,10 +3761,20 @@ class MxrCallbacks:
         _LOGGER.debug(f"{bay} {lval}")
         self.on_bay_update(bay)
 
-    def on_status_poe_powered_changed(self, bay:BayBase, val:bool) -> None:
-        ''' called when the PoE power status of 'bay' changed '''
+    def on_status_zone_powered_changed(self, bay:BayBase, val:bool) -> None:
+        ''' called when the amplifier zone 'bay' drives is powered on or off '''
+        if (type(self).on_status_poe_powered_changed is not MxrCallbacks.on_status_poe_powered_changed):
+            warnings.warn("MxrCallbacks.on_status_poe_powered_changed is deprecated, "
+                          "use on_status_zone_powered_changed", DeprecationWarning, stacklevel=2)
+            self.on_status_poe_powered_changed(bay, val)
+            return
         lval = "on" if val else "off"
-        _LOGGER.debug(f"{bay} PoE {lval}")
+        _LOGGER.debug(f"{bay} zone power {lval}")
+        self.on_bay_update(bay)
+
+    def on_status_poe_powered_changed(self, bay:BayBase, val:bool) -> None:
+        ''' Deprecated: override on_status_zone_powered_changed. A subclass
+        that still overrides this is called in its place. '''
         self.on_bay_update(bay)
 
     def on_status_hdbt_connected_changed(self, bay:BayBase, val:bool) -> None:

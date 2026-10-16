@@ -79,7 +79,7 @@ class Bay(BayBase):
         self._power_status:PowerStatus|None = None
         self._faulty = None
         self._hidden = None
-        self._poe_powered = None
+        self._zone_powered = None
         self._hdbt_connected = None
         self._signal_detected = None
         self._signal_type = None
@@ -603,16 +603,16 @@ class Bay(BayBase):
 
     @property
     @override
-    def poe_powered(self) -> bool:
-        '''Bay PoE is powered.'''
-        return (self._poe_powered is not None) and self._poe_powered
+    def zone_powered(self) -> bool:
+        '''The amplifier zone the bay drives is powered on.'''
+        return (self._zone_powered is not None) and self._zone_powered
 
-    @poe_powered.setter
-    def poe_powered(self, val:bool) -> None:
-        prev = self.poe_powered
-        self._poe_powered = val
-        if prev != self.poe_powered and (not prev or not val):
-            self.callbacks.on_status_poe_powered_changed(self, val)
+    @zone_powered.setter
+    def zone_powered(self, val:bool) -> None:
+        prev = self.zone_powered
+        self._zone_powered = val
+        if prev != self.zone_powered and (not prev or not val):
+            self.callbacks.on_status_zone_powered_changed(self, val)
             self.call_callbacks()
 
     @property
@@ -1144,7 +1144,7 @@ class Bay(BayBase):
             return
         self.faulty = BayStatusMask.FAULT in data
         self.hidden = BayStatusMask.HIDDEN in data
-        self.poe_powered = BayStatusMask.POWERED in data
+        self.zone_powered = BayStatusMask.POWERED in data
         self.hdbt_connected = BayStatusMask.HDBT_CONNECTED in data
         self.hpd_detected = BayStatusMask.HPD_DETECTED in data
         self.cec_detected = BayStatusMask.CEC_DETECTED in data

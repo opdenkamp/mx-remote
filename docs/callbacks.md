@@ -51,7 +51,7 @@ Available callback methods:
 | `on_status_signal_detected_changed` | signal detect status changed |
 | `on_status_faulty_changed` | fault status changed |
 | `on_status_hidden_changed` | hidden status changed |
-| `on_status_poe_powered_changed` | PoE power status changed |
+| `on_status_zone_powered_changed` | The amplifier zone a bay drives powered on or off (ProAmp8v2) |
 | `on_status_hdbt_connected_changed` | HDBaseT link status changed |
 | `on_status_signal_type_changed` | signal type changed |
 | `on_status_hpd_detected_changed` | hotplug detect changed |
