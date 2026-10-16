@@ -157,6 +157,35 @@ A unit's health and IP configuration, and the commands sent to one unit.
 .. autodata:: mx_remote.proto.Constants.UNIT_POWER_SAVE_LEVELS
 ```
 
+## OneIP session descriptions
+
+What an output plays from a session description, and how it is timed.
+
+```{eval-rst}
+.. autoclass:: mx_remote.OneIPSinkSdp
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OneIPSdpFlag
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OneIPSdpEncoding
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OneIPSdpMediaClock
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OneIPSdpRefClock
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OneIPSdpClockMode
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OneIPSdpClockState
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.ONEIP_SDP_MAX
+```
+
 ## OneIP test card
 
 A sink's test pattern, tone and lip-sync flash, and the ranges it accepts.

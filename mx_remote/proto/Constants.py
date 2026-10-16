@@ -10,7 +10,7 @@
 from enum import IntEnum, IntFlag
 from typing import TypeVar
 
-MXR_PROTOCOL_VERSION = 0x2C
+MXR_PROTOCOL_VERSION = 0x2E
 """Highest mx_remote protocol version this library understands.
 
 Mirrors the firmware's own protocol version. Bump
@@ -28,7 +28,10 @@ decoded below, or that revision goes silent on the mesh rather than noisy -
 every 20-30s once every device it knows is on 0x2A.
 
 0x2B is the row of V2IP_TESTCARD, so a sink's test card report arrives stamped
-0x2B."""
+0x2B.
+
+0x2E is the row of V2IP_SINK_SDP, so an output's session description report
+arrives stamped 0x2E."""
 
 MXR_PROTOCOL_VERSION_SLOW_HELLO = 0x2A
 """First protocol version whose devices may hello only every 20-30s."""
@@ -115,6 +118,7 @@ MXR_OPCODE_VERSIONS: dict[int, int] = {
     0x4E: 0x2B,  # V2IP_TESTCARD
     0x4F: 0x2C,  # SYS_UNIT_STATUS
     0x50: 0x2C,  # SYS_UNIT_COMMAND
+    0x52: 0x2E,  # V2IP_SINK_SDP
 }
 """Per-opcode minimum compatible protocol version, mirroring the firmware's
 own opcode table. Transmitters stamp the
@@ -405,6 +409,63 @@ class OneIPPtpMode(IntEnum):
 
 ONEIP_PTP_DOMAIN_MAX = 127
 """The highest PTP domain a OneIP device runs in."""
+
+ONEIP_SDP_MAX = 2048
+"""The longest session description a OneIP output takes, in bytes."""
+
+class OneIPSdpFlag(IntFlag):
+	'''The flags of a OneIP output's session description report.'''
+	ACTIVE    = (1 << 0)
+	'''The output plays a stream from a description.'''
+	AUDIO_ONLY = (1 << 1)
+	'''And nothing else, as no video is routed to it.'''
+	CLOCK     = (1 << 2)
+	'''The clock mode and state hold the video processor's answer.'''
+
+class OneIPSdpEncoding(IntEnum):
+	'''The sample encoding of a stream a OneIP output plays from a description.'''
+	NONE  = 0
+	L16   = 1
+	'''16-bit linear PCM.'''
+	L24   = 2
+	'''24-bit linear PCM.'''
+	AM824 = 3
+
+class OneIPSdpMediaClock(IntEnum):
+	'''Where a described stream's media clock comes from.'''
+	NONE   = 0
+	DIRECT = 1
+	'''Direct, at an offset from the reference clock.'''
+	SENDER = 2
+	'''The sender's.'''
+
+class OneIPSdpRefClock(IntEnum):
+	'''The reference clock a described stream names.'''
+	NONE      = 0
+	PTP       = 1
+	TRACEABLE = 2
+	LOCAL_MAC = 3
+	'''The sender's local MAC.'''
+
+class OneIPSdpClockMode(IntEnum):
+	'''What a OneIP output's video processor times a described stream by.'''
+	ARRIVAL = 0
+	PTP     = 1
+	SENDER  = 2
+
+class OneIPSdpClockState(IntEnum):
+	'''How far a OneIP output's video processor has got with a described
+	stream's timing.'''
+	IDLE        = 0
+	SERVO       = 1
+	'''Running its servo.'''
+	ALIGNING    = 2
+	TIMED       = 3
+	PARKED      = 4
+	UNTIMED     = 5
+	'''Playing untimed.'''
+	UNSUPPORTED = 6
+	'''The timing is not supported.'''
 
 class OneIPPowerSaveLevel(IntEnum):
 	'''How far a OneIP device powers down in power save, each level saving more

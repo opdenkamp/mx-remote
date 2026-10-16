@@ -361,6 +361,26 @@ falls outside them in silence: see `OneIPTestTone.is_valid()` and
 as the sink stops it regardless. The frame needs protocol 0x2B, so a sink
 announcing less is refused as well.
 
+### Session descriptions
+
+An output plays an AES67 stream from a session description it is handed, and
+reports what it plays when that changes and at least once a minute.
+
+```python
+await sink.play_oneip_sdp(sdp_text)     # sent in 1 KB pages, played once the last is in
+await sink.set_oneip_sdp_screen(1)      # what it shows while it plays audio alone
+await sink.request_oneip_sink_sdp()     # report now
+await sink.stop_oneip_sdp()
+
+print(sink.oneip_sink_sdp)   # None until the output has reported
+```
+
+An output takes these only from its mesh controller or a management
+application, which this client announces itself as, and only from protocol
+0x2E. A description is 1 to `ONEIP_SDP_MAX` bytes: an output drops a longer one
+after its last page, so one is refused before it is sent. Nothing acknowledges
+the pages; `oneip_sink_sdp` reads what the output reports next.
+
 ### Every device at once
 
 One broadcast changes settings on every OneIP device of the mesh. Each device

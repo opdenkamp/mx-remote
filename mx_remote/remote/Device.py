@@ -30,6 +30,7 @@ from ..Interface import (
 	OneIPPowerSaveSchedule,
 	OneIPVlan,
 	OneIPTestcard,
+	OneIPSinkSdp,
 	OneIPTestSync,
 	OneIPTestTone,
 	TimeZone,
@@ -81,11 +82,12 @@ from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, BayFeaturesMask,
                               MXR_SCALING_FLAG_OPTIONS_VALID, ONEIP_DEVICE_SETTING_SWITCHES,
                               ONEIP_IR_PROFILE_MAX, ONEIP_IR_PROFILE_NOT_SET, ONEIP_VLAN_PORT_SFP,
                               ONEIP_DEVICE_SETTINGS_BLOCK, ONEIP_DSCP_MAX,
-                              ONEIP_PTP_DOMAIN_MAX, OneIPPowerSaveLevel, OneIPPtpFlag, OneIPPtpMode, UnitCommandFlag,
+                              ONEIP_PTP_DOMAIN_MAX, ONEIP_SDP_MAX, OneIPPowerSaveLevel, OneIPPtpFlag, OneIPPtpMode, UnitCommandFlag,
                               UnitCommandKind)
 from ..proto.FrameUnitCommand import FrameUnitCommand
 from ..proto.FrameV2IPAudio import AUDIO_LAYOUT_SINCE, FrameV2IPAudio
 from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
+from ..proto.FrameV2IPSinkSdp import FrameV2IPSinkSdp, SDP_REQUEST, SDP_SCREEN, SDP_STOP
 from ..proto.FrameV2IPTestcard import (FrameV2IPTestcard, TESTCARD_REQUEST, TESTCARD_SET,
                                        TESTCARD_PART_PATTERN, TESTCARD_PART_TONE, TESTCARD_PART_SYNC)
 
@@ -166,6 +168,7 @@ class Device(DeviceBase):
 		self._v2ip_ptp:OneIPPtpState|None = None
 		self._unit_status:UnitStatus|None = None
 		self._v2ip_testcard:OneIPTestcard|None = None
+		self._v2ip_sink_sdp:OneIPSinkSdp|None = None
 		self._time_zone:TimeZone|None = None
 		self._clock:DeviceClock|None = None
 		self._mesh_master_uid:MxrDeviceUid|None = None
@@ -1040,6 +1043,10 @@ class Device(DeviceBase):
 			if (self._v2ip_testcard != data):
 				self._v2ip_testcard = data
 				self.call_callbacks()
+		elif isinstance(data, OneIPSinkSdp):
+			if (self._v2ip_sink_sdp != data):
+				self._v2ip_sink_sdp = data
+				self.call_callbacks()
 		elif isinstance(data, TimeZone):
 			if (self._time_zone != data):
 				self._time_zone = data
@@ -1666,6 +1673,64 @@ class Device(DeviceBase):
 			_LOGGER.warning(f"not setting lip-sync {sync} on {self}: a value is out of range")
 			return False
 		return self._send_v2ip_testcard(TESTCARD_SET, TESTCARD_PART_SYNC, OneIPTestcard(sync=sync))
+
+	@property
+	@override
+	def oneip_sink_sdp(self) -> OneIPSinkSdp|None:
+		return self._v2ip_sink_sdp
+
+	async def play_oneip_sdp(self, sdp:str) -> bool:
+		'''Have this OneIP output play the stream a session description describes.
+
+		The description goes out in pages of up to 1 KB, and the output plays it
+		once the last page is in. It takes them only from its mesh controller or
+		a management application, which this client announces itself as.
+		Nothing acknowledges the pages: oneip_sink_sdp reads what the output
+		reports next. Refused for an empty description or one longer than
+		ONEIP_SDP_MAX bytes, which an output drops after the last page, for a
+		device that is not a OneIP output, and for one below protocol 0x2E.
+		'''
+		data = sdp.encode('utf-8')
+		if not (1 <= len(data) <= ONEIP_SDP_MAX):
+			_LOGGER.warning(f"not playing a session description on {self}: {len(data)} bytes, not 1 to {ONEIP_SDP_MAX}")
+			return False
+		if not self.is_oneip_sink:
+			_LOGGER.warning(f"not playing a session description on {self}: it is not a OneIP output")
+			return False
+		pages = FrameV2IPSinkSdp.construct_pages(mxr=self.registry, target=self, target_uid=self.remote_id, sdp=data)
+		if (pages is None):
+			return False
+		return all(self.registry.transmit(page.frame) == len(page.frame) for page in pages)
+
+	async def stop_oneip_sdp(self) -> bool:
+		'''Stop the stream this OneIP output plays from a session description. As
+		play_oneip_sdp().'''
+		return self._send_sink_sdp_command(SDP_STOP, 0)
+
+	async def set_oneip_sdp_screen(self, screen:int) -> bool:
+		'''Set what this OneIP output shows while it plays audio alone, as the
+		wire value. As play_oneip_sdp().'''
+		if not (0 <= screen <= 0xFF):
+			_LOGGER.warning(f"not setting screen {screen} on {self}: the field holds 0 to 255")
+			return False
+		return self._send_sink_sdp_command(SDP_SCREEN, screen)
+
+	async def request_oneip_sink_sdp(self) -> bool:
+		'''Ask this OneIP output what it plays from a session description now,
+		rather than at its next report, which comes at least once a minute. As
+		play_oneip_sdp().'''
+		return self._send_sink_sdp_command(SDP_REQUEST, 0)
+
+	def _send_sink_sdp_command(self, kind:int, value:int) -> bool:
+		'''The one send behind the session description commands.'''
+		if not self.is_oneip_sink:
+			_LOGGER.warning(f"not sending a session description command to {self}: it is not a OneIP output")
+			return False
+		frame = FrameV2IPSinkSdp.construct_command(mxr=self.registry, target=self, target_uid=self.remote_id,
+		                                           kind=kind, value=value)
+		if (frame is None):
+			return False
+		return self.registry.transmit(frame.frame) == len(frame.frame)
 
 	def _send_v2ip_testcard(self, kind:int, parts:int, testcard:OneIPTestcard) -> bool:
 		'''The one send behind the test card commands. Nothing is cached: the

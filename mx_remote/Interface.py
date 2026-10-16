@@ -2236,6 +2236,50 @@ class OneIPPtpMessages:
                 if (bit in valid)]
 
 @dataclass(frozen=True)
+class OneIPSinkSdp:
+    """
+    What a OneIP output plays from a session description, as it last reported
+    it. The stream's fields are zero while it plays none.
+    """
+    flags: OneIPSdpFlag = OneIPSdpFlag(0)
+    """The report's flags."""
+    screen: int = 0
+    """What the output shows while it plays audio alone, as the wire value."""
+    encoding: OneIPSdpEncoding|int = OneIPSdpEncoding.NONE
+    """The sample encoding; a raw int for one this library does not name."""
+    channels: int = 0
+    payload_type: int = 0
+    """The RTP payload type."""
+    media_clock: OneIPSdpMediaClock|int = OneIPSdpMediaClock.NONE
+    ref_clock: OneIPSdpRefClock|int = OneIPSdpRefClock.NONE
+    clock_mode: OneIPSdpClockMode|int = OneIPSdpClockMode.ARRIVAL
+    """What the video processor times the stream by, behind OneIPSdpFlag.CLOCK."""
+    clock_state: OneIPSdpClockState|int = OneIPSdpClockState.IDLE
+    """How far the video processor has got with its timing, behind OneIPSdpFlag.CLOCK."""
+    port: int = 0
+    rate_hz: int = 0
+    """The sample rate in Hz."""
+    media_clock_offset: int = 0
+    group: str = '0.0.0.0'
+    """The multicast group."""
+    name: str = ''
+    """The session name."""
+    layout: str = ''
+    """The channel layout."""
+
+    @property
+    def active(self) -> bool:
+        """Whether the output plays a stream from a description."""
+        return OneIPSdpFlag.ACTIVE in self.flags
+
+    def __str__(self) -> str:
+        if not self.active:
+            return "none"
+        encoding = self.encoding.name if isinstance(self.encoding, OneIPSdpEncoding) else self.encoding
+        return (f"'{self.name}' {self.group}:{self.port} {encoding} {self.channels}ch {self.rate_hz}Hz"
+                f"{' audio only' if (OneIPSdpFlag.AUDIO_ONLY in self.flags) else ''}")
+
+@dataclass(frozen=True)
 class OneIPTestTone:
     """A OneIP sink's test tone."""
     mode: OneIPToneMode|int = OneIPToneMode.OFF
@@ -3205,6 +3249,29 @@ class DeviceBase(ABC):
     @abstractmethod
     async def request_oneip_testcard(self) -> bool:
         '''ask this sink for its test card'''
+
+    @property
+    @abstractmethod
+    def oneip_sink_sdp(self) -> OneIPSinkSdp|None:
+        '''What this OneIP output plays from a session description, as it last
+        reported it, None until it has. It reports when that changes and at
+        least once a minute.'''
+
+    @abstractmethod
+    async def play_oneip_sdp(self, sdp:str) -> bool:
+        '''have this OneIP output play the stream a session description describes'''
+
+    @abstractmethod
+    async def stop_oneip_sdp(self) -> bool:
+        '''stop the stream this OneIP output plays from a session description'''
+
+    @abstractmethod
+    async def set_oneip_sdp_screen(self, screen:int) -> bool:
+        '''set what this OneIP output shows while it plays audio alone, as the wire value'''
+
+    @abstractmethod
+    async def request_oneip_sink_sdp(self) -> bool:
+        '''ask this OneIP output what it plays from a session description now'''
 
     @abstractmethod
     async def set_oneip_test_pattern(self, pattern:OneIPTestPattern, colour:int=0) -> bool:
