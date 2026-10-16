@@ -99,10 +99,33 @@ print('0x22 : target, port and name round-trip ->', f)
 # something other than what was asked for. Our two halves agree with each other
 # at 16, which is why this asserts against the firmware's width rather than
 # against what the builder happens to produce.
-f = decode(FrameSetName.construct(mxr=mx, target=out_bay, name='ABCDEFGHIJKLMNOP'))
+built = FrameSetName.construct(mxr=mx, target=out_bay, name='ABCDEFGHIJKLMNOP')
+assert built.payload[18:34] == b'ABCDEFGHIJKLMNO\0', built.payload[18:34]
+f = decode(built)
 assert f.name == 'ABCDEFGHIJKLMNO', repr(f.name)
 assert len(f.name) == MXR_DEVICE_NAME_LEN - 1, len(f.name)
 print('0x22 : a 16-char name is sent as 15 ->', repr(f.name))
+
+# A unit keeps 15 bytes whatever a sender wrote in the 16th, and takes a rename
+# only at its padded 40 bytes.
+class Raw:
+    '''A frame given as its bytes, for decode().'''
+    def __init__(self, frame):
+        self.frame = bytes(frame)
+raw = bytearray(built.frame)
+raw[24 + 18 + 15] = ord('P')
+f = decode(Raw(raw))
+assert f.name == 'ABCDEFGHIJKLMNO', 'a 16th byte was kept: %r' % f.name
+short = bytearray(raw[:24 + 34])
+short[22:24] = (34).to_bytes(2, 'little')
+assert decode(Raw(short)).name is None, 'a 34-byte rename was taken'
+
+# What a rename caches is what the unit stores.
+mx.transmit = lambda data: len(data)
+import asyncio
+assert asyncio.run(out_bay.set_name('ABCDEFGHIJKLMNOPQR')) is True
+assert out_bay.user_name == 'ABCDEFGHIJKLMNO', repr(out_bay.user_name)
+print('0x22 : a unit keeps 15 bytes, takes 40, and a rename caches what it keeps')
 
 # and a name that fits is untouched, so the truncation is a limit not a habit
 f = decode(FrameSetName.construct(mxr=mx, target=out_bay, name='ABCDEFGHIJKLMNO'))

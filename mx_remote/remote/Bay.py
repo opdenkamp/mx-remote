@@ -19,7 +19,7 @@ from ..proto.FrameV2IPManualSourceSwitch import FrameV2IPManualSourceSwitch
 from ..proto.V2IPConfig import OneIPAudioFormat
 from ..proto.FrameEDIDProfile import FrameEDIDProfile
 from ..proto.FrameBayHide import FrameBayHide
-from ..proto.FrameSetName import FrameSetName
+from ..proto.FrameSetName import FrameSetName, stored_name
 from ..proto.FrameRCAction import FrameRCAction
 from ..proto.FrameVolumeSet import FrameVolumeSet
 from ..proto.FrameAmpZoneSettings import FrameAmpZoneSettings
@@ -979,7 +979,7 @@ class Bay(BayBase):
         if frame is not None:
             if self.device.registry.transmit(frame.frame) != len(frame.frame):
                 return False
-            self.user_name = name
+            self.user_name = stored_name(name)
             return True
         return False
 

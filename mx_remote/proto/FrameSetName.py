@@ -14,6 +14,11 @@ from ..Interface import DeviceRegistry, BayBase, DeviceBase, MxrDeviceUid
 # and six bytes of tail padding out to 40.
 _WIRE_SIZE = 40
 
+def stored_name(name:str) -> str:
+    '''The name as a unit will store it: 15 ASCII characters, since it keeps 15
+    bytes of the 16-byte field and the last is its terminator.'''
+    return name[:MXR_DEVICE_NAME_LEN - 1].encode('ascii', errors='replace').decode('ascii')
+
 class FrameSetName(FrameBase):
     '''Change a bay name.'''
     @staticmethod
@@ -23,8 +28,7 @@ class FrameSetName(FrameBase):
         # terminates, so a name filling the field is stored one short. Sending
         # all 16 means the bay ends up named something other than what was
         # asked for, with success reported either way.
-        name = name[:MXR_DEVICE_NAME_LEN - 1]
-        name_bytes = name.encode(encoding='ascii', errors='replace').ljust(MXR_DEVICE_NAME_LEN, b'\x00')
+        name_bytes = stored_name(name).encode('ascii').ljust(MXR_DEVICE_NAME_LEN, b'\x00')
         payload = target.device.remote_id.byte_value + \
             bytes([(target.port >> 0) & 0xFF, (target.port >> 8) & 0xFF]) + \
             name_bytes
@@ -55,14 +59,15 @@ class FrameSetName(FrameBase):
 
     @property
     def name(self) -> str|None:
-        '''The new name, read from its fixed 16-byte field.
+        '''The new name as a unit keeps it, None for a frame it drops.
 
-        The field carries no terminator of its own, so a name that fills it has
-        none and must not be read as a C string: read it at its width. A sender
-        that fills all MXR_DEVICE_NAME_LEN bytes is readable here, even though a
-        receiver keeps only the first MXR_DEVICE_NAME_LEN - 1 of them.
+        A unit takes a rename only at its padded 40 bytes, and keeps the first
+        MXR_DEVICE_NAME_LEN - 1 bytes of the field, the last being where its
+        terminator goes, whatever the sender wrote there.
         '''
-        return self.payload_str(18, 16)
+        if (len(self.payload or b'') < _WIRE_SIZE):
+            return None
+        return self.payload_str(18, MXR_DEVICE_NAME_LEN - 1)
 
     def __str__(self) -> str:
         target = self.bay if (self.bay is not None) else self.target_device
