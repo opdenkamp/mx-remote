@@ -134,4 +134,29 @@ for protocol, audio in ((0x28, bytes(4)), (0x27, bytes(4)), (0x26, ip4('239.1.1.
     assert p[20:24] == audio, f'{protocol:#x}: audio {p[20:24].hex()}'
 print('select      : below 0x27 the source\'s audio is named, from it none')
 
+# ------------------------------------------------- mirror and filter frames
+# Both name their sink in the first 16 bytes, and a unit takes them from the
+# sink's own unit or from management - not from whoever sent them.
+STRANGER = uid(0x41)
+hello(STRANGER, 0x28, DeviceFeature.ONEIP_SINK)
+rx(STRANGER, 0x32, uid(0x10) + uid(0x01))
+assert not (out.mirroring and out.mirroring.is_mirroring), 'a third party set the mirror'
+rx(MANAGER, 0x32, uid(0x10) + uid(0x01))
+assert out.mirroring.is_mirroring and out.mirroring.target.device == MxrDeviceUid(uid(0x01)), out.mirroring
+rx(uid(0x10), 0x32, uid(0x10) + bytes([0xFF] * 16))
+assert not out.mirroring.is_mirroring, 'a mirror of all 0xFF is no mirror'
+rx(MANAGER, 0x32, uid(0x10) + uid(0x01) + bytes(8))
+assert not out.mirroring.is_mirroring, 'a mirror at a length a unit drops was taken'
+print('mirror      : filed under the sink it names, all 0xFF is none, only at 32 bytes')
+
+rx(MANAGER, 0x38, uid(0x10) + uid(0x01) + uid(0x02))
+assert out.filtered is not None and len(out.filtered) == 2, out.filtered
+manager = mx.get_by_uid(MxrDeviceUid(MANAGER))
+assert manager.first_output is None, 'fixture: the manager has no output to misfile on'
+rx(MANAGER, 0x38, uid(0x10) + uid(0x01) + bytes(4))
+assert len(out.filtered) == 2, 'a list of no whole number of uids was taken'
+rx(STRANGER, 0x38, uid(0x10))
+assert len(out.filtered) == 2, 'a third party set the list'
+print('filter      : filed under the sink it names, whole uids only')
+
 print('ALL OK')

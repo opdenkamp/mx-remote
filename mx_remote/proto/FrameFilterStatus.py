@@ -12,7 +12,9 @@ from ..Uid import MxrDeviceUid
 from ..Interface import FilteredDevices
 
 class FrameFilterStatus(FrameBase):
-    '''Bay filter status listing which source devices are filtered out.'''
+    '''The source devices filtered out of a sink's picker: the sink's uid, then
+    the filtered uids. A unit's report on its own sink, or management setting
+    a sink's list; a unit takes it only as a whole number of uids.'''
     @cached_property
     def filtered(self) -> FilteredDevices:
         '''Set of filtered (hidden) source devices.'''
@@ -26,8 +28,10 @@ class FrameFilterStatus(FrameBase):
         return self.payload_uuid(0)
 
     def process(self) -> None:
-        '''Update the local device cache with the source filter list.'''
-        if ((dev := self.remote_device) is None):
+        '''File the source filter list under the sink the frame names.'''
+        if (len(self.payload or b'') % 16 != 0):
+            return
+        if ((dev := self.config_subject(self.target_uid)) is None):
             return
         if ((first_output := dev.first_output) is None):
             return

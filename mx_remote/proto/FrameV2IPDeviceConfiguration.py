@@ -452,30 +452,7 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         Anything else is dropped rather than filed against the sender, because a
         frame the network ignores must not move a record here.
         '''
-        if ((subject := self.target_uid) is None):
-            return None
-        if (subject == self.remote_id):
-            return self.remote_device
-        # An unknown subject is dropped, as it is on a device: there is no
-        # record to move, and inventing one from a third party's description
-        # would create a device nothing has been heard from.
-        if ((device := self.mxr.get_by_uid(subject)) is None):
-            return None
-        sender = self.remote_device
-        if ((sender is not None) and sender.is_management):
-            return device
-        # Or the subject naming this sender as its mesh controller. Asked of the
-        # subject rather than the sender because it closes the window where a
-        # controller has been promoted but has no bays mapped yet, and so
-        # announces neither bit while still being the controller its mesh obeys.
-        #
-        # A subject that has named no controller contributes nothing here rather
-        # than refusing: not knowing who a device follows is not knowing that it
-        # follows nobody, and a client that has just started knows nothing about
-        # anyone for as long as a broadcast period.
-        if (device.mesh_master_uid == self.remote_id):
-            return device
-        return None
+        return self.config_subject(self.target_uid)
 
     @cached_property
     def details(self) -> DeviceOneIPDetails:

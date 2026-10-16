@@ -129,6 +129,40 @@ class FrameBase:
         '''Device instance for the device that sent this frame.'''
         return self.mxr.get_by_uid(self.remote_id)
 
+    def manages(self, subject:DeviceBase) -> bool:
+        '''Whether a unit takes a write about subject from this frame's sender.
+
+        Asked of the subject as well as the sender because it closes the
+        window where a controller has been promoted but has no bays mapped
+        yet, and so announces neither bit while still being the controller its
+        mesh obeys. A subject that has named no controller contributes nothing
+        here rather than refusing: not knowing who a device follows is not
+        knowing that it follows nobody, and a client that has just started
+        knows nothing about anyone for as long as a broadcast period.'''
+        sender = self.remote_device
+        if (sender is not None) and sender.is_management:
+            return True
+        return (subject.mesh_master_uid == self.remote_id)
+
+    def config_subject(self, subject_uid:MxrDeviceUid|None) -> DeviceBase|None:
+        '''The device a frame naming subject_uid is about, None when no unit
+        would act on it.
+
+        Equal to the sender it is a device describing itself. Different, it is
+        a write for the device it names, which a unit takes only from a sender
+        it treats as management. Anything else is dropped rather than filed
+        against the sender, because a frame the network ignores must not move
+        a record here. An unknown subject is dropped too: there is no record to
+        move, and inventing one from a third party's description would create a
+        device nothing has been heard from.'''
+        if (subject_uid is None):
+            return None
+        if (subject_uid == self.remote_id):
+            return self.remote_device
+        if ((subject := self.mxr.get_by_uid(subject_uid)) is None):
+            return None
+        return subject if self.manages(subject) else None
+
     @property
     def payload(self) -> bytes|None:
         '''Frame payload bytes.'''
