@@ -97,7 +97,19 @@ short = process_mxr_frame(mx, 0.0, create_mxr_frame(uid(0x11), 0x4E, testcard_fr
 assert short.testcard is None, 'a report cut short'
 rx(uid(0x11), 0x4E, testcard_frame(uid(0x11), 2))
 assert s.oneip_testcard is not None, 'a whole report'
-print('ignored     : request, change, and a report cut short')
+# A unit takes a report only from the sink it describes, and only with a
+# pattern and tone mode it knows.
+s = sink(0x13, OneIPVideoProcessorFeature.SINK_TEST_PATTERN)
+rx(uid(0x10), 0x4E, testcard_frame(uid(0x13), 2))
+assert s.oneip_testcard is None, 'a report about another sink was taken'
+for at, value in ((18, int(P.CARD) + 1), (19, int(T.BEEP) + 1)):
+    unknown = bytearray(testcard_frame(uid(0x13), 2))
+    unknown[at] = value
+    rx(uid(0x13), 0x4E, bytes(unknown))
+    assert s.oneip_testcard is None, f'a report with byte {at} = {value} was taken'
+rx(uid(0x13), 0x4E, testcard_frame(uid(0x13), 2))
+assert s.oneip_testcard is not None
+print('ignored     : request, change, a report cut short, about another sink, or naming no known mode')
 
 # --------------------------------------------------------------------- writing
 

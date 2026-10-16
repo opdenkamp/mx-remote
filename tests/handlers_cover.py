@@ -158,8 +158,12 @@ assert dev.get_by_portnum(2).user_name == 'In 3', dev.get_by_portnum(2).user_nam
 print('0x23 cfg2   : page merged, bays %d -> %d' % (before, len(dev.bays)))
 
 # ---- 0x46 SYSTEM_STATUS: uid then a status code
-rx(0x46, UID + struct.pack('<H', 3))
-print('0x46 sysstat: handled')
+rx(0x46, UID + struct.pack('<H', 3) + b'Fan failure\0')
+assert dev._sys_message == 'Fan failure', dev._sys_message   # no public accessor beyond status_message
+# a unit reports its system status only about itself
+rx(0x46, PEER + struct.pack('<H', 4) + b'Not this one\0')
+assert dev._sys_message == 'Fan failure', 'a status about another unit was filed under the sender'
+print('0x46 sysstat: handled, and only about its sender')
 
 # ---- 0x3B MESH_OPERATION: uid, operation, target and parameter
 rx(0x3B, UID + bytes([1]) + bytes(7) + PEER + bytes(16))

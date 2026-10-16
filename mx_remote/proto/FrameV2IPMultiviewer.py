@@ -255,6 +255,10 @@ class FrameV2IPMultiviewer(FrameBase):
         if (len(self.payload) < _STATUS_MIN_SIZE):
             _LOGGER.debug("multiviewer status is %d bytes, need %d", len(self.payload), _STATUS_MIN_SIZE)
             return
+        # A unit takes a status only from the unit it describes, named at the
+        # start of the parameters.
+        if (self.payload_uuid(_PARAMS_OFFSET) != self.remote_id):
+            return
         settings = V2IPMultiviewerConfig(header=self.header)
         if ((dev := self.remote_device) is not None):
             dev.on_mxr_update(settings)

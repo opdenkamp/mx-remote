@@ -13,7 +13,10 @@ class FrameSystemStatus(FrameBase):
     '''System status report from a device.'''
     @override
     def process(self) -> None:
-        '''Update the local device cache with the system status.'''
+        '''Update the local device cache with the system status, which a unit
+        reports only about itself.'''
+        if (self.payload_uuid(0) != self.remote_id):
+            return
         if ((dev := self.remote_device) is not None):
             dev.on_mxr_update(self)
 

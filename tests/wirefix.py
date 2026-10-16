@@ -513,6 +513,7 @@ from mx_remote.proto.FrameV2IPMultiviewer import _STATUS_MIN_SIZE
 def mv_report(size):
     pl = bytearray(UID + bytes([0]) + bytes(7))     # target, STATUS sub-opcode, pad
     pl += bytes(max(0, size - len(pl)))
+    pl[24:40] = UID                                 # the unit the status describes
     pl[169] = 1                                     # a view mode, so a decode would show something
     return bytes(pl[:size])
 
@@ -526,6 +527,11 @@ try:
     assert folded == [], 'a short status report reached the cache: %s' % folded
     decode(0x42, mv_report(_STATUS_MIN_SIZE)).process()
     assert folded == ['V2IPMultiviewerConfig'], folded
+    # A unit takes a status only from the unit it describes.
+    other = bytearray(mv_report(_STATUS_MIN_SIZE))
+    other[24:40] = bytes(range(60, 76))
+    decode(0x42, bytes(other)).process()
+    assert folded == ['V2IPMultiviewerConfig'], 'a status about another unit reached the cache'
 finally:
     type(dev).on_mxr_update = real_update
 print('0x42 mview  : a report short of the settings block never reaches the cache')

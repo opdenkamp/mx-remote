@@ -93,8 +93,13 @@ class FrameV2IPTestcard(FrameBase):
 
     @override
     def process(self) -> None:
-        '''Record a sink's report against the sink it names.'''
+        '''Record a sink's report against the sink it names. A unit takes a
+        report only from the sink it describes, and only with a pattern and tone
+        mode it knows.'''
         if ((testcard := self.testcard) is None) or ((uid := self.target_uid) is None):
+            return
+        if (uid != self.remote_id) or (self.payload is None) \
+                or (self.payload[18] > OneIPTestPattern.CARD) or (self.payload[19] > OneIPToneMode.BEEP):
             return
         if ((dev := self.mxr.get_by_uid(uid)) is not None):
             dev.on_mxr_update(testcard)
