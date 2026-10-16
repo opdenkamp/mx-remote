@@ -17,12 +17,13 @@ from ..Uid import MxrDeviceUid
 # volume at 18, right volume at 19, mute at 20, and three bytes of tail padding
 # out to 24.
 #
-# Units old enough to predate the widening of the bay id address the target by
-# serial and carry a one-byte bay, which puts the three settings at 17, 18 and
-# 19 and makes the whole payload 20 bytes. Both forms stamp the same protocol
-# floor, so the length is what separates them.
+# Below header protocol 0x11 the target is named by serial and the bay takes
+# one byte, which puts the three settings at 17, 18 and 19 in a 20-byte payload.
+# A unit chooses between the two by the stamp, whatever the length, and takes
+# the uid form only with its padding.
 _WIRE_SIZE = 24
 _LEGACY_SIZE = 20
+_UID_SINCE = 0x11
 
 class FrameVolumeSet(FrameBase):
     '''Bay volume set command and notification frame.'''
@@ -39,24 +40,26 @@ class FrameVolumeSet(FrameBase):
 
     @cached_property
     def target_device(self) -> DeviceBase|None:
-        '''Target device for the volume change.'''
+        '''Target device for the volume change, None for a frame a unit drops.'''
+        pl = self.payload or b''
+        if self._legacy:
+            if (len(pl) < _LEGACY_SIZE) or ((serial := self.payload_str(0, 16)) is None):
+                return None
+            return self.mxr.get_by_serial(serial)
+        if (len(pl) < _WIRE_SIZE):
+            return None
         return self.mxr.get_by_uid(self.target_uid)
 
     @cached_property
     def target_uid(self) -> MxrDeviceUid|None:
-        '''UID of the target device.'''
-        return self.payload_uuid(0)
+        '''UID of the target device, which only the current layout carries.'''
+        return None if self._legacy else self.payload_uuid(0)
 
     @cached_property
     def _legacy(self) -> bool:
-        '''Whether the sender used the one-byte bay id addressed by serial.
-
-        The legacy form is exactly _LEGACY_SIZE bytes, so anything longer is the
-        current one - a sender that stops after the fields it set, without the
-        tail padding out to _WIRE_SIZE, still reads as current.
-        '''
-        pl = self.payload
-        return (pl is not None) and (len(pl) <= _LEGACY_SIZE)
+        '''Whether the sender used the one-byte bay id addressed by serial,
+        which a unit tells by the stamp alone.'''
+        return (self.protocol < _UID_SINCE)
 
     @cached_property
     def bay(self)  -> BayBase|None:

@@ -67,7 +67,9 @@ assert vs is not None and vs.volume_left == 40 and vs.volume_right == 41, vs
 print('0x12 volume : bay volume %s/%s' % (vs.volume_left, vs.volume_right))
 
 # ---- 0x14 VOLUME_SET: same state, addressed by uid and a u16 port
-rx(0x14, UID + struct.pack('<H', out.port) + bytes([55, 56, 0]))
+frame = bytearray(create_mxr_frame(UID, 0x14, UID + struct.pack('<H', out.port) + bytes([55, 56, 0]) + bytes(3)))
+frame[2] = 0x11   # the uid form, as a unit tells it
+mx.process_frame(time.time(), bytes(frame), ADDR)
 vs = out.volume_status
 assert vs.volume_left == 55 and vs.volume_right == 56, vs
 print('0x14 setvol : bay volume %s/%s' % (vs.volume_left, vs.volume_right))

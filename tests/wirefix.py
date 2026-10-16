@@ -158,23 +158,37 @@ for opcode, struct_name, size, build in GATES:
 print('length gate : all %d commands clear their receiver sizeof' % len(GATES))
 
 # ------------------------------------------------------- 0x14 mute sentinel and layout
+def setvol(payload, protocol, uid=UID):
+    '''A volume request stamped as its sender stamps it, which picks its layout.'''
+    f = bytearray(create_mxr_frame(uid, 0x14, payload))
+    f[2] = protocol
+    return process_mxr_frame(mx, time.time(), bytes(f), ADDR)
+
 # 0xFF asks the receiver to leave the setting alone. Read as a bitmask it sets
 # both channel bits, so a request declining to touch the mute reads as one
 # muting the bay.
-f = decode(0x14, UID + struct.pack('<H', 1) + bytes([50, 50, MXR_AUDIO_DONT_CHANGE]) + bytes(3))
+f = setvol(UID + struct.pack('<H', 1) + bytes([50, 50, MXR_AUDIO_DONT_CHANGE]) + bytes(3), 0x11)
 assert f.muted is None, 'a request leaving the mute alone decoded as %s' % f.muted
 assert f.volume_left == 50 and f.volume_right == 50, f
 print('0x14 setvol : mute 0xFF decodes as no mute reported')
 
-# The legacy form addresses the target by serial and carries a one-byte bay,
-# which moves all three settings down one and makes the payload 20 bytes.
-f = decode(0x14, UID + bytes([1, 60, 61, 0]))
+# Below 0x11 the target is named by serial and the bay takes one byte, which
+# moves all three settings down one and makes the payload 20 bytes. The stamp
+# chooses, whatever the length: an old-layout frame sent with padding is still
+# the old layout, and a uid-form frame without its padding is one a unit drops.
+f = setvol(nm('P8SN12345678') + bytes([1, 60, 61, 0]), 0x10)
 assert f.volume_left == 60 and f.volume_right == 61, f
 assert f.bay is not None and f.bay.port == 1, f.bay
-print('0x14 setvol : legacy 20-byte form decodes to port 1 volume 60/61')
+f = setvol(nm('P8SN12345678') + bytes([1, 60, 61, 0]) + bytes(4), 0x10)
+assert f.volume_left == 60 and f.bay is not None and f.bay.port == 1, 'a padded old layout was misread'
+f = setvol(UID + struct.pack('<H', 1) + bytes([50, 50, 0]), 0x11)
+assert f.bay is None, 'a uid form short of its padding was taken'
+f = setvol(UID + struct.pack('<H', 1) + bytes([50, 50, 0]) + bytes(3), 0x10)
+assert f.bay is None, 'a uid form stamped below 0x11 was read by uid'
+print('0x14 setvol : the stamp picks the layout; serial form below 0x11, padded uid form from it')
 
 # The port belongs to the device the payload addresses, not to the sender.
-f = decode(0x14, UID + struct.pack('<H', 1) + bytes([50, 50, 0]) + bytes(3),
+f = setvol(UID + struct.pack('<H', 1) + bytes([50, 50, 0]) + bytes(3), 0x11,
            uid=bytes(range(60, 76)))
 assert f.bay is not None and f.bay.port == 1, 'bay resolved against the sender: %s' % f.bay
 print('0x14 setvol : bay resolves on the addressed device, not the sender')
