@@ -664,6 +664,23 @@ assert len(f.payload) == 4, 'padding past the declared length reached the decode
 assert f.bay is not None and f.bay.port == 1, f.bay
 print('clamp       : trailing padding does not reach the payload')
 
+# Received, a unit drops a datagram whose length is not exactly what its header
+# declares, and a frame stamped 2, which a broken revision once stamped.
+port1 = dev.get_by_portnum(1)
+rx(0x04, bytes([1, 0]))
+assert port1.hpd_detected is False
+for frame in (create_mxr_frame(UID, 0x04, bytes([1, 1])) + bytes(8),
+              create_mxr_frame(UID, 0x04, bytes([1, 1, 0]))[:-1]):
+    mx.process_frame(time.time(), frame, ADDR)
+    assert port1.hpd_detected is False, 'a datagram of the wrong length was taken'
+broken = bytearray(create_mxr_frame(UID, 0x04, bytes([1, 1])))
+broken[2] = 2
+mx.process_frame(time.time(), bytes(broken), ADDR)
+assert port1.hpd_detected is False, 'a frame stamped 2 was taken'
+mx.process_frame(time.time(), create_mxr_frame(UID, 0x04, bytes([1, 1])), ADDR)
+assert port1.hpd_detected is True
+print('drop        : a wrong length or a stamp of 2 is dropped on receipt')
+
 # ----------------------------------------- reboot and factory reset target forms
 # 0x28 and 0x3A address units alike, and only the exact length separates the
 # forms: empty or the byte 0xFF is every unit, exactly a uid is one, and a unit

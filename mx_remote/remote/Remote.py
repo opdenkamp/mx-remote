@@ -50,6 +50,10 @@ _LOGGER = logging.getLogger(__name__)
 # asks one device.
 _ACCEPT_UNANNOUNCED = (0x00, 0x01, 0x4A)
 
+_BROKEN_PROTOCOL = 2
+'''The header protocol a broken revision of one layout was stamped with, which
+a unit drops.'''
+
 # How long a discover to every device stands in for asking any one of them, in
 # seconds. Each device answers it with everything it holds, after a jitter of up
 # to a few seconds, so asking one again inside this window repeats an answer
@@ -612,6 +616,14 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 # mesh.
                 _LOGGER.debug(f"rx {addr[0]}: opcode {frame.header.opcode:02X} needs protocol "
                               f"{frame.header.protocol:02X}, this build knows {MXR_PROTOCOL_VERSION:02X}")
+                frame = None
+            if (frame is not None) and ((len(data) != 24 + frame.header.payload_len)
+                                        or (frame.header.protocol == _BROKEN_PROTOCOL)):
+                # A unit drops a datagram whose length is not the header's
+                # exactly, and a frame stamped with the version a broken
+                # revision once stamped.
+                _LOGGER.debug(f"rx {addr[0]}: opcode {frame.header.opcode:02X} dropped: {len(data)} bytes "
+                              f"declaring {frame.header.payload_len}, stamped {frame.header.protocol:02X}")
                 frame = None
             if (frame is not None) and (frame.header.remote_id != self.uid):
                 # A device announces itself before it sends anything else, so a
