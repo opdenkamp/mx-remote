@@ -456,6 +456,31 @@ refused(msg.set_oneip_ptp_messages(S(0), mx_remote.OneIPPtpMessages()), 'nothing
 refused(ptp.set_oneip_ptp_messages(S.PTP_SYNC, mx_remote.OneIPPtpMessages()), 'a setting the device does not have')
 print('msgs write  : 224 bytes with the block at 216, nothing out of range sent')
 
+# The stream TTL sits at 8 of the block, which is the last of its frame and read
+# by its length: 8 bytes carry everything but the TTL.
+TTL = int(S.STREAM_TTL | S.PTP_SYNC)
+ttl = hello(uid(0x25), SINK)
+rx(uid(0x25), 0x3C, cfg_msg(uid(0x25), TTL, BLOCK + (32,) + (0xA5,) * 7))
+s = ttl.oneip_settings
+assert s.ptp_messages.stream_ttl == 32 and s.ptp_messages.log_sync_interval == -2, s
+ttl8 = hello(uid(0x26), SINK)
+rx(uid(0x26), 0x3C, cfg_msg(uid(0x26), TTL, BLOCK))
+s = ttl8.oneip_settings
+assert (S.STREAM_TTL not in s.valid) and (S.PTP_SYNC in s.valid), 'an 8-byte block stripped more than the TTL'
+rx(uid(0x04), 0x3C, cfg_msg(uid(0x25), int(S.STREAM_TTL), bytes(16)))
+assert ttl.oneip_settings.ptp_messages.stream_ttl == 32, "another sender's TTL of 0 was cached"
+
+assert call(ttl.set_oneip_ptp_messages(S.STREAM_TTL, mx_remote.OneIPPtpMessages(stream_ttl=255))) is True
+p = sent[-1][24:]
+assert len(p) == 232 and p[224:232] == bytes([255] + [0] * 7), p[216:].hex()
+assert ttl.oneip_settings.ptp_messages.stream_ttl == 255
+assert call(ttl.set_oneip_ptp_messages(S.PTP_SYNC, mx_remote.OneIPPtpMessages())) is True
+assert len(sent[-1]) == 24 + 224, 'a write without the TTL grew the block'
+refused(ttl.set_oneip_ptp_messages(S.STREAM_TTL, mx_remote.OneIPPtpMessages(stream_ttl=0)), 'a TTL of 0')
+refused(ttl.set_oneip_ptp_messages(S.STREAM_TTL, mx_remote.OneIPPtpMessages(stream_ttl=256)), 'a TTL past the field')
+refused(ttl8.set_oneip_ptp_messages(S.STREAM_TTL, mx_remote.OneIPPtpMessages(stream_ttl=64)), 'a unit without the TTL')
+print('stream ttl  : at 8 of a 16-byte block, never 0')
+
 # What the builder writes, the decoder reads back as the same settings.
 assert call(target.set_oneip_ir_profile(7)) is True
 rx(uid(0x10), 0x3C, sent[-1][24:])

@@ -469,9 +469,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         reports them. Each device applies those it has and ignores the rest,
         and none below protocol 0x2A applies any. A setting only a device
         reports about itself, a profile, PTP mode, PTP domain or power save
-        level out of range, a PTP DSCP above ONEIP_DSCP_MAX and a power save time
-        that is not a time of day are refused here, since every device would
-        ignore them.
+        level out of range, a PTP DSCP above ONEIP_DSCP_MAX, a stream TTL outside
+        1 to 255 and a power save time that is not a time of day are refused
+        here, since every device would ignore them.
 
         Nothing is cached: each device that applies a change reports its
         settings, and its oneip_settings reads that.
@@ -506,6 +506,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         elif (OneIPDeviceSetting.PTP_DSCP in valid) \
                 and not (0 <= (settings.ptp_messages or OneIPPtpMessages()).dscp <= ONEIP_DSCP_MAX):
             why = 'a PTP DSCP above 63'
+        elif (OneIPDeviceSetting.STREAM_TTL in valid) \
+                and not (1 <= (settings.ptp_messages or OneIPPtpMessages()).stream_ttl <= 0xFF):
+            why = 'a stream TTL outside 1 to 255'
         if (why is not None):
             _LOGGER.warning(f"not changing the settings of every OneIP device: {why}")
             return False

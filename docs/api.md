@@ -124,6 +124,8 @@ state only the device reports.
 
 .. autodata:: mx_remote.proto.Constants.ONEIP_DEVICE_SETTINGS_BLOCK
 
+.. autodata:: mx_remote.proto.Constants.ONEIP_STREAM_TTL_DEFAULT
+
 .. autodata:: mx_remote.proto.Constants.ONEIP_PTP_DOMAIN_MAX
 ```
 

@@ -47,7 +47,14 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #             and the 8-byte grandmaster clock identity
 #   216..224  the settings' own block: the PTP announce, sync and delay
 #             request intervals as i8, u8 announce timeout, u8 PTP DSCP,
-#             u8 SAP expiry in minutes, u16 SAP interval in seconds
+#             u8 SAP expiry in minutes, u16 SAP interval in seconds, and
+#             from a device with the stream TTL, u8 TTL and 7 reserved
+#
+# That block is the last of its frame, so it is read by its length: shorter
+# than 8 carries none of its values, and 8, which every device without the TTL
+# sends, carries all but the TTL. A write grows it to 16 only when it carries
+# the TTL, so the frames other writes send are unchanged for units that
+# predate it.
 #
 # Each of those blocks was appended behind what came before it, leaving every
 # offset ahead of it where it was, so the length is what says whether one is
@@ -125,27 +132,36 @@ SETTINGS_BLOCK_OFFSET = _PTP_STATE_OFFSET + _PTP_STATE_SIZE
 '''The values of the settings in ONEIP_DEVICE_SETTINGS_BLOCK, behind the PTP
 state.'''
 SETTINGS_BLOCK_SIZE = 8
+_STREAM_TTL_AT = 8
+_SETTINGS_BLOCK_TTL_SIZE = 16
 
 def carries_settings_block(settings:OneIPDeviceSettings) -> bool:
     '''Whether settings carry a value only the block of their own can hold.'''
     return bool(settings.valid & ONEIP_DEVICE_SETTINGS_BLOCK)
 
 def own_settings_block(settings:OneIPDeviceSettings) -> bytes:
-    '''The 8-byte block the settings in ONEIP_DEVICE_SETTINGS_BLOCK travel in.'''
+    '''The block the settings in ONEIP_DEVICE_SETTINGS_BLOCK travel in: 8
+    bytes, or 16 with the stream TTL at 8 when the settings carry it.'''
     m = settings.ptp_messages or OneIPPtpMessages()
-    return struct.pack('<bbbBBBH', m.log_announce_interval, m.log_sync_interval,
-                       m.log_delay_req_interval, m.announce_timeout, m.dscp, m.sap_expire_min,
-                       m.sap_interval_s)
+    block = struct.pack('<bbbBBBH', m.log_announce_interval, m.log_sync_interval,
+                        m.log_delay_req_interval, m.announce_timeout, m.dscp, m.sap_expire_min,
+                        m.sap_interval_s)
+    if (OneIPDeviceSetting.STREAM_TTL in settings.valid):
+        block += bytes([m.stream_ttl]).ljust(_SETTINGS_BLOCK_TTL_SIZE - len(block), b'\0')
+    return block
 
 def parse_own_settings_block(block:bytes, valid:OneIPDeviceSetting) -> tuple[OneIPPtpMessages, OneIPDeviceSetting]:
     '''The block the settings in ONEIP_DEVICE_SETTINGS_BLOCK travel in, and
     valid without their bits when it is too short to hold their values.'''
     if (len(block) < SETTINGS_BLOCK_SIZE):
         return (OneIPPtpMessages(), valid & ~ONEIP_DEVICE_SETTINGS_BLOCK)
+    if (len(block) <= _STREAM_TTL_AT):
+        valid &= ~OneIPDeviceSetting.STREAM_TTL
+    ttl = block[_STREAM_TTL_AT] if (len(block) > _STREAM_TTL_AT) else 0
     announce, sync, delay_req, timeout, dscp, expire, interval = struct.unpack_from('<bbbBBBH', block)
     return (OneIPPtpMessages(log_announce_interval=announce, log_sync_interval=sync,
                              log_delay_req_interval=delay_req, announce_timeout=timeout, dscp=dscp,
-                             sap_expire_min=expire, sap_interval_s=interval), valid)
+                             sap_expire_min=expire, sap_interval_s=interval, stream_ttl=ttl), valid)
 
 def settings_block(settings:OneIPDeviceSettings) -> bytes:
     '''The 48-byte device settings block.
@@ -374,8 +390,9 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         Settings that carry one of ONEIP_DEVICE_SETTINGS_BLOCK run on to 224
         bytes: a zeroed VLAN block at 176, which without its valid bit carries
         nothing, a zeroed PTP state at 192, which a receiver takes only from a
-        device describing itself, and the block of their own at 216. Other
-        writes keep the length every device knows.
+        device describing itself, and the block of their own at 216, which runs
+        on to 232 when it carries the stream TTL. Other writes keep the length
+        every device knows.
         '''
         payload = bytearray(target_uid.byte_value)
         if (len(payload) != 16):

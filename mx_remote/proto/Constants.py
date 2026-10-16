@@ -365,6 +365,9 @@ class OneIPDeviceSetting(IntFlag):
 	schedule leave the device running, and switching this on wakes a device
 	either has powered down. A power save request still powers it down.
 	Writing POWER_SAVE_LEVEL switches it off.'''
+	STREAM_TTL         = (1 << 29)
+	'''The TTL of the device's streams, video, audio and ancillary alike.
+	Reported only by a device with an encoder.'''
 
 ONEIP_DEVICE_SETTING_SWITCHES = OneIPDeviceSetting(0xFF) | OneIPDeviceSetting.AES67 \
 	| OneIPDeviceSetting.SAP_LISTEN | OneIPDeviceSetting.SAP_ANNOUNCE | OneIPDeviceSetting.POWER_SAVE_DISABLED
@@ -383,9 +386,13 @@ ONEIP_DEVICE_SETTINGS_PTP_MESSAGES = OneIPDeviceSetting.PTP_ANNOUNCE | OneIPDevi
 """The PTP message settings."""
 
 ONEIP_DEVICE_SETTINGS_BLOCK = ONEIP_DEVICE_SETTINGS_PTP_MESSAGES | OneIPDeviceSetting.SAP_EXPIRE \
-	| OneIPDeviceSetting.SAP_INTERVAL
+	| OneIPDeviceSetting.SAP_INTERVAL | OneIPDeviceSetting.STREAM_TTL
 """The settings whose values a frame carries in a block of their own behind the
-rest, OneIPPtpMessages: the PTP message settings and the two SAP values."""
+rest, OneIPPtpMessages: the PTP message settings, the two SAP values and the
+stream TTL."""
+
+ONEIP_STREAM_TTL_DEFAULT = 64
+"""The TTL a OneIP device's streams carry until it is set."""
 
 class OneIPPtpMode(IntEnum):
 	'''How a OneIP device takes part in PTP.'''

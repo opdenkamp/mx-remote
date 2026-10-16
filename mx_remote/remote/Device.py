@@ -1418,12 +1418,13 @@ class Device(DeviceBase):
 			valid=OneIPDeviceSetting.POWER_SAVE_LEVEL, power_save_level=level))
 
 	async def set_oneip_ptp_messages(self, which:OneIPDeviceSetting, messages:OneIPPtpMessages) -> bool:
-		'''Set how this OneIP device paces its PTP messages, and its SAP
-		timings: the values of messages behind the bits of which, each one of
-		ONEIP_DEVICE_SETTINGS_BLOCK.
+		'''Set how this OneIP device paces its PTP messages, its SAP timings and
+		its streams' TTL: the values of messages behind the bits of which, each
+		one of ONEIP_DEVICE_SETTINGS_BLOCK.
 
-		A DSCP above ONEIP_DSCP_MAX is refused, since a device ignores it. The
-		terms of set_oneip_setting() apply.
+		A DSCP above ONEIP_DSCP_MAX and a stream TTL outside 1 to 255 are
+		refused, since a device ignores them. The terms of set_oneip_setting()
+		apply.
 		'''
 		which = OneIPDeviceSetting(which)
 		if (int(which) == 0) or ((which & ~ONEIP_DEVICE_SETTINGS_BLOCK) != 0):
@@ -1431,6 +1432,9 @@ class Device(DeviceBase):
 			return False
 		if (OneIPDeviceSetting.PTP_DSCP in which) and not (0 <= messages.dscp <= ONEIP_DSCP_MAX):
 			_LOGGER.warning(f"not setting PTP DSCP {messages.dscp} on {self}: above {ONEIP_DSCP_MAX}")
+			return False
+		if (OneIPDeviceSetting.STREAM_TTL in which) and not (1 <= messages.stream_ttl <= 0xFF):
+			_LOGGER.warning(f"not setting stream TTL {messages.stream_ttl} on {self}: outside 1 to 255")
 			return False
 		return self._send_v2ip_settings(OneIPDeviceSettings(valid=which, ptp_messages=messages))
 

@@ -2165,8 +2165,8 @@ def _wire_enum(cls:Any, value:int) -> Any:
 @dataclass(frozen=True)
 class OneIPPtpMessages:
     """
-    How a OneIP device paces its PTP messages, and its SAP timings, which a
-    frame carries in the same block. Each value is behind its own bit of
+    How a OneIP device paces its PTP messages, its SAP timings and its streams'
+    TTL, which a frame carries in the same block. Each value is behind its own bit of
     OneIPDeviceSettings.valid, one of ONEIP_DEVICE_SETTINGS_BLOCK.
 
     Intervals are base-2 logarithms of seconds, so -3 is 125 ms and 1 is 2 s.
@@ -2187,6 +2187,10 @@ class OneIPPtpMessages:
     forgotten, behind SAP_EXPIRE."""
     sap_interval_s: int = 0
     """The seconds between the device's SAP announcements, behind SAP_INTERVAL."""
+    stream_ttl: int = 0
+    """The TTL of the device's streams, 1 to 255, behind STREAM_TTL. A device
+    whose video processor cannot change it keeps the setting and sends
+    ONEIP_STREAM_TTL_DEFAULT."""
 
     def merge(self, other:'OneIPPtpMessages', which:OneIPDeviceSetting) -> 'OneIPPtpMessages':
         """The values behind the bits of which copied from other, the rest kept."""
@@ -2198,7 +2202,8 @@ class OneIPPtpMessages:
             announce_timeout=(other if (S.PTP_ANNOUNCE_TIMEOUT in which) else self).announce_timeout,
             dscp=(other if (S.PTP_DSCP in which) else self).dscp,
             sap_expire_min=(other if (S.SAP_EXPIRE in which) else self).sap_expire_min,
-            sap_interval_s=(other if (S.SAP_INTERVAL in which) else self).sap_interval_s)
+            sap_interval_s=(other if (S.SAP_INTERVAL in which) else self).sap_interval_s,
+            stream_ttl=(other if (S.STREAM_TTL in which) else self).stream_ttl)
 
     def describe(self, valid:OneIPDeviceSetting) -> list[str]:
         """The values behind the bits of valid, one "name=value" each."""
@@ -2210,7 +2215,8 @@ class OneIPPtpMessages:
                     (S.PTP_ANNOUNCE_TIMEOUT, 'ptp_announce_timeout', self.announce_timeout),
                     (S.PTP_DSCP, 'ptp_dscp', self.dscp),
                     (S.SAP_EXPIRE, 'sap_expire_min', self.sap_expire_min),
-                    (S.SAP_INTERVAL, 'sap_interval_s', self.sap_interval_s))
+                    (S.SAP_INTERVAL, 'sap_interval_s', self.sap_interval_s),
+                    (S.STREAM_TTL, 'stream_ttl', self.stream_ttl))
                 if (bit in valid)]
 
 @dataclass(frozen=True)
@@ -2461,8 +2467,9 @@ class OneIPDeviceSettings:
         This block limited to what a device takes from a write about it.
 
         A device applies a setting only if it has it, a profile, PTP mode, PTP
-        domain, power save level or PTP DSCP only within its range, and never
-        what only it can report about itself.
+        domain, power save level or PTP DSCP only within its range, a stream
+        TTL only when it is not 0, and never what only it can report about
+        itself.
         """
         valid = (self._valid & reported) & ~ONEIP_DEVICE_SETTINGS_REPORTED_ONLY
         if not (0 <= self._ir_profile < ONEIP_IR_PROFILE_MAX):
@@ -2477,6 +2484,8 @@ class OneIPDeviceSettings:
             valid &= ~OneIPDeviceSetting.POWER_SAVE_LEVEL
         if (self._ptp_messages.dscp > ONEIP_DSCP_MAX):
             valid &= ~OneIPDeviceSetting.PTP_DSCP
+        if (self._ptp_messages.stream_ttl == 0):
+            valid &= ~OneIPDeviceSetting.STREAM_TTL
         return OneIPDeviceSettings(valid=valid, flags=self._flags, ir_profiles=self._ir_profiles,
                                   ir_profile=self._ir_profile, ir_profile_sink=self._ir_profile_sink,
                                   auto_power_save=self._auto_power_save, power_save=self._power_save,
@@ -3174,7 +3183,7 @@ class DeviceBase(ABC):
 
     @abstractmethod
     async def set_oneip_ptp_messages(self, which:OneIPDeviceSetting, messages:OneIPPtpMessages) -> bool:
-        '''set how the device paces its PTP messages and its SAP timings: the values of messages behind the bits of which'''
+        '''set how the device paces its PTP messages, its SAP timings and its streams' TTL: the values of messages behind the bits of which'''
 
     @abstractmethod
     async def set_oneip_vlan(self, vlan:OneIPVlan) -> bool:

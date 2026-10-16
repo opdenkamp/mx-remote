@@ -170,7 +170,8 @@ for why, settings in (
         ('a PTP domain past the last', OneIPDeviceSettings(valid=S.PTP_DOMAIN, ptp_domain=128)),
         ('a priority1 past the field', OneIPDeviceSettings(valid=S.PTP_PRIORITY1, ptp_priority1=0x100)),
         ('a power save level with no name', OneIPDeviceSettings(valid=S.POWER_SAVE_LEVEL, power_save_level=4)),
-        ('a PTP DSCP above 63', OneIPDeviceSettings(valid=S.PTP_DSCP, ptp_messages=OneIPPtpMessages(dscp=64)))):
+        ('a PTP DSCP above 63', OneIPDeviceSettings(valid=S.PTP_DSCP, ptp_messages=OneIPPtpMessages(dscp=64))),
+        ('a stream TTL of 0', OneIPDeviceSettings(valid=S.STREAM_TTL, ptp_messages=OneIPPtpMessages(stream_ttl=0)))):
     refused(mx.set_all_oneip_device_settings(settings), why)
 for ok in (OneIPDeviceSettings(valid=S.IR_PROFILE, ir_profile=ONEIP_IR_PROFILE_MAX - 1),
            OneIPDeviceSettings(valid=S.IR_PROFILE_SINK, ir_profile_sink=ONEIP_IR_PROFILE_NOT_SET),
@@ -180,7 +181,8 @@ for ok in (OneIPDeviceSettings(valid=S.IR_PROFILE, ir_profile=ONEIP_IR_PROFILE_M
            OneIPDeviceSettings(valid=S.PTP_DOMAIN, ptp_domain=127),
            OneIPDeviceSettings(valid=S.PTP_PRIORITY1, ptp_priority1=0xFF),
            OneIPDeviceSettings(valid=S.POWER_SAVE_LEVEL, power_save_level=3),
-           OneIPDeviceSettings(valid=S.PTP_DSCP, ptp_messages=OneIPPtpMessages(dscp=63))):
+           OneIPDeviceSettings(valid=S.PTP_DSCP, ptp_messages=OneIPPtpMessages(dscp=63)),
+           OneIPDeviceSettings(valid=S.STREAM_TTL, ptp_messages=OneIPPtpMessages(stream_ttl=1))):
     assert call(mx.set_all_oneip_device_settings(ok)) is True, f'{ok} was refused'
 print('all refused : what every device would ignore is not sent')
 
