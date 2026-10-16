@@ -270,6 +270,10 @@ await device.set_oneip_ptp_messages(
     OneIPPtpMessages(log_sync_interval=-3, dscp=46))   # 125 ms, EF
 ```
 
+The SAP expiry in minutes and announcement interval in seconds travel in the
+same block, behind `SAP_EXPIRE` and `SAP_INTERVAL`, and are set the same way;
+`SAP_LISTEN` and `SAP_ANNOUNCE` are switches like the other on/off settings.
+
 Only the values behind the bits named are sent. A DSCP above `ONEIP_DSCP_MAX` is
 refused, and not cached from another controller's write. A write carrying one of
 these runs on to 224 bytes; every other write keeps the 176 every device knows.

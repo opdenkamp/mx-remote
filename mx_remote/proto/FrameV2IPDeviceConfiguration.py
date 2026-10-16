@@ -47,7 +47,7 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #             and the 8-byte grandmaster clock identity
 #   216..224  the settings' own block: the PTP announce, sync and delay
 #             request intervals as i8, u8 announce timeout, u8 PTP DSCP,
-#             3 reserved
+#             u8 SAP expiry in minutes, u16 SAP interval in seconds
 #
 # Each of those blocks was appended behind what came before it, leaving every
 # offset ahead of it where it was, so the length is what says whether one is
@@ -133,17 +133,19 @@ def carries_settings_block(settings:OneIPDeviceSettings) -> bool:
 def own_settings_block(settings:OneIPDeviceSettings) -> bytes:
     '''The 8-byte block the settings in ONEIP_DEVICE_SETTINGS_BLOCK travel in.'''
     m = settings.ptp_messages or OneIPPtpMessages()
-    return struct.pack('<bbbBB3x', m.log_announce_interval, m.log_sync_interval,
-                       m.log_delay_req_interval, m.announce_timeout, m.dscp)
+    return struct.pack('<bbbBBBH', m.log_announce_interval, m.log_sync_interval,
+                       m.log_delay_req_interval, m.announce_timeout, m.dscp, m.sap_expire_min,
+                       m.sap_interval_s)
 
 def parse_own_settings_block(block:bytes, valid:OneIPDeviceSetting) -> tuple[OneIPPtpMessages, OneIPDeviceSetting]:
     '''The block the settings in ONEIP_DEVICE_SETTINGS_BLOCK travel in, and
     valid without their bits when it is too short to hold their values.'''
     if (len(block) < SETTINGS_BLOCK_SIZE):
         return (OneIPPtpMessages(), valid & ~ONEIP_DEVICE_SETTINGS_BLOCK)
-    announce, sync, delay_req, timeout, dscp = struct.unpack_from('<bbbBB', block)
+    announce, sync, delay_req, timeout, dscp, expire, interval = struct.unpack_from('<bbbBBBH', block)
     return (OneIPPtpMessages(log_announce_interval=announce, log_sync_interval=sync,
-                             log_delay_req_interval=delay_req, announce_timeout=timeout, dscp=dscp), valid)
+                             log_delay_req_interval=delay_req, announce_timeout=timeout, dscp=dscp,
+                             sap_expire_min=expire, sap_interval_s=interval), valid)
 
 def settings_block(settings:OneIPDeviceSettings) -> bytes:
     '''The 48-byte device settings block.

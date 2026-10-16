@@ -2165,9 +2165,9 @@ def _wire_enum(cls:Any, value:int) -> Any:
 @dataclass(frozen=True)
 class OneIPPtpMessages:
     """
-    How a OneIP device paces its PTP messages, which a frame carries in a block
-    of its own. Each value is behind its own bit of OneIPDeviceSettings.valid,
-    one of ONEIP_DEVICE_SETTINGS_BLOCK.
+    How a OneIP device paces its PTP messages, and its SAP timings, which a
+    frame carries in the same block. Each value is behind its own bit of
+    OneIPDeviceSettings.valid, one of ONEIP_DEVICE_SETTINGS_BLOCK.
 
     Intervals are base-2 logarithms of seconds, so -3 is 125 ms and 1 is 2 s.
     """
@@ -2182,6 +2182,11 @@ class OneIPPtpMessages:
     PTP_ANNOUNCE_TIMEOUT."""
     dscp: int = 0
     """The DSCP of the messages, at most ONEIP_DSCP_MAX, behind PTP_DSCP."""
+    sap_expire_min: int = 0
+    """The minutes after which a SAP announcement the device heard is
+    forgotten, behind SAP_EXPIRE."""
+    sap_interval_s: int = 0
+    """The seconds between the device's SAP announcements, behind SAP_INTERVAL."""
 
     def merge(self, other:'OneIPPtpMessages', which:OneIPDeviceSetting) -> 'OneIPPtpMessages':
         """The values behind the bits of which copied from other, the rest kept."""
@@ -2191,7 +2196,9 @@ class OneIPPtpMessages:
             log_sync_interval=(other if (S.PTP_SYNC in which) else self).log_sync_interval,
             log_delay_req_interval=(other if (S.PTP_DELAY_REQ in which) else self).log_delay_req_interval,
             announce_timeout=(other if (S.PTP_ANNOUNCE_TIMEOUT in which) else self).announce_timeout,
-            dscp=(other if (S.PTP_DSCP in which) else self).dscp)
+            dscp=(other if (S.PTP_DSCP in which) else self).dscp,
+            sap_expire_min=(other if (S.SAP_EXPIRE in which) else self).sap_expire_min,
+            sap_interval_s=(other if (S.SAP_INTERVAL in which) else self).sap_interval_s)
 
     def describe(self, valid:OneIPDeviceSetting) -> list[str]:
         """The values behind the bits of valid, one "name=value" each."""
@@ -2201,7 +2208,9 @@ class OneIPPtpMessages:
                     (S.PTP_SYNC, 'ptp_sync', self.log_sync_interval),
                     (S.PTP_DELAY_REQ, 'ptp_delay_req', self.log_delay_req_interval),
                     (S.PTP_ANNOUNCE_TIMEOUT, 'ptp_announce_timeout', self.announce_timeout),
-                    (S.PTP_DSCP, 'ptp_dscp', self.dscp))
+                    (S.PTP_DSCP, 'ptp_dscp', self.dscp),
+                    (S.SAP_EXPIRE, 'sap_expire_min', self.sap_expire_min),
+                    (S.SAP_INTERVAL, 'sap_interval_s', self.sap_interval_s))
                 if (bit in valid)]
 
 @dataclass(frozen=True)
@@ -3161,7 +3170,7 @@ class DeviceBase(ABC):
 
     @abstractmethod
     async def set_oneip_ptp_messages(self, which:OneIPDeviceSetting, messages:OneIPPtpMessages) -> bool:
-        '''set how the device paces its PTP messages: the values of messages behind the bits of which'''
+        '''set how the device paces its PTP messages and its SAP timings: the values of messages behind the bits of which'''
 
     @abstractmethod
     async def set_oneip_vlan(self, vlan:OneIPVlan) -> bool:

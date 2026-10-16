@@ -384,15 +384,18 @@ print('level write : the last byte of the block, nothing unnamed sent')
 # The values travel behind the PTP state at 216, in a block of their own. Each
 # differs and the intervals are negative, so an unsigned read or a neighbour's
 # offset shows; the reserved bytes behind them are poisoned.
-MSG = int(S.PTP_ANNOUNCE | S.PTP_SYNC | S.PTP_DELAY_REQ | S.PTP_ANNOUNCE_TIMEOUT | S.PTP_DSCP)
+MSG = int(S.PTP_ANNOUNCE | S.PTP_SYNC | S.PTP_DELAY_REQ | S.PTP_ANNOUNCE_TIMEOUT | S.PTP_DSCP
+          | S.SAP_EXPIRE | S.SAP_INTERVAL | S.SAP_LISTEN | S.SAP_ANNOUNCE)
 def cfg_msg(subject, valid, block, flags=0):
     out = cfg_level(subject, valid, 0, flags) + bytes(16) + bytes(24) + bytes(block)
     assert len(out) >= 216
     return out
-BLOCK = (0xFD, 0xFE, 0x01, 3, 46, 0xA5, 0xA5, 0xA5)
+BLOCK = (0xFD, 0xFE, 0x01, 3, 46, 0xA5, 0x2C, 0x01)
 msg = hello(uid(0x23), SINK)
-rx(uid(0x23), 0x3C, cfg_msg(uid(0x23), MSG, BLOCK))
+rx(uid(0x23), 0x3C, cfg_msg(uid(0x23), MSG, BLOCK, flags=int(S.SAP_LISTEN)))
+assert msg.oneip_settings.get(S.SAP_LISTEN) is True and msg.oneip_settings.get(S.SAP_ANNOUNCE) is False
 m = msg.oneip_settings.ptp_messages
+assert (m.sap_expire_min, m.sap_interval_s) == (0xA5, 300), m
 assert (m.log_announce_interval, m.log_sync_interval, m.log_delay_req_interval) == (-3, -2, 1), m
 assert (m.announce_timeout, m.dscp) == (3, 46), m
 print('ptp msgs    :', msg.oneip_settings)
@@ -419,8 +422,13 @@ assert len(p) == 224, len(p)
 assert struct.unpack('<I', p[128:132])[0] == int(S.PTP_ANNOUNCE | S.PTP_DSCP)
 assert p[176:216] == bytes(40), 'the VLAN block and PTP state carry something'
 assert p[216:224] == bytes([0xFF, 0, 0, 0, 63, 0, 0, 0]), p[216:].hex()
+assert call(msg.set_oneip_ptp_messages(S.SAP_INTERVAL, mx_remote.OneIPPtpMessages(sap_interval_s=0x1234))) is True
+assert sent[-1][24 + 216:] == bytes([0, 0, 0, 0, 0, 0, 0x34, 0x12]), sent[-1][24 + 216:].hex()
+assert call(msg.set_oneip_setting(S.SAP_ANNOUNCE, True)) is True, 'SAP announce is a switch'
+assert len(sent[-1]) == 24 + 176, 'a switch carried the block'
 m = msg.oneip_settings.ptp_messages
 assert (m.log_announce_interval, m.dscp, m.log_sync_interval) == (-1, 63, 2), m
+assert m.sap_expire_min == 0xA5, 'a SAP value the write did not carry moved'
 assert call(msg.set_oneip_power_save_level(mx_remote.OneIPPowerSaveLevel.LOW)) is False, 'a setting it lacks'
 assert call(level.set_oneip_power_save_level(mx_remote.OneIPPowerSaveLevel.LOW)) is True
 assert len(sent[-1]) == 24 + 176, 'a write without the block grew'

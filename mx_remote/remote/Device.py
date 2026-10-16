@@ -1418,8 +1418,9 @@ class Device(DeviceBase):
 			valid=OneIPDeviceSetting.POWER_SAVE_LEVEL, power_save_level=level))
 
 	async def set_oneip_ptp_messages(self, which:OneIPDeviceSetting, messages:OneIPPtpMessages) -> bool:
-		'''Set how this OneIP device paces its PTP messages: the values of
-		messages behind the bits of which, each one of ONEIP_DEVICE_SETTINGS_BLOCK.
+		'''Set how this OneIP device paces its PTP messages, and its SAP
+		timings: the values of messages behind the bits of which, each one of
+		ONEIP_DEVICE_SETTINGS_BLOCK.
 
 		A DSCP above ONEIP_DSCP_MAX is refused, since a device ignores it. The
 		terms of set_oneip_setting() apply.

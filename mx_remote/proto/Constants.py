@@ -352,8 +352,17 @@ class OneIPDeviceSetting(IntFlag):
 	'''The announce intervals before the device drops a silent PTP master.'''
 	PTP_DSCP           = (1 << 23)
 	'''The DSCP of the device's PTP messages.'''
+	SAP_EXPIRE         = (1 << 24)
+	'''The minutes after which the device forgets a SAP announcement it heard.'''
+	SAP_LISTEN         = (1 << 25)
+	'''Listens for SAP announcements.'''
+	SAP_ANNOUNCE       = (1 << 26)
+	'''Sends SAP announcements.'''
+	SAP_INTERVAL       = (1 << 27)
+	'''The seconds between the device's SAP announcements.'''
 
-ONEIP_DEVICE_SETTING_SWITCHES = OneIPDeviceSetting(0xFF) | OneIPDeviceSetting.AES67
+ONEIP_DEVICE_SETTING_SWITCHES = OneIPDeviceSetting(0xFF) | OneIPDeviceSetting.AES67 \
+	| OneIPDeviceSetting.SAP_LISTEN | OneIPDeviceSetting.SAP_ANNOUNCE
 """The settings that are on or off, as opposed to carrying a value, and that
 can be written."""
 
@@ -368,9 +377,10 @@ ONEIP_DEVICE_SETTINGS_PTP_MESSAGES = OneIPDeviceSetting.PTP_ANNOUNCE | OneIPDevi
 	| OneIPDeviceSetting.PTP_DELAY_REQ | OneIPDeviceSetting.PTP_ANNOUNCE_TIMEOUT | OneIPDeviceSetting.PTP_DSCP
 """The PTP message settings."""
 
-ONEIP_DEVICE_SETTINGS_BLOCK = ONEIP_DEVICE_SETTINGS_PTP_MESSAGES
+ONEIP_DEVICE_SETTINGS_BLOCK = ONEIP_DEVICE_SETTINGS_PTP_MESSAGES | OneIPDeviceSetting.SAP_EXPIRE \
+	| OneIPDeviceSetting.SAP_INTERVAL
 """The settings whose values a frame carries in a block of their own behind the
-rest, OneIPPtpMessages."""
+rest, OneIPPtpMessages: the PTP message settings and the two SAP values."""
 
 class OneIPPtpMode(IntEnum):
 	'''How a OneIP device takes part in PTP.'''
