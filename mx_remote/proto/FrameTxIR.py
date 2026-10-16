@@ -125,9 +125,10 @@ class FrameTxIR(FrameBase):
         struct's sizeof and both skip the first element - so a caller replaying
         one it received has nothing to adjust.
         '''
-        if not self.acceptable:
+        if not self.acceptable or ((nb := self.nb_timings) is None):
             return None
-        return self.payload_idx(_TX_IR_HEADER_SIZE)
+        # As many as the request counts: bytes behind them are not timings.
+        return self.payload_idx(_TX_IR_HEADER_SIZE, _TX_IR_HEADER_SIZE + (nb * 2))
 
     def __str__(self) -> str:
         return (f"tx ir target={self.uid_to_user_string(self.target_uid)} "

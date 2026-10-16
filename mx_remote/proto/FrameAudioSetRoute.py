@@ -8,12 +8,15 @@
 
 from functools import cached_property
 from .FrameBase import FrameBase
+from .FrameSetRoute import ROUTE_REQUEST_SIZE
 from ..Interface import BayBase, DeviceBase
 
 # mxr_audio_routing_change_request wire layout:
 #   0..16    u8[16] serial      MXR_SERIAL_LEN, the device to switch
 #   16..18   u16 sink_bay       mbay_port_id
 #   18..20   u16 source_bay     mbay_port_id
+#   20..21   u8 no_power_on     unread, but a unit takes the request only with
+#                               it, at the length of MX_SET_ROUTE (0x09)
 #
 # Note this addresses its target by SERIAL, not by uid - unlike the video
 # routing request (0x09) and every V2IP opcode.
@@ -24,6 +27,11 @@ class FrameAudioSetRoute(FrameBase):
     A command rather than state: the resulting route is reported back through
     MX_ROUTE (0x08), so nothing here is cached.
     '''
+    @cached_property
+    def acted_on(self) -> bool:
+        '''Whether a unit takes the request: only at ROUTE_REQUEST_SIZE bytes.'''
+        return len(self.payload or b'') >= ROUTE_REQUEST_SIZE
+
     @cached_property
     def target_serial(self) -> str|None:
         '''Serial of the device being asked to switch.'''
@@ -38,12 +46,18 @@ class FrameAudioSetRoute(FrameBase):
 
     @cached_property
     def sink_bay(self) -> BayBase|None:
-        '''Bay on the target device that should change source.'''
+        '''Bay on the target device that should change source, None for a
+        request no unit takes.'''
+        if not self.acted_on:
+            return None
         return self.payload_bay(device=self.target_device, idx=16, u16=True)
 
     @cached_property
     def source_bay(self) -> BayBase|None:
-        '''Bay on the target device that should become the source.'''
+        '''Bay on the target device that should become the source, None for a
+        request no unit takes.'''
+        if not self.acted_on:
+            return None
         return self.payload_bay(device=self.target_device, idx=18, u16=True)
 
     def process(self) -> None:

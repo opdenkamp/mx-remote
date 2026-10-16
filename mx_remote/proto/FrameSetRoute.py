@@ -9,6 +9,9 @@
 from functools import cached_property
 from .FrameBase import FrameBase
 
+ROUTE_REQUEST_SIZE = 21
+'''The shortest routing request a unit takes, of either opcode.'''
+
 class FrameSetRoute(FrameBase):
     '''Routing change request payload: mxr_routing_change_request.
 
@@ -19,7 +22,8 @@ class FrameSetRoute(FrameBase):
         20..21  uint8_t      no_power_on 1 = skip power-on commands
 
     Same struct as the audio routing request (0x13) with the trailing byte
-    added, so the two must agree on their bay widths.
+    added, so the two must agree on their bay widths. A unit takes either only
+    at ROUTE_REQUEST_SIZE bytes or more.
     '''
 
     @cached_property

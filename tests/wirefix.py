@@ -411,6 +411,8 @@ assert not f.acceptable, 'a request with no timing was accepted'
 assert f.carrier_frequency is None and f.timings_raw is None, f.carrier_frequency
 f = decode(0x48, txir_struct(nb_timings=64) + struct.pack('<2H', 100, 200))
 assert not f.acceptable, 'a request claiming 64 timings while carrying 2 was accepted'
+f = decode(0x48, TXIR_STRUCT + struct.pack('<2H', 100, 200) + b'\x99\x99')
+assert f.timings_raw == struct.pack('<2H', 100, 200), 'bytes behind the counted timings arrived as timings'
 print('0x48 tx ir  : needs a timing past the struct, refuses an inflated count, any stamp')
 
 # ------------------------------------------------ 0x29 one layout per version

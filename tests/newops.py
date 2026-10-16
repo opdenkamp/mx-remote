@@ -46,7 +46,11 @@ assert f.clip == 42 and f.bay is not None and f.bay.port == 1
 f.process()
 
 # --- 0x13 AUDIO_SET_ROUTE: serial[16] + sink u16 + source u16  (serial, not uid)
+#     A unit takes it only at the 21 bytes of MX_SET_ROUTE, though the last
+#     byte is not read.
 f = rx(0x13, nm('P8SN12345678') + struct.pack('<HH', 1, 0))
+assert not f.acted_on and f.sink_bay is None, 'a 20-byte route request was taken'
+f = rx(0x13, nm('P8SN12345678') + struct.pack('<HH', 1, 0) + bytes(1))
 print('0x13 :', f)
 assert f.target_serial == 'P8SN12345678'
 assert f.sink_bay is not None and f.sink_bay.port == 1
