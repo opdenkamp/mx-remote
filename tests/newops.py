@@ -34,6 +34,9 @@ from mx_remote.proto.Constants import RCAction
 f = rx(0x0E, UID + struct.pack('<HH', 1, int(RCAction.ACTION_VOLUME_UP)))
 print('0x0E :', f)
 assert f.action == RCAction.ACTION_VOLUME_UP
+# the unit's own numbering: 3 turns the volume up, 4 down
+assert rx(0x0E, UID + struct.pack('<HH', 1, 3)).action == RCAction.ACTION_VOLUME_UP
+assert rx(0x0E, UID + struct.pack('<HH', 1, 4)).action == RCAction.ACTION_VOLUME_DOWN
 f.process()
 
 # --- 0x11 AUDIO_CLIP: u8 bay + u8 clip
