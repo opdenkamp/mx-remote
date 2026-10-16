@@ -857,6 +857,10 @@ class Device(DeviceBase):
 		# only a hello brings it back.
 		if self.online:
 			self._last_ping = datetime.now()
+		# A record with an empty name describes no bay: a unit sends one, all
+		# zero, for an input it cannot number.
+		if (data.bay_name == ''):
+			return
 		bay = self.get_by_portnum(data.port)
 		isnew = (bay is None)
 		if bay is None:

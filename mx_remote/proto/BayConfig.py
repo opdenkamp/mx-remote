@@ -72,13 +72,14 @@ class BayConfig:
 
 	@cached_property
 	def bay_name(self) -> str:
-		'''Bay name.'''
-		return self.payload[5:21].split(b'\0',1)[0].decode('ascii', errors='replace')
+		'''Bay name. A unit keeps 15 bytes of each name, the 16th being its
+		terminator.'''
+		return self.payload[5:20].split(b'\0',1)[0].decode('ascii', errors='replace')
 
 	@cached_property
 	def user_name(self) -> str:
-		'''User-assigned name.'''
-		return self.payload[21:37].split(b'\0',1)[0].decode('ascii', errors='replace')
+		'''User-assigned name, kept to 15 bytes as bay_name is.'''
+		return self.payload[21:36].split(b'\0',1)[0].decode('ascii', errors='replace')
 
 	@cached_property
 	def signal_type(self) -> str:

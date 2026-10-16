@@ -32,6 +32,19 @@ rx(0x02, bay(2, 1, 0, 'Out 1'))                            # page 2
 print('bays        :', sorted(b.bay_name for b in dev.bays.values()))
 assert len(dev.bays) == 3, dev.bays
 
+# ---- a record's mode, not its features, gives its direction; a record with an
+#      empty name describes no bay, and a unit keeps 15 bytes of each name
+IR_ONLY = (1 << 6) | (1 << 7)                    # IR_IN | IR_OUT, no direction
+rx(0x02, bytes([3, 0, 2, 0, 0]) + name('In 3 IR-only XYZ') + name('Den Blu-ray PLYR') + name('1080p')
+         + struct.pack('<II', 0, IR_ONLY))
+ir = dev.get_by_portnum(3)
+assert ir.is_input and not ir.is_output, 'a bay without direction features was neither'
+assert ir in dev.inputs.values(), 'the input was missed from the inputs'
+assert (ir.bay_name, ir.user_name) == ('In 3 IR-only XY', 'Den Blu-ray PLY'), (ir.bay_name, ir.user_name)
+rx(0x02, bytes(61))
+assert dev.get_by_portnum(0).user_name == 'In 1', 'an unnamed record overwrote port 0'
+print('records     : direction from the mode, unnamed records dropped, 15-byte names')
+
 # ---- links, paged the same way
 def link(port, serial, baynm):
     return bytes([port, 0]) + name(serial) + name(baynm) + struct.pack('<I', 1)

@@ -50,6 +50,10 @@ from ..const import V2IP_UDP_PORT_AUDIO
 
 _LOGGER = logging.getLogger(__name__)
 
+_MODE_INPUT = 0
+_MODE_OUTPUT = 1
+'''A bay record's mode for an input and for an output.'''
+
 _AUDIO_FOLLOWS_SINCE = 0x27
 '''The protocol from which every unit's audio follows its video for a source
 switch naming no audio. Some units below it route no audio instead.'''
@@ -68,6 +72,7 @@ class Bay(BayBase):
         self._port_name = data.bay_name
         self._user_name = None
         self._features = data.features
+        self._modenum = data.modenum
         self._mbay_id = None
         self._video_source = None
         self._audio_source = None
@@ -283,6 +288,10 @@ class Bay(BayBase):
     @property
     @override
     def is_input(self) -> bool:
+        '''Whether the bay is an input, as its record's mode says. The feature
+        bits decide only for a mode that is neither.'''
+        if (self._modenum in (_MODE_INPUT, _MODE_OUTPUT)):
+            return (self._modenum == _MODE_INPUT)
         return BayFeaturesMask.HDMI_IN in self.features \
             or BayFeaturesMask.AUDIO_DIG_IN in self.features \
             or BayFeaturesMask.AUDIO_ANA_IN in self.features \
@@ -291,6 +300,9 @@ class Bay(BayBase):
     @property
     @override
     def is_output(self) -> bool:
+        '''Whether the bay is an output, as is_input decides.'''
+        if (self._modenum in (_MODE_INPUT, _MODE_OUTPUT)):
+            return (self._modenum == _MODE_OUTPUT)
         return BayFeaturesMask.HDMI_OUT in self.features \
             or BayFeaturesMask.AUDIO_AMP_OUT in self.features \
             or BayFeaturesMask.AUDIO_DIG_OUT in self.features \
@@ -1159,6 +1171,7 @@ class Bay(BayBase):
 
     def _on_mxr_bay_config(self, data:BayConfig) -> None:
         self._features = data.features
+        self._modenum = data.modenum
         self.status_mask = data.status
         self.user_name = data.user_name
         self.bay = data.bay
