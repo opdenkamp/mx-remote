@@ -33,6 +33,9 @@ _TIMINGS_OFFSET = 24
 # it decodes perfectly.
 _MIN_SIZE = _TIMINGS_OFFSET + 2
 
+_PORT_NONE = 0xFFFF
+'''The port a unit writes, on every capture: it names none.'''
+
 # Two timing widths exist on the wire, and the header counts timings rather than
 # bytes, so what follows the header is what says which arrived: the same count
 # takes twice the room in the wider form, and a narrow list is exactly as long
@@ -80,9 +83,16 @@ class FrameRCIr(FrameBase):
 
     @cached_property
     def bay(self) -> BayBase|None:
-        '''Bay that received the IR key press.'''
+        '''Bay that received the IR key press.
+
+        A unit names no port: it forwards what its own receiver caught while
+        its output shows a source on another unit, so the capture belongs to
+        that output, which on a OneIP is its only one.'''
         if not self.acceptable:
             return None
+        if (self.payload_u16(idx=0) == _PORT_NONE):
+            dev = self.remote_device
+            return dev.first_output if (dev is not None) else None
         return self.payload_bay(device=self.remote_device, idx=0, u16=True)
 
     @cached_property

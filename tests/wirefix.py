@@ -326,6 +326,14 @@ assert f.acceptable, 'a capture stamped below the opcode row was refused'
 assert f.timings == struct.pack('<2H', 100, 200)
 print('0x0A ir     : needs a timing past the struct, and nothing of the stamp')
 
+# A unit names no port on any capture. It forwards what its receiver caught
+# while its output shows a remote source, so the capture is that output's.
+unnamed = struct.pack('<H', 0xFFFF) + IR_STRUCT[2:]
+f = stamped(0x0A, unnamed + struct.pack('<2H', 100, 200), IR_ROW)
+assert f.bay is not None and f.bay.is_output, f.bay
+assert f.bay is f.remote_device.first_output, f.bay
+print('0x0A ir     : a capture naming no port is the output\'s')
+
 # Admission and replay are two thresholds, not one: one timing gets the frame
 # read, more than one gets something blasted, because the first is dropped.
 f = stamped(0x0A, ir_struct(nb_timings=1) + struct.pack('<H', 100), IR_ROW)
