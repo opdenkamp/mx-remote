@@ -48,8 +48,10 @@ def rx(sender, opcode, payload=b'', protocol=0x28):
     frame[2] = protocol
     mx.process_frame(0.0, bytes(frame), ADDR)
 
-def hello(sender, features, model='ONEIP'):
-    rx(sender, 0x00, struct.pack('<H', 0x28) + name(model) + name('P8SN12345678')
+def hello(sender, features, model='ONEIP', protocol=0x2F):
+    '''A unit on current firmware unless protocol says otherwise: released
+    firmware, below 0x2F, drops a scaling write from management.'''
+    rx(sender, 0x00, struct.pack('<H', protocol) + name(model) + name('P8SN12345678')
                    + name('5.0.0') + struct.pack('<I', int(features)))
     return mx.get_by_uid(MxrDeviceUid(sender))
 
@@ -80,6 +82,13 @@ n = len(sent)
 assert call(source.set_oneip_auto_scaling(True)) is False, 'a source accepted a scaling write'
 assert len(sent) == n, 'a refused command still transmitted'
 print('not a sink  : refused, nothing sent')
+
+released = hello(uid(0x12), SINK, protocol=0x2E)
+n = len(sent)
+assert call(released.set_oneip_auto_scaling(True)) is False, 'a released unit accepted a scaling write'
+assert call(released.clear_oneip_output_mode()) is False
+assert len(sent) == n, 'a refused command still transmitted'
+print('released    : below 0x2F refused, nothing sent')
 
 # Automatic scaling on. The bytes beside the scaling block are the assertion:
 # a source address that is multicast would repoint the encoder, a zero rate
@@ -197,16 +206,17 @@ print('mode dropped:', own.oneip_details.scaling)
 dev = sink_with_a_mode(0x31)
 report(uid(0x31), struct.pack('<HHB', 0, 0, MXR_SCALING_FLAG_OPTIONS2_VALID))
 assert dev.oneip_details.scaling.configured_mode is not None, 'a report without the options marker dropped the mode'
-# a sender whose options bit may be uninitialised memory:
-dev = sink_with_a_mode(0x32, features=SINK)
-report(uid(0x32), struct.pack('<HHB', 0, 0, MXR_SCALING_FLAG_OPTIONS_VALID))
-assert dev.oneip_details.scaling.configured_mode is not None, 'an uninitialised sender dropped the mode'
+# a sender whose block may be uninitialised memory says nothing, mode or not:
+dev = hello(uid(0x32), SINK)
+report(uid(0x32), MANUAL)
+assert dev.oneip_details.scaling.configured_mode is None, 'a mode was read from an uninitialised sender'
+assert dev.oneip_details.scaling.auto_scaling is None, dev.oneip_details.scaling
 # and a controller's options-only write, which lands: it turns auto scaling off.
 dev = sink_with_a_mode(0x33)
 hello(uid(0x34), int(DeviceFeature.MANAGER) | int(DeviceFeature.CONFIG_INITIALISED), model='Ctrl')
 report(uid(0x33), struct.pack('<HHB', 0, 0, MXR_SCALING_FLAG_OPTIONS_VALID), sender=uid(0x34))
 assert dev.oneip_details.scaling.auto_scaling is False, 'the controller\'s write did not land'
 assert dev.oneip_details.scaling.configured_mode is not None, 'a controller\'s write dropped the mode'
-print('mode kept   : no options marker, uninitialised sender, controller write')
+print('mode kept   : no options marker, controller write; nothing read from an uninitialised sender')
 
 print('ALL OK')

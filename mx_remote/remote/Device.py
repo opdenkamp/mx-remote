@@ -90,6 +90,9 @@ from ..proto.FrameV2IPTestcard import (FrameV2IPTestcard, TESTCARD_REQUEST, TEST
 
 _LOGGER = logging.getLogger(__name__)
 
+_SCALING_WRITE_PROTOCOL = 0x2F
+'''The protocol from which a unit applies a scaling write from management.'''
+
 class Device(DeviceBase):
 	'''Remote device on the MX network (matrix, OneIP unit, or amplifier).'''
 
@@ -1317,6 +1320,9 @@ class Device(DeviceBase):
 		'''
 		if not self.is_oneip_sink:
 			_LOGGER.warning(f"not setting scaling on {self}: scaling settings need a OneIP sink")
+			return False
+		if (self.protocol < _SCALING_WRITE_PROTOCOL):
+			_LOGGER.warning(f"not setting scaling on {self}: its firmware drops a scaling write from management")
 			return False
 		frame = FrameV2IPDeviceConfiguration.construct_scaling(
 			mxr=self.registry, target=self, target_uid=self.remote_id,

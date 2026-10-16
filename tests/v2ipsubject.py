@@ -72,7 +72,7 @@ print('self-report :', dev.oneip_details.tx_rate)
 
 # A management write lands on the device it names, not on the sender.
 managed = hello(uid(0x02), SINK)
-ctrl = hello(uid(0x03), int(DeviceFeature.MANAGER), model='Ctrl')
+ctrl = hello(uid(0x03), int(DeviceFeature.MANAGER | DeviceFeature.CONFIG_INITIALISED), model='Ctrl')
 rx(uid(0x03), 0x3C, cfg(uid(0x02), rate=40))
 assert managed.oneip_details is not None, 'the write did not reach the device it names'
 assert managed.oneip_details.tx_rate == 40, managed.oneip_details

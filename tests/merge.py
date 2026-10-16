@@ -12,9 +12,9 @@ UID = bytes(range(1, 17)); ADDR = ('192.0.2.9', 8812)
 mx = mx_remote.Remote(open_connection=False)
 def nm(s, sz=16):
     b = s.encode('ascii')[:sz]; return b + bytes(sz - len(b))
-# CONFIG_INITIALISED, because the second options group is read only from a
-# sender that announces it: without that announcement those bits are whatever
-# the stack held, which the last case in this suite pins.
+# CONFIG_INITIALISED, because the scaling block is read only from a sender that
+# announces it: without that announcement its bits are whatever the stack held,
+# which the last case in this suite pins.
 FEAT = (1 << 5) | int(DeviceFeature.CONFIG_INITIALISED)
 hello = struct.pack('<H', 0x28) + nm('MX-1') + nm('P8SN12345678') + nm('4.7.9') + struct.pack('<I', FEAT)
 mx.process_frame(time.time(), create_mxr_frame(UID, 0x00, hello), ADDR)
@@ -82,7 +82,7 @@ print('invalid    : unicast and port-0 both rejected, cache intact')
 #    scaling state, where a missing mode is one it dropped.
 CTRL = bytes(range(0x41, 0x51))
 mgr = struct.pack('<H', 0x28) + nm('Ctrl') + nm('CTRL0001') + nm('4.7.9') \
-    + struct.pack('<I', int(DeviceFeature.MANAGER))
+    + struct.pack('<I', int(DeviceFeature.MANAGER | DeviceFeature.CONFIG_INITIALISED))
 mx.process_frame(time.time(), create_mxr_frame(CTRL, 0x00, mgr), ADDR)
 d = rx(cfg(scaling=(0, 0, MXR_SCALING_FLAG_OPTIONS_VALID)), sender=CTRL)
 print('opts-only  : scaling', sc(d))
@@ -141,23 +141,22 @@ def first_frame(features, flags):
     f.process()
     return m.get_by_uid(mx_remote.MxrDeviceUid(UID)).oneip_details.scaling
 
-# Bits 2 and 3 have no meaning at all, and the second options group has none on
-# a sender that does not announce an initialised configuration: no firmware
-# carries those options without also making that announcement, so what is in
-# those bits is whatever the stack held.
+# A sender that does not announce an initialised configuration builds the block
+# over uninitialised stack, so a unit reads none of it: no flag, and so neither
+# the mode nor the refresh behind MODE_VALID. No released build announces it.
 uninit = first_frame(1 << 5, 0xFF)
 print('first frame : wire flags 0xFF, no announcement -> cached 0x%02X' % uninit.flags)
-assert uninit.flags == 0x83, hex(uninit.flags)
-assert uninit.match_source is None and uninit.skip_420 is None
+assert uninit.flags == 0, hex(uninit.flags)
+assert uninit.auto_scaling is None and uninit.match_source is None and uninit.skip_420 is None
+assert uninit.configured_mode is None, 'a mode was read from an uninitialised block'
 
-# The same bits from a sender that announces it are the settings they name. The
-# mode is read from both, because a mode can be genuine without the
-# announcement while these options cannot.
+# The same bits from a sender that announces it are the settings they name;
+# bits 2 and 3 have no meaning at all.
 init = first_frame((1 << 5) | int(DeviceFeature.CONFIG_INITIALISED), 0xFF)
 print('first frame : wire flags 0xFF, announced     -> cached 0x%02X' % init.flags)
 assert init.flags == 0xF3, hex(init.flags)
 assert (init.match_source, init.skip_420) == (True, True)
-assert (uninit.mode, init.mode) == (0x1050, 0x1050), 'the mode is read from either'
+assert init.mode == 0x1050
 
 print()
 print('ALL OK')

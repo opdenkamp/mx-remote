@@ -83,11 +83,11 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 # and one that stops short of the schedule, or of the PTP settings, reports
 # none of them whatever its valid bits say.
 #
-# Trust the scaling block only from a peer whose hello carries
-# MXR_FEATURE_CONFIG_INITIALISED. Without it the sender may have built those
-# flags on uninitialised stack, making MODE_VALID and the mode and refresh
-# behind it meaningless and AUTO_SCALING spurious, and nothing within a frame
-# distinguishes that from a real config. The firmware version cannot substitute
+# Read the scaling block only from a peer whose hello carries
+# MXR_FEATURE_CONFIG_INITIALISED, as a unit does. Without it the sender may have
+# built those flags on uninitialised stack, making MODE_VALID and the mode and
+# refresh behind it meaningless and AUTO_SCALING spurious, and nothing within a
+# frame distinguishes that from a real config. The firmware version cannot substitute
 # for the bit: release builds use low majors while development builds use major
 # 10 and above, so a numeric compare orders the two families wrongly.
 #
@@ -253,23 +253,19 @@ class V2IPScalingSettingsImpl(DeviceOneIPScalingSettings):
                       | MXR_SCALING_FLAG_AUTO_SCALING)
 
     def __init__(self, data:bytes, initialised:bool) -> None:
-        '''Read the block, keeping the bits this sender can be believed about.
+        '''Read the block, keeping the bits this sender can be believed about:
+        every defined one from a sender announcing
+        MXR_FEATURE_CONFIG_INITIALISED, and none from any other, as a unit has
+        it.
 
-        The second options group is dropped from a sender that does not announce
-        MXR_FEATURE_CONFIG_INITIALISED. No firmware carries those options without
-        also making that announcement, so masking them can discard nothing real,
-        while reading them would invent a capability out of whatever the stack
-        held.
-
-        The older bits are not that case and are kept: a sender without the
-        announcement can still have a genuine mode configured, and dropping
-        those would discard the only reading of such a device anyone has.
+        A sender without the announcement builds the block over uninitialised
+        stack memory, so its mode, refresh and every flag can be junk. No
+        released build announces the bit, so a released unit's scaling is not
+        read at all; with no validity bit read, neither is the mode or refresh.
         '''
         self._mode = int.from_bytes(data[0:2], 'little')
         self._refresh = (int(data[3]) << 8) | int(data[2])
-        believable = V2IPScalingSettingsImpl._DEFINED_FLAGS
-        if not initialised:
-            believable &= ~(MXR_SCALING_FLAG_OPTIONS2_VALID | MXR_SCALING_OPTIONS2_SETTINGS)
+        believable = V2IPScalingSettingsImpl._DEFINED_FLAGS if initialised else 0
         self._flags = (data[4] & believable)
 
     @property

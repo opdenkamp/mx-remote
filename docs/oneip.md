@@ -107,9 +107,9 @@ output mode. Each is written behind its own validity bit, so moving one leaves
 the other where it is.
 
 ```python
-# what the sink reports. Trust this block only from a device whose hello carries
+# what the sink reports, read only from a device whose hello carries
 # CONFIG_INITIALISED - firmware without it builds the block over uninitialised
-# stack, where the valid bit itself is noise.
+# stack, where the valid bit itself is noise. No released build announces it.
 scaling = device.oneip_details.scaling
 print(scaling.auto_scaling)        # None when the sender did not say
 print(scaling.configured_mode)     # (signal type, refresh), None when it has none
@@ -132,6 +132,9 @@ refuses a mode whose format the attached display does not list, and refuses it
 in silence. Setting the mode first and turning automatic scaling back on
 afterwards is the order that survives, because the mode is checked while
 automatic scaling is still off.
+
+These are refused for a unit below protocol 0x2F: released firmware drops a
+scaling write from management.
 
 Nothing acknowledges any of these. `set_oneip_output_mode` returns False for a
 mode no sink would take, but a True only says the frame went out: the sink
