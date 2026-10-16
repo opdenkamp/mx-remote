@@ -37,7 +37,10 @@ class FrameHello(FrameBase):
         payload = append_payload_str(payload=payload, value=mxr.name, sz=16)
         payload = append_payload_str(payload=payload, value="P9SN00000000", sz=16)
         payload = append_payload_str(payload=payload, value=__version__, sz=16)
-        features = DeviceFeature.MANAGER
+        # A unit uses the scaling fields of a 0x3C write only from a sender
+        # announcing CONFIG_INITIALISED, and this client zeroes every field it
+        # does not set, which is what the bit promises.
+        features = DeviceFeature.MANAGER | DeviceFeature.CONFIG_INITIALISED
         payload += [ (features >> 0) & 0xFF, (features >> 8) & 0xFF, (features >> 16) & 0xFF, (features >> 24) & 0xFF ]
         return FrameBase.construct_base(mxr=mxr, opcode=0, payload=bytes(payload))
 

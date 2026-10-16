@@ -568,6 +568,12 @@ assert reported == MXR_PROTOCOL_VERSION, (reported, MXR_PROTOCOL_VERSION)
 assert reported >= 0x20, 'the short offline timeout is what the announce interval is paced for'
 print('hello       : 54 bytes, stamped 0x01, reporting 0x%02X in the payload' % reported)
 
+# A unit applies a scaling write only from a sender announcing CONFIG_INITIALISED.
+from mx_remote import DeviceFeature
+announced = DeviceFeature(struct.unpack_from('<I', hello_frame.frame, 24 + 50)[0])
+assert DeviceFeature.CONFIG_INITIALISED in announced and DeviceFeature.MANAGER in announced, announced
+print('hello       : announces MANAGER and CONFIG_INITIALISED')
+
 # ------------------------------------------- a stranger's frame is not acted on
 # A device announces itself before it sends anything else. A frame from a uid
 # that has not announced is one that should not exist, so it is decoded and
