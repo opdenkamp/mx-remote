@@ -58,6 +58,7 @@ SUITES = [
     'routes',       # what a OneIP output is routed to, as the frames a unit acts on move it
     'meshbays',     # the bays a unit lists for other units, from its mappings
     'v2ipsdp',      # what a OneIP output plays from a session description
+    'baycontent',   # what the source on an input is showing
     'deprecated',   # the V2IP names 5.11.0 exported still resolve, with a warning
 ]
 

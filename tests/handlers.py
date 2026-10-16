@@ -38,6 +38,7 @@ BASELINE = {
     'FrameAudioSetRoute.FrameAudioSetRoute',
     'FrameBayConfig.FrameBayConfig',
     'FrameBayConfigSecondary.FrameBayConfigSecondary',
+    'FrameBayContent.FrameBayContent',
     'FrameBayHide.FrameBayHide',
     'FrameBayStatus.FrameBayStatus',
     'FrameConnectStatus.FrameConnectStatus',

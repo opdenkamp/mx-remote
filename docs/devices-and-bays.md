@@ -49,6 +49,22 @@ await bay.select_edid_profile(EdidProfile.TEMPLATE_4K_HDR_7_1)
 await bay.select_edid_profile(EdidProfile.LOWEST_COMMON_DENOMINATOR)
 ```
 
+## Bay Content
+
+A unit with a source driver, such as the Sky Q one, reports what the source on
+an input is showing as named values, in the order they are meant to be shown:
+
+```python
+print(bay.content)                 # e.g. name='BBC One', number='101'
+print(bay.content.get('name'))     # None when the source reports no such value
+```
+
+The names are open-ended: a driver for a new kind of source adds its own, so
+pass on the ones you do not know. Each value is cleaned as a receiving unit
+cleans it, so it reads as the unit's own API shows it. The content outlives the
+signal, so check `signal_detected` before showing it. `on_bay_content_changed`
+reports a change, and an empty `content` is a source showing nothing.
+
 ## Mesh Bays
 
 A OneIP unit lists the inputs and outputs of the other units in its mesh as

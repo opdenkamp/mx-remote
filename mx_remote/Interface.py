@@ -951,6 +951,34 @@ class DeviceList(list[MxrDeviceUid]):
 class FilteredDevices(DeviceList):
     ''' list of filtered devices '''
 
+@dataclass(frozen=True)
+class BayContentField:
+    '''One thing an input's source is showing, such as its channel name.
+
+    A source reports these as named values in the order they are meant to be
+    shown. The names are open-ended: a driver for a new kind of source adds its
+    own without any other unit changing, so a caller passes on names it does
+    not know.'''
+    key: str
+    '''What the value is, such as name or number.'''
+    value: str
+    '''The value, as text.'''
+
+class BayContent(tuple[BayContentField, ...]):
+    '''What the source on an input is showing, as its unit last reported it:
+    the fields in the order they are meant to be shown, empty when it shows
+    nothing.
+
+    The content outlives the signal, so check signal_detected before showing
+    it.'''
+
+    def get(self, key:str) -> str|None:
+        '''The value of the field named key, None when there is none.'''
+        return next((f.value for f in self if (f.key == key)), None)
+
+    def __str__(self) -> str:
+        return ', '.join(f'{f.key}={f.value!r}' for f in self) if self else 'none'
+
 class BayMirrorStatus:
     def __init__(self, target:MxrBayUid|None=None) -> None:
         self._target = target
@@ -1224,6 +1252,12 @@ class BayBase(ABC):
     @abstractmethod
     def cec_detected(self) -> bool:
         '''Connected device supports HDMI-CEC'''
+
+    @property
+    @abstractmethod
+    def content(self) -> BayContent:
+        '''What the source on this input is showing, as its unit last reported
+        it; empty when it shows nothing or its unit has no source driver.'''
 
     @property
     @abstractmethod
@@ -3842,6 +3876,11 @@ class MxrCallbacks:
         ''' called when the HDBaseT connection status of 'bay' changed '''
         lval = "up" if val else "down"
         _LOGGER.debug(f"{bay} HDBaseT link {lval}")
+        self.on_bay_update(bay)
+
+    def on_bay_content_changed(self, bay:BayBase, content:BayContent) -> None:
+        ''' called when what the source on input 'bay' shows changed '''
+        _LOGGER.debug(f"{bay} content: {content}")
         self.on_bay_update(bay)
 
     def on_status_signal_type_changed(self, bay:BayBase, val:str) -> None:

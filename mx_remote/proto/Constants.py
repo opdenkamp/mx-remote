@@ -118,6 +118,7 @@ MXR_OPCODE_VERSIONS: dict[int, int] = {
     0x4E: 0x2B,  # V2IP_TESTCARD
     0x4F: 0x2C,  # SYS_UNIT_STATUS
     0x50: 0x2C,  # SYS_UNIT_COMMAND
+    0x51: 0x2D,  # BAY_CONTENT
     0x52: 0x2E,  # V2IP_SINK_SDP
 }
 """Per-opcode minimum compatible protocol version, mirroring the firmware's
@@ -409,6 +410,12 @@ class OneIPPtpMode(IntEnum):
 
 ONEIP_PTP_DOMAIN_MAX = 127
 """The highest PTP domain a OneIP device runs in."""
+
+BAY_CONTENT_KEY_MAX = 31
+"""The most bytes in a BayContentField key."""
+
+BAY_CONTENT_VALUE_MAX = 255
+"""The most bytes in a BayContentField value, UTF-8 encoded."""
 
 ONEIP_SDP_MAX = 2048
 """The longest session description a OneIP output takes, in bytes."""

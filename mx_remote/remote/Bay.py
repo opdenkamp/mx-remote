@@ -36,6 +36,7 @@ from ..Interface import (
     AmpZoneSettings,
     DeviceStatus,
     SelectedBays,
+    BayContent,
     PowerStatus,
     SignalStatus,
     ConnectStatus,
@@ -126,6 +127,7 @@ class Bay(BayBase):
         self._amp_settings:AmpZoneSettings|None = None
         self._filtered:FilteredDevices = FilteredDevices()
         self._mirror:BayMirrorStatus = BayMirrorStatus()
+        self._content:BayContent = BayContent()
         self._bay_callbacks:list[Callable[[BayBase],None]] = []
 
     @staticmethod
@@ -848,6 +850,13 @@ class Bay(BayBase):
 
     @property
     @override
+    def content(self) -> BayContent:
+        if ((owner := self.mesh_owner) is not None):
+            return owner.content
+        return self._content
+
+    @property
+    @override
     def mirroring(self) -> BayMirrorStatus:
         if ((owner := self.mesh_owner) is not None):
             return owner.mirroring
@@ -1435,6 +1444,11 @@ class Bay(BayBase):
                 self.hidden = (data == HiddenStatus.HIDDEN)
         elif isinstance(data, BayMirrorStatus):
             self.mirroring = data
+        elif isinstance(data, BayContent):
+            if (data != self._content):
+                self._content = data
+                self.callbacks.on_bay_content_changed(self, data)
+                self.call_callbacks()
 
     def __str__(self) -> str:
         if self.is_oneip_source:

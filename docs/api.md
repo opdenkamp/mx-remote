@@ -31,6 +31,16 @@ they are what the registry hands out and what a callback receives.
    :members:
 ```
 
+## Bay content
+
+What the source on an input is showing, and how much of it a unit keeps.
+
+```{eval-rst}
+.. autodata:: mx_remote.proto.Constants.BAY_CONTENT_KEY_MAX
+
+.. autodata:: mx_remote.proto.Constants.BAY_CONTENT_VALUE_MAX
+```
+
 ## Device identity
 
 ```{eval-rst}
