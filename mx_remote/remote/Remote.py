@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from .ConnectionAsync import ConnectionAsync
 from ..const import MXR_HELLO_INTERVAL_MIN, MXR_HELLO_INTERVAL_RAND, __version__
 from .Device import Device
-from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, mxr_broadcast_address, OneIPDeviceSettings, OneIPPowerSaveSchedule
+from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, mxr_broadcast_address, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages
 from ..proto.Constants import MXR_PROTOCOL_VERSION, DeviceFeature
 from ..proto.FrameDiscover import FrameDiscover, constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
@@ -32,7 +32,7 @@ from ..proto.FrameBase import FrameBase
 from ..proto.FrameTime import FrameTime
 from ..proto.FrameTimeZone import FrameTimeZone
 from ..proto.FrameV2IPSettingsAll import FrameV2IPSettingsAll
-from ..proto.Constants import (ONEIP_DEVICE_SETTINGS_REPORTED_ONLY, ONEIP_IR_PROFILE_MAX, ONEIP_PTP_DOMAIN_MAX,
+from ..proto.Constants import (ONEIP_DEVICE_SETTINGS_REPORTED_ONLY, ONEIP_DSCP_MAX, ONEIP_IR_PROFILE_MAX, ONEIP_PTP_DOMAIN_MAX,
                                OneIPPowerSaveLevel, OneIPPtpMode,
                                ONEIP_IR_PROFILE_NOT_SET, OneIPDeviceSetting)
 from ..proto.Svd import SvdMap
@@ -469,8 +469,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         reports them. Each device applies those it has and ignores the rest,
         and none below protocol 0x2A applies any. A setting only a device
         reports about itself, a profile, PTP mode, PTP domain or power save
-        level out of range and a power save time that is not a time of day are
-        refused here, since every device would ignore them.
+        level out of range, a PTP DSCP above ONEIP_DSCP_MAX and a power save time
+        that is not a time of day are refused here, since every device would
+        ignore them.
 
         Nothing is cached: each device that applies a change reports its
         settings, and its oneip_settings reads that.
@@ -502,6 +503,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         elif (OneIPDeviceSetting.POWER_SAVE_LEVEL in valid) \
                 and not (OneIPPowerSaveLevel.NONE <= (settings.power_save_level or 0) <= OneIPPowerSaveLevel.OFF):
             why = 'no such power save level'
+        elif (OneIPDeviceSetting.PTP_DSCP in valid) \
+                and not (0 <= (settings.ptp_messages or OneIPPtpMessages()).dscp <= ONEIP_DSCP_MAX):
+            why = 'a PTP DSCP above 63'
         if (why is not None):
             _LOGGER.warning(f"not changing the settings of every OneIP device: {why}")
             return False

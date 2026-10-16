@@ -342,6 +342,16 @@ class OneIPDeviceSetting(IntFlag):
 	'''Sends the source's audio as an AES67 flow, where the source allows.'''
 	POWER_SAVE_LEVEL   = (1 << 18)
 	'''The power save level the device powers down to.'''
+	PTP_ANNOUNCE       = (1 << 19)
+	'''The interval between the device's PTP announce messages.'''
+	PTP_SYNC           = (1 << 20)
+	'''The interval between the device's PTP sync messages.'''
+	PTP_DELAY_REQ      = (1 << 21)
+	'''The interval between the device's PTP delay requests.'''
+	PTP_ANNOUNCE_TIMEOUT = (1 << 22)
+	'''The announce intervals before the device drops a silent PTP master.'''
+	PTP_DSCP           = (1 << 23)
+	'''The DSCP of the device's PTP messages.'''
 
 ONEIP_DEVICE_SETTING_SWITCHES = OneIPDeviceSetting(0xFF) | OneIPDeviceSetting.AES67
 """The settings that are on or off, as opposed to carrying a value, and that
@@ -353,6 +363,14 @@ ONEIP_DEVICE_SETTINGS_REPORTED_ONLY = OneIPDeviceSetting.IR_PROFILES | OneIPDevi
 ONEIP_DEVICE_SETTINGS_PTP = OneIPDeviceSetting.PTP_MODE | OneIPDeviceSetting.PTP_DOMAIN \
 	| OneIPDeviceSetting.PTP_PRIORITY1
 """The PTP settings."""
+
+ONEIP_DEVICE_SETTINGS_PTP_MESSAGES = OneIPDeviceSetting.PTP_ANNOUNCE | OneIPDeviceSetting.PTP_SYNC \
+	| OneIPDeviceSetting.PTP_DELAY_REQ | OneIPDeviceSetting.PTP_ANNOUNCE_TIMEOUT | OneIPDeviceSetting.PTP_DSCP
+"""The PTP message settings."""
+
+ONEIP_DEVICE_SETTINGS_BLOCK = ONEIP_DEVICE_SETTINGS_PTP_MESSAGES
+"""The settings whose values a frame carries in a block of their own behind the
+rest, OneIPPtpMessages."""
 
 class OneIPPtpMode(IntEnum):
 	'''How a OneIP device takes part in PTP.'''

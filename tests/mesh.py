@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logging.disable(logging.CRITICAL)
 import mx_remote
-from mx_remote import MxrDeviceUid, OneIPDeviceSetting as S, OneIPDeviceSettings, OneIPPowerSaveSchedule
+from mx_remote import MxrDeviceUid, OneIPDeviceSetting as S, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages
 from mx_remote.proto.Constants import (ONEIP_IR_PROFILE_MAX, ONEIP_IR_PROFILE_NOT_SET,
                                        ONEIP_MINUTES_PER_DAY)
 from mx_remote.proto.Constants import MXR_OPCODE_VERSIONS
@@ -148,6 +148,14 @@ assert p[14:16] == bytes([0x04, 0x03]), 'the idle minutes'
 assert sink.oneip_settings is None, 'a write for everyone was cached before any device took it'
 print('all write   : the block alone, to everyone, nothing cached')
 
+# The block of their own follows at 48 only when the settings carry one of it.
+assert call(mx.set_all_oneip_device_settings(OneIPDeviceSettings(
+    valid=S.PTP_SYNC, ptp_messages=OneIPPtpMessages(log_sync_interval=-4, dscp=9)))) is True
+p = sent.pop()[24:]
+assert len(p) == 56, len(p)
+assert p[48:56] == bytes([0, 0xFC, 0, 0, 9, 0, 0, 0]), p[48:].hex()
+print('all msgs    : the block of their own at 48')
+
 for why, settings in (
         ('nothing carried', OneIPDeviceSettings()),
         ('the clock bit', OneIPDeviceSettings(valid=S.CLOCK_SET)),
@@ -161,7 +169,8 @@ for why, settings in (
         ('a PTP mode with no name', OneIPDeviceSettings(valid=S.PTP_MODE, ptp_mode=3)),
         ('a PTP domain past the last', OneIPDeviceSettings(valid=S.PTP_DOMAIN, ptp_domain=128)),
         ('a priority1 past the field', OneIPDeviceSettings(valid=S.PTP_PRIORITY1, ptp_priority1=0x100)),
-        ('a power save level with no name', OneIPDeviceSettings(valid=S.POWER_SAVE_LEVEL, power_save_level=4))):
+        ('a power save level with no name', OneIPDeviceSettings(valid=S.POWER_SAVE_LEVEL, power_save_level=4)),
+        ('a PTP DSCP above 63', OneIPDeviceSettings(valid=S.PTP_DSCP, ptp_messages=OneIPPtpMessages(dscp=64)))):
     refused(mx.set_all_oneip_device_settings(settings), why)
 for ok in (OneIPDeviceSettings(valid=S.IR_PROFILE, ir_profile=ONEIP_IR_PROFILE_MAX - 1),
            OneIPDeviceSettings(valid=S.IR_PROFILE_SINK, ir_profile_sink=ONEIP_IR_PROFILE_NOT_SET),
@@ -170,7 +179,8 @@ for ok in (OneIPDeviceSettings(valid=S.IR_PROFILE, ir_profile=ONEIP_IR_PROFILE_M
            OneIPDeviceSettings(valid=S.PTP_MODE, ptp_mode=2),
            OneIPDeviceSettings(valid=S.PTP_DOMAIN, ptp_domain=127),
            OneIPDeviceSettings(valid=S.PTP_PRIORITY1, ptp_priority1=0xFF),
-           OneIPDeviceSettings(valid=S.POWER_SAVE_LEVEL, power_save_level=3)):
+           OneIPDeviceSettings(valid=S.POWER_SAVE_LEVEL, power_save_level=3),
+           OneIPDeviceSettings(valid=S.PTP_DSCP, ptp_messages=OneIPPtpMessages(dscp=63))):
     assert call(mx.set_all_oneip_device_settings(ok)) is True, f'{ok} was refused'
 print('all refused : what every device would ignore is not sent')
 

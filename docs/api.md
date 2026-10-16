@@ -117,6 +117,13 @@ state only the device reports.
 
 .. autodata:: mx_remote.proto.Constants.ONEIP_DEVICE_SETTINGS_PTP
 
+.. autoclass:: mx_remote.OneIPPtpMessages
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.ONEIP_DEVICE_SETTINGS_PTP_MESSAGES
+
+.. autodata:: mx_remote.proto.Constants.ONEIP_DEVICE_SETTINGS_BLOCK
+
 .. autodata:: mx_remote.proto.Constants.ONEIP_PTP_DOMAIN_MAX
 ```
 

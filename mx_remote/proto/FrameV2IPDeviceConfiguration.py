@@ -14,8 +14,9 @@ from .FrameHeader import FrameHeader
 from ..Uid import MxrDeviceUid
 from ..Interface import (DeviceBase, DeviceRegistry, DeviceOneIPDetails, DeviceOneIPScalingSettings,
                          DeviceOneIPSink, OneIPAudioFormat, OneIPDeviceSettings, OneIPDscpConfig,
-                         OneIPPowerSaveSchedule, OneIPPtpState, OneIPStreamSource, OneIPVlan, _wire_enum)
-from .Constants import (ONEIP_DEVICE_SETTINGS_PTP, OneIPPtpFlag, OneIPPtpLock, OneIPPtpMode, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag, MXR_SCALING_FLAG_AUTO_SCALING,
+                         OneIPPowerSaveSchedule, OneIPPtpMessages, OneIPPtpState, OneIPStreamSource,
+                         OneIPVlan, _wire_enum)
+from .Constants import (ONEIP_DEVICE_SETTINGS_BLOCK, ONEIP_DEVICE_SETTINGS_PTP, OneIPPtpFlag, OneIPPtpLock, OneIPPtpMode, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag, MXR_SCALING_FLAG_AUTO_SCALING,
                         MXR_SCALING_FLAG_MODE_VALID,
                         MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_OPTIONS2_VALID,
                         MXR_SCALING_OPTIONS2_SETTINGS, MxrSignalType, oneip_dscp_value,
@@ -44,6 +45,9 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #   192..216  PTP state: u8 flags, u8 mode, u8 domain, u8 IEEE 1588
 #             portState, u8 lock, 3 reserved, then the 8-byte clock identity
 #             and the 8-byte grandmaster clock identity
+#   216..224  the settings' own block: the PTP announce, sync and delay
+#             request intervals as i8, u8 announce timeout, u8 PTP DSCP,
+#             3 reserved
 #
 # Each of those blocks was appended behind what came before it, leaving every
 # offset ahead of it where it was, so the length is what says whether one is
@@ -117,6 +121,29 @@ _VLAN_SIZE          = 16
 _PTP_STATE_OFFSET   = _VLAN_OFFSET + _VLAN_SIZE
 '''The PTP state, behind the VLAN configuration.'''
 _PTP_STATE_SIZE     = 24
+SETTINGS_BLOCK_OFFSET = _PTP_STATE_OFFSET + _PTP_STATE_SIZE
+'''The values of the settings in ONEIP_DEVICE_SETTINGS_BLOCK, behind the PTP
+state.'''
+SETTINGS_BLOCK_SIZE = 8
+
+def carries_settings_block(settings:OneIPDeviceSettings) -> bool:
+    '''Whether settings carry a value only the block of their own can hold.'''
+    return bool(settings.valid & ONEIP_DEVICE_SETTINGS_BLOCK)
+
+def own_settings_block(settings:OneIPDeviceSettings) -> bytes:
+    '''The 8-byte block the settings in ONEIP_DEVICE_SETTINGS_BLOCK travel in.'''
+    m = settings.ptp_messages or OneIPPtpMessages()
+    return struct.pack('<bbbBB3x', m.log_announce_interval, m.log_sync_interval,
+                       m.log_delay_req_interval, m.announce_timeout, m.dscp)
+
+def parse_own_settings_block(block:bytes, valid:OneIPDeviceSetting) -> tuple[OneIPPtpMessages, OneIPDeviceSetting]:
+    '''The block the settings in ONEIP_DEVICE_SETTINGS_BLOCK travel in, and
+    valid without their bits when it is too short to hold their values.'''
+    if (len(block) < SETTINGS_BLOCK_SIZE):
+        return (OneIPPtpMessages(), valid & ~ONEIP_DEVICE_SETTINGS_BLOCK)
+    announce, sync, delay_req, timeout, dscp = struct.unpack_from('<bbbBB', block)
+    return (OneIPPtpMessages(log_announce_interval=announce, log_sync_interval=sync,
+                             log_delay_req_interval=delay_req, announce_timeout=timeout, dscp=dscp), valid)
 
 def settings_block(settings:OneIPDeviceSettings) -> bytes:
     '''The 48-byte device settings block.
@@ -130,11 +157,13 @@ def settings_block(settings:OneIPDeviceSettings) -> bytes:
             + struct.pack('<BBBB', int(settings.ptp_mode or 0), settings.ptp_domain or 0,
                           settings.ptp_priority1 or 0, int(settings.power_save_level or 0)))
 
-def parse_settings_block(block:bytes) -> OneIPDeviceSettings:
-    '''A device settings block, from its first 16 bytes on.
+def parse_settings_block(block:bytes, own:bytes) -> OneIPDeviceSettings:
+    '''A device settings block, from its first 16 bytes on, and the block of
+    their own the settings in ONEIP_DEVICE_SETTINGS_BLOCK travel in.
 
-    A bit claiming the schedule, the PTP settings or the power save level in a
-    block too short to hold them is dropped.'''
+    A bit claiming the schedule, the PTP settings, the power save level or a
+    value of the block of their own in a frame too short to hold them is
+    dropped.'''
     valid, flags, profiles, profile, profile_sink, minutes = struct.unpack_from('<IIIbbH', block)
     valid = OneIPDeviceSetting(valid)
     schedule = None
@@ -153,11 +182,12 @@ def parse_settings_block(block:bytes) -> OneIPDeviceSettings:
         level = block[_LEVEL_AT]
     else:
         valid &= ~OneIPDeviceSetting.POWER_SAVE_LEVEL
+    messages, valid = parse_own_settings_block(own, valid)
     return OneIPDeviceSettings(valid=valid, flags=OneIPDeviceSetting(flags), ir_profiles=profiles,
                               ir_profile=profile, ir_profile_sink=profile_sink,
                               auto_power_save=minutes, power_save=schedule,
                               ptp_mode=ptp[0], ptp_domain=ptp[1], ptp_priority1=ptp[2],
-                              power_save_level=level)
+                              power_save_level=level, ptp_messages=messages)
 
 class V2IPDeviceOptions:
     '''Parsed OneIP device options (TX rate and per-stream DSCP marking).'''
@@ -338,6 +368,12 @@ class FrameV2IPDeviceConfiguration(FrameBase):
 
         Only the settings named in settings.valid are carried; the device keeps
         the rest.
+
+        Settings that carry one of ONEIP_DEVICE_SETTINGS_BLOCK run on to 224
+        bytes: a zeroed VLAN block at 176, which without its valid bit carries
+        nothing, a zeroed PTP state at 192, which a receiver takes only from a
+        device describing itself, and the block of their own at 216. Other
+        writes keep the length every device knows.
         '''
         payload = bytearray(target_uid.byte_value)
         if (len(payload) != 16):
@@ -350,6 +386,9 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         # sink block and feature word.
         payload += bytes(_SETTINGS_OFFSET - len(payload))
         payload += settings_block(settings)
+        if carries_settings_block(settings):
+            payload += bytes(SETTINGS_BLOCK_OFFSET - len(payload))
+            payload += own_settings_block(settings)
         return FrameBase.construct_base(target=target, mxr=mxr, opcode=_OPCODE, payload=bytes(payload))
 
     @staticmethod
@@ -486,7 +525,7 @@ class FrameV2IPDeviceConfiguration(FrameBase):
             return None
         if ((dev := self.subject_device) is None):
             return None
-        frame = parse_settings_block(self.payload[_SETTINGS_OFFSET:])
+        frame = parse_settings_block(self.payload[_SETTINGS_OFFSET:], self.payload[SETTINGS_BLOCK_OFFSET:])
         if self.target_self:
             return frame
         reported = dev.oneip_settings

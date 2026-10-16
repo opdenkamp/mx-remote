@@ -256,6 +256,24 @@ await device.set_oneip_ptp_priority1(128)            # lower wins
 A mode this library does not name and a domain above `ONEIP_PTP_DOMAIN_MAX` are
 refused before they are sent, and not cached from another controller's write.
 
+How the device paces its PTP messages is five settings more, whose values
+travel in a block of their own: the announce, sync and delay request intervals
+as base-2 logarithms of seconds, the announce timeout and the messages' DSCP.
+
+```python
+from mx_remote import OneIPDeviceSetting, OneIPPtpMessages
+
+print(settings.ptp_messages)   # None until the device reports one of them
+
+await device.set_oneip_ptp_messages(
+    OneIPDeviceSetting.PTP_SYNC | OneIPDeviceSetting.PTP_DSCP,
+    OneIPPtpMessages(log_sync_interval=-3, dscp=46))   # 125 ms, EF
+```
+
+Only the values behind the bits named are sent. A DSCP above `ONEIP_DSCP_MAX` is
+refused, and not cached from another controller's write. A write carrying one of
+these runs on to 224 bytes; every other write keeps the 176 every device knows.
+
 What the device's clock is actually doing is its PTP state, which only the
 device reports about itself and nothing writes:
 

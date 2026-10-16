@@ -2163,6 +2163,48 @@ def _wire_enum(cls:Any, value:int) -> Any:
         return value
 
 @dataclass(frozen=True)
+class OneIPPtpMessages:
+    """
+    How a OneIP device paces its PTP messages, which a frame carries in a block
+    of its own. Each value is behind its own bit of OneIPDeviceSettings.valid,
+    one of ONEIP_DEVICE_SETTINGS_BLOCK.
+
+    Intervals are base-2 logarithms of seconds, so -3 is 125 ms and 1 is 2 s.
+    """
+    log_announce_interval: int = 0
+    """Between announce messages, behind PTP_ANNOUNCE."""
+    log_sync_interval: int = 0
+    """Between sync messages, behind PTP_SYNC."""
+    log_delay_req_interval: int = 0
+    """Between delay requests, behind PTP_DELAY_REQ."""
+    announce_timeout: int = 0
+    """The announce intervals before a silent master is dropped, behind
+    PTP_ANNOUNCE_TIMEOUT."""
+    dscp: int = 0
+    """The DSCP of the messages, at most ONEIP_DSCP_MAX, behind PTP_DSCP."""
+
+    def merge(self, other:'OneIPPtpMessages', which:OneIPDeviceSetting) -> 'OneIPPtpMessages':
+        """The values behind the bits of which copied from other, the rest kept."""
+        S = OneIPDeviceSetting
+        return OneIPPtpMessages(
+            log_announce_interval=(other if (S.PTP_ANNOUNCE in which) else self).log_announce_interval,
+            log_sync_interval=(other if (S.PTP_SYNC in which) else self).log_sync_interval,
+            log_delay_req_interval=(other if (S.PTP_DELAY_REQ in which) else self).log_delay_req_interval,
+            announce_timeout=(other if (S.PTP_ANNOUNCE_TIMEOUT in which) else self).announce_timeout,
+            dscp=(other if (S.PTP_DSCP in which) else self).dscp)
+
+    def describe(self, valid:OneIPDeviceSetting) -> list[str]:
+        """The values behind the bits of valid, one "name=value" each."""
+        S = OneIPDeviceSetting
+        return [f"{label}={value}" for bit, label, value in (
+                    (S.PTP_ANNOUNCE, 'ptp_announce', self.log_announce_interval),
+                    (S.PTP_SYNC, 'ptp_sync', self.log_sync_interval),
+                    (S.PTP_DELAY_REQ, 'ptp_delay_req', self.log_delay_req_interval),
+                    (S.PTP_ANNOUNCE_TIMEOUT, 'ptp_announce_timeout', self.announce_timeout),
+                    (S.PTP_DSCP, 'ptp_dscp', self.dscp))
+                if (bit in valid)]
+
+@dataclass(frozen=True)
 class OneIPTestTone:
     """A OneIP sink's test tone."""
     mode: OneIPToneMode|int = OneIPToneMode.OFF
@@ -2258,7 +2300,8 @@ class OneIPDeviceSettings:
                  ir_profile:int=0, ir_profile_sink:int=0, auto_power_save:int=0,
                  power_save:OneIPPowerSaveSchedule|None=None, ptp_mode:OneIPPtpMode|int=OneIPPtpMode.OFF,
                  ptp_domain:int=0, ptp_priority1:int=0,
-                 power_save_level:OneIPPowerSaveLevel|int=OneIPPowerSaveLevel.NONE) -> None:
+                 power_save_level:OneIPPowerSaveLevel|int=OneIPPowerSaveLevel.NONE,
+                 ptp_messages:OneIPPtpMessages|None=None) -> None:
         self._valid = OneIPDeviceSetting(valid)
         self._flags = OneIPDeviceSetting(flags)
         self._ir_profiles = ir_profiles
@@ -2270,6 +2313,7 @@ class OneIPDeviceSettings:
         self._ptp_domain = ptp_domain
         self._ptp_priority1 = ptp_priority1
         self._power_save_level = int(power_save_level)
+        self._ptp_messages = ptp_messages if (ptp_messages is not None) else OneIPPtpMessages()
 
     @property
     def valid(self) -> OneIPDeviceSetting:
@@ -2356,6 +2400,15 @@ class OneIPDeviceSettings:
             return None
         return _wire_enum(OneIPPowerSaveLevel, self._power_save_level)
 
+    @property
+    def ptp_messages(self) -> OneIPPtpMessages|None:
+        """The settings carried in the block of their own the device has
+        reported, None while it has reported none of them; each value is
+        meaningful only behind its own bit of valid."""
+        if not (self._valid & ONEIP_DEVICE_SETTINGS_BLOCK):
+            return None
+        return self._ptp_messages
+
     def merge(self, previous:'OneIPDeviceSettings|None') -> 'OneIPDeviceSettings':
         """
         Fold this received block onto the cached one.
@@ -2387,15 +2440,16 @@ class OneIPDeviceSettings:
             ptp_priority1=(self._ptp_priority1 if (OneIPDeviceSetting.PTP_PRIORITY1 in valid)
                            else previous._ptp_priority1),
             power_save_level=(self._power_save_level if (OneIPDeviceSetting.POWER_SAVE_LEVEL in valid)
-                              else previous._power_save_level))
+                              else previous._power_save_level),
+            ptp_messages=previous._ptp_messages.merge(self._ptp_messages, valid))
 
     def as_applied_to(self, reported:OneIPDeviceSetting) -> 'OneIPDeviceSettings':
         """
         This block limited to what a device takes from a write about it.
 
         A device applies a setting only if it has it, a profile, PTP mode, PTP
-        domain or power save level only within its range, and never what only
-        it can report about itself.
+        domain, power save level or PTP DSCP only within its range, and never
+        what only it can report about itself.
         """
         valid = (self._valid & reported) & ~ONEIP_DEVICE_SETTINGS_REPORTED_ONLY
         if not (0 <= self._ir_profile < ONEIP_IR_PROFILE_MAX):
@@ -2408,22 +2462,25 @@ class OneIPDeviceSettings:
             valid &= ~OneIPDeviceSetting.PTP_DOMAIN
         if (self._power_save_level > OneIPPowerSaveLevel.OFF):
             valid &= ~OneIPDeviceSetting.POWER_SAVE_LEVEL
+        if (self._ptp_messages.dscp > ONEIP_DSCP_MAX):
+            valid &= ~OneIPDeviceSetting.PTP_DSCP
         return OneIPDeviceSettings(valid=valid, flags=self._flags, ir_profiles=self._ir_profiles,
                                   ir_profile=self._ir_profile, ir_profile_sink=self._ir_profile_sink,
                                   auto_power_save=self._auto_power_save, power_save=self._power_save,
                                   ptp_mode=self._ptp_mode, ptp_domain=self._ptp_domain,
                                   ptp_priority1=self._ptp_priority1,
-                                  power_save_level=self._power_save_level)
+                                  power_save_level=self._power_save_level,
+                                  ptp_messages=self._ptp_messages)
 
     def __eq__(self, other:Any) -> bool:
         if not isinstance(other, OneIPDeviceSettings):
             return NotImplemented
         return ((self._valid, self._flags, self._ir_profiles, self._ir_profile, self._ir_profile_sink,
                  self._auto_power_save, self._power_save, self._ptp_mode, self._ptp_domain,
-                 self._ptp_priority1, self._power_save_level)
+                 self._ptp_priority1, self._power_save_level, self._ptp_messages)
                 == (other._valid, other._flags, other._ir_profiles, other._ir_profile, other._ir_profile_sink,
                     other._auto_power_save, other._power_save, other._ptp_mode, other._ptp_domain,
-                    other._ptp_priority1, other._power_save_level))
+                    other._ptp_priority1, other._power_save_level, other._ptp_messages))
 
     def __ne__(self, other:Any) -> bool:
         result = self.__eq__(other)
@@ -2453,6 +2510,7 @@ class OneIPDeviceSettings:
             parts.append(f"ptp_priority1={self.ptp_priority1}")
         if ((level := self.power_save_level) is not None):
             parts.append(f"power_save_level={level.name.lower() if isinstance(level, OneIPPowerSaveLevel) else level}")
+        parts += self._ptp_messages.describe(self._valid)
         return " ".join(parts)
 
     def __repr__(self) -> str:
@@ -3100,6 +3158,10 @@ class DeviceBase(ABC):
     @abstractmethod
     async def set_oneip_power_save_level(self, level:OneIPPowerSaveLevel) -> bool:
         '''set the level the device powers down to in power save'''
+
+    @abstractmethod
+    async def set_oneip_ptp_messages(self, which:OneIPDeviceSetting, messages:OneIPPtpMessages) -> bool:
+        '''set how the device paces its PTP messages: the values of messages behind the bits of which'''
 
     @abstractmethod
     async def set_oneip_vlan(self, vlan:OneIPVlan) -> bool:

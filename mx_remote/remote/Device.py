@@ -10,6 +10,7 @@ from .Bay import Bay
 from ..Interface import (
 	MxrCallbacks,
 	OneIPStreamSources,
+	OneIPPtpMessages,
 	OneIPPtpState,
 	UnitNetConfig,
 	UnitStatus,
@@ -78,6 +79,7 @@ from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, DeviceFeature, M
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                               MXR_SCALING_FLAG_OPTIONS_VALID, ONEIP_DEVICE_SETTING_SWITCHES,
                               ONEIP_IR_PROFILE_MAX, ONEIP_IR_PROFILE_NOT_SET, ONEIP_VLAN_PORT_SFP,
+                              ONEIP_DEVICE_SETTINGS_BLOCK, ONEIP_DSCP_MAX,
                               ONEIP_PTP_DOMAIN_MAX, OneIPPowerSaveLevel, OneIPPtpFlag, OneIPPtpMode, UnitCommandFlag,
                               UnitCommandKind)
 from ..proto.FrameUnitCommand import FrameUnitCommand
@@ -1414,6 +1416,22 @@ class Device(DeviceBase):
 			return False
 		return self._send_v2ip_settings(OneIPDeviceSettings(
 			valid=OneIPDeviceSetting.POWER_SAVE_LEVEL, power_save_level=level))
+
+	async def set_oneip_ptp_messages(self, which:OneIPDeviceSetting, messages:OneIPPtpMessages) -> bool:
+		'''Set how this OneIP device paces its PTP messages: the values of
+		messages behind the bits of which, each one of ONEIP_DEVICE_SETTINGS_BLOCK.
+
+		A DSCP above ONEIP_DSCP_MAX is refused, since a device ignores it. The
+		terms of set_oneip_setting() apply.
+		'''
+		which = OneIPDeviceSetting(which)
+		if (int(which) == 0) or ((which & ~ONEIP_DEVICE_SETTINGS_BLOCK) != 0):
+			_LOGGER.warning(f"not setting {which!r} on {self}: only the settings of ONEIP_DEVICE_SETTINGS_BLOCK are carried here")
+			return False
+		if (OneIPDeviceSetting.PTP_DSCP in which) and not (0 <= messages.dscp <= ONEIP_DSCP_MAX):
+			_LOGGER.warning(f"not setting PTP DSCP {messages.dscp} on {self}: above {ONEIP_DSCP_MAX}")
+			return False
+		return self._send_v2ip_settings(OneIPDeviceSettings(valid=which, ptp_messages=messages))
 
 	async def set_oneip_vlan(self, vlan:OneIPVlan) -> bool:
 		'''Change this OneIP device's VLAN configuration.

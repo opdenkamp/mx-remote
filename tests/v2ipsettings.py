@@ -380,6 +380,57 @@ refused(level.set_oneip_power_save_level(4), 'a power save level with no name')
 refused(ptp.set_oneip_power_save_level(mx_remote.OneIPPowerSaveLevel.LOW), 'a setting the device does not have')
 print('level write : the last byte of the block, nothing unnamed sent')
 
+# ---------------------------------------------------------- PTP message block
+# The values travel behind the PTP state at 216, in a block of their own. Each
+# differs and the intervals are negative, so an unsigned read or a neighbour's
+# offset shows; the reserved bytes behind them are poisoned.
+MSG = int(S.PTP_ANNOUNCE | S.PTP_SYNC | S.PTP_DELAY_REQ | S.PTP_ANNOUNCE_TIMEOUT | S.PTP_DSCP)
+def cfg_msg(subject, valid, block, flags=0):
+    out = cfg_level(subject, valid, 0, flags) + bytes(16) + bytes(24) + bytes(block)
+    assert len(out) >= 216
+    return out
+BLOCK = (0xFD, 0xFE, 0x01, 3, 46, 0xA5, 0xA5, 0xA5)
+msg = hello(uid(0x23), SINK)
+rx(uid(0x23), 0x3C, cfg_msg(uid(0x23), MSG, BLOCK))
+m = msg.oneip_settings.ptp_messages
+assert (m.log_announce_interval, m.log_sync_interval, m.log_delay_req_interval) == (-3, -2, 1), m
+assert (m.announce_timeout, m.dscp) == (3, 46), m
+print('ptp msgs    :', msg.oneip_settings)
+
+# A frame too short for the block carries none of its bits.
+msg_short = hello(uid(0x24), SINK)
+rx(uid(0x24), 0x3C, cfg_msg(uid(0x24), MSG | int(S.AES67), BLOCK)[:223])
+s = msg_short.oneip_settings
+assert s.ptp_messages is None and s.get(S.AES67) is False, s
+print('msgs short  : 223 bytes carries none of the block')
+
+# A controller's DSCP above 63 is not cached; the rest of its write is.
+rx(uid(0x04), 0x3C, cfg_msg(uid(0x23), int(S.PTP_DSCP | S.PTP_SYNC), (0, 0x02, 0, 0, 64, 0, 0, 0)))
+m = msg.oneip_settings.ptp_messages
+assert m.log_sync_interval == 2, 'the write itself did not land'
+assert m.dscp == 46, 'a DSCP above 63 was cached'
+assert m.log_announce_interval == -3, 'a value the write did not carry moved'
+
+# A write carrying one runs on to 224 bytes; any other keeps its 176.
+assert call(msg.set_oneip_ptp_messages(S.PTP_ANNOUNCE | S.PTP_DSCP,
+                                       mx_remote.OneIPPtpMessages(log_announce_interval=-1, dscp=63))) is True
+p = sent[-1][24:]
+assert len(p) == 224, len(p)
+assert struct.unpack('<I', p[128:132])[0] == int(S.PTP_ANNOUNCE | S.PTP_DSCP)
+assert p[176:216] == bytes(40), 'the VLAN block and PTP state carry something'
+assert p[216:224] == bytes([0xFF, 0, 0, 0, 63, 0, 0, 0]), p[216:].hex()
+m = msg.oneip_settings.ptp_messages
+assert (m.log_announce_interval, m.dscp, m.log_sync_interval) == (-1, 63, 2), m
+assert call(msg.set_oneip_power_save_level(mx_remote.OneIPPowerSaveLevel.LOW)) is False, 'a setting it lacks'
+assert call(level.set_oneip_power_save_level(mx_remote.OneIPPowerSaveLevel.LOW)) is True
+assert len(sent[-1]) == 24 + 176, 'a write without the block grew'
+refused(msg.set_oneip_ptp_messages(S.PTP_DSCP, mx_remote.OneIPPtpMessages(dscp=64)), 'a DSCP above 63')
+refused(msg.set_oneip_ptp_messages(S.PTP_DSCP | S.STATUS_LED, mx_remote.OneIPPtpMessages()),
+        'a setting outside the block')
+refused(msg.set_oneip_ptp_messages(S(0), mx_remote.OneIPPtpMessages()), 'nothing carried')
+refused(ptp.set_oneip_ptp_messages(S.PTP_SYNC, mx_remote.OneIPPtpMessages()), 'a setting the device does not have')
+print('msgs write  : 224 bytes with the block at 216, nothing out of range sent')
+
 # What the builder writes, the decoder reads back as the same settings.
 assert call(target.set_oneip_ir_profile(7)) is True
 rx(uid(0x10), 0x3C, sent[-1][24:])
