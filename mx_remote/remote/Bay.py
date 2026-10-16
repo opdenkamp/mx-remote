@@ -9,6 +9,7 @@
 from __future__ import annotations
 import logging
 import socket
+import struct
 from typing import Any, Callable
 from ..compat import override
 from ..proto.Constants import MxrSignalType, BayStatusMask, BayFeaturesMask, EdidProfile, RCType, RCAction, RCKey, decode_enum
@@ -58,6 +59,29 @@ _AUDIO_FOLLOWS_SINCE = 0x27
 '''The protocol from which every unit's audio follows its video for a source
 switch naming no audio. Some units below it route no audio instead.'''
 
+class _MeshMirroring:
+    '''The callbacks of a bay, each change also reported for the mesh bays
+    standing for it. A bay's registration and the requests that arrive on it
+    concern that bay alone.'''
+    _UNREPEATED = frozenset(('on_bay_registered', 'on_key_pressed', 'on_action_received'))
+
+    def __init__(self, callbacks:MxrCallbacks, bay:'Bay') -> None:
+        self._callbacks = callbacks
+        self._bay = bay
+
+    def __getattr__(self, name:str) -> Any:
+        fn = getattr(self._callbacks, name)
+        if (name in self._UNREPEATED) or not callable(fn):
+            return fn
+        bay = self._bay
+        def mirrored(*args:Any, **kwargs:Any) -> Any:
+            rv = fn(*args, **kwargs)
+            for mesh in bay.mesh_bays:
+                fn(*[(mesh if (a is bay) else a) for a in args],
+                   **{k: (mesh if (v is bay) else v) for k, v in kwargs.items()})
+            return rv
+        return mirrored
+
 class Bay(BayBase):
     '''Represents a single input or output bay on an MX Remote device.'''
 
@@ -76,6 +100,9 @@ class Bay(BayBase):
         self._mbay_id = None
         self._video_source = None
         self._audio_source = None
+        # The port a route named before the unit's mappings created that bay.
+        self._pending_video_port:int|None = None
+        self._pending_audio_port:int|None = None
         self._power_status:PowerStatus|None = None
         self._faulty = None
         self._hidden = None
@@ -101,6 +128,44 @@ class Bay(BayBase):
         self._mirror:BayMirrorStatus = BayMirrorStatus()
         self._bay_callbacks:list[Callable[[BayBase],None]] = []
 
+    @staticmethod
+    def mesh(dev:DeviceBase, port:int, is_input:bool, number:int, owner:MxrDeviceUid) -> 'Bay':
+        '''A OneIP bay standing for bay 0 of the same direction on owner, as a
+        bay mapping names it: input or output number, on port.
+
+        It carries only its identity. What it describes is read from the
+        owner's own bay, since what a unit reports about another unit's bay is
+        never refreshed.'''
+        mode, features, name = (_MODE_INPUT, BayFeaturesMask.ONEIP_SOURCE_REMOTE, 'Input') if is_input \
+            else (_MODE_OUTPUT, BayFeaturesMask.ONEIP_SINK_REMOTE, 'Output')
+        record = (bytes([port, mode, number, 0, 0]) + f'{name} {number + 1}'.encode('ascii').ljust(16, b'\0')
+                  + bytes(32) + struct.pack('<II', 0, int(features)))
+        bay = Bay(dev=dev, data=BayConfig(record))
+        bay._mbay_id = number
+        bay._v2ip_uid = owner
+        return bay
+
+    @property
+    def mesh_owner(self) -> 'Bay|None':
+        '''The bay a mesh bay stands for: bay 0 in the same direction on the
+        unit it maps to, once that unit has reported it. None for a bay that is
+        not a mesh bay.'''
+        if not self.is_oneip_remote or (self._v2ip_uid is None) or self._v2ip_uid.empty:
+            return None
+        if ((owner := self.device.registry.get_by_uid(self._v2ip_uid)) is None):
+            return None
+        return getattr(owner, 'local_bay')(self._modenum == _MODE_INPUT)
+
+    @property
+    def mesh_bays(self) -> list['Bay']:
+        '''The mesh bays on other units standing for this bay.'''
+        device = self.device
+        if (getattr(device, 'local_bay')(self.is_input) is not self):
+            return []
+        return [bay for dev in device.registry.remotes.values() if (dev is not device)
+                for bay in dev.bays.values()
+                if isinstance(bay, Bay) and (bay.mesh_owner is self)]
+
     def register_callback(self, callback:Callable[[BayBase],None]) -> None:
          '''register a callback, called when the device state changed'''
          self._bay_callbacks.append(callback)
@@ -113,6 +178,9 @@ class Bay(BayBase):
     def call_callbacks(self) -> None:
         for callback in self._bay_callbacks:
             callback(self)
+        for mesh in self.mesh_bays:
+            for callback in mesh._bay_callbacks:
+                callback(mesh)
 
     @property
     @override
@@ -147,7 +215,9 @@ class Bay(BayBase):
     @property
     @override
     def callbacks(self) -> MxrCallbacks:
-        return self.device.callbacks
+        '''The callbacks, with every change to this bay also reported for the
+        mesh bays standing for it.'''
+        return _MeshMirroring(self.device.callbacks, self) # type: ignore[return-value]
 
     @property
     @override
@@ -211,6 +281,8 @@ class Bay(BayBase):
     @override
     def user_name(self) -> str:
         '''Name set by the user.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.user_name
         return self._user_name if (self._user_name is not None) \
             else self.bay_name
 
@@ -384,6 +456,8 @@ class Bay(BayBase):
     @property
     @override
     def edid_profile(self) -> EdidProfile|None:
+        if ((owner := self.mesh_owner) is not None):
+            return owner.edid_profile
         if not self.is_hdmi or not self.is_input:
             return None
         # the wire field is 12 bits, so most of its range is not a member: a
@@ -403,6 +477,8 @@ class Bay(BayBase):
     @property
     @override
     def rc_type(self) -> RCType|None:
+        if ((owner := self.mesh_owner) is not None):
+            return owner.rc_type
         if not self.is_hdmi or not self.is_input:
             return None
         return RCType(self._rc_type)
@@ -420,6 +496,8 @@ class Bay(BayBase):
     @override
     def video_source(self) -> BayBase|None:
         '''Current video source bay.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.video_source
         if not self.is_output:
             return None
         return self._video_source
@@ -456,6 +534,8 @@ class Bay(BayBase):
     @override
     def audio_source(self) -> BayBase|None:
         '''Current audio source bay.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.audio_source
         if not self.is_output:
             return None
         if self._audio_source is None:
@@ -521,6 +601,8 @@ class Bay(BayBase):
     @property
     @override
     def audio_endpoint(self) -> AudioEndpoint|None:
+        if ((owner := self.mesh_owner) is not None):
+            return owner.audio_endpoint
         return self._audio_endpoint
 
     @audio_endpoint.setter
@@ -534,6 +616,8 @@ class Bay(BayBase):
     @override
     def powered_on(self) -> bool:
         '''Connected device powered on.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.powered_on
         # return (self._power_status is not None) and (self._power_status == PowerStatus.ON)
         return (self._power_status == PowerStatus.ON)
 
@@ -541,6 +625,8 @@ class Bay(BayBase):
     @override
     def powered_off(self) -> bool:
         '''Connected device powered off.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.powered_off
         # return (self._power_status is not None) and (self._power_status == 'off')
         return (self._power_status == PowerStatus.OFF)
 
@@ -548,6 +634,8 @@ class Bay(BayBase):
     @override
     def power_status(self) -> PowerStatus:
         '''Device power status.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.power_status
         if not self.available or self.powered_off:
             return PowerStatus.OFF
         if self.powered_on:
@@ -580,6 +668,8 @@ class Bay(BayBase):
     @override
     def faulty(self) -> bool:
         '''Bay is faulty.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.faulty
         return (self._faulty is not None) and self._faulty
 
     @faulty.setter
@@ -594,6 +684,8 @@ class Bay(BayBase):
     @override
     def hidden(self) -> bool:
         '''Bay is hidden.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.hidden
         return (self._hidden is not None) and self._hidden
 
     @hidden.setter
@@ -608,6 +700,8 @@ class Bay(BayBase):
     @override
     def zone_powered(self) -> bool:
         '''The amplifier zone the bay drives is powered on.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.zone_powered
         return (self._zone_powered is not None) and self._zone_powered
 
     @zone_powered.setter
@@ -622,6 +716,8 @@ class Bay(BayBase):
     @override
     def hdbt_connected(self) -> bool:
         '''HDBaseT link up.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.hdbt_connected
         return (self._hdbt_connected is not None) and self._hdbt_connected
 
     @hdbt_connected.setter
@@ -636,6 +732,8 @@ class Bay(BayBase):
     @override
     def signal_detected(self) -> bool:
         '''Video/audio signal detected.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.signal_detected
         return (self._signal_detected is not None) and self._signal_detected
 
     @signal_detected.setter
@@ -650,6 +748,8 @@ class Bay(BayBase):
     @override
     def encoder_disabled(self) -> bool:
         '''Video/audio encoder disabled.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.encoder_disabled
         return (self._encoder_disabled is not None) and self._encoder_disabled
 
     @encoder_disabled.setter
@@ -664,6 +764,8 @@ class Bay(BayBase):
     @override
     def decoder_disabled(self) -> bool:
         '''Video/audio decoder disabled.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.decoder_disabled
         return (self._decoder_disabled is not None) and self._decoder_disabled
 
     @decoder_disabled.setter
@@ -684,6 +786,8 @@ class Bay(BayBase):
         been seen for, and refreshes on the bay config broadcast cycle, so it can
         lag a change by a broadcast interval. from_report says which you have.
         """
+        if ((owner := self.mesh_owner) is not None):
+            return owner.video_details
         if (self._video_details is not None):
             return self._video_details
         snapshot = self._signal_snapshot
@@ -699,6 +803,8 @@ class Bay(BayBase):
     @override
     def signal_type(self) -> str:
         '''Video/audio signal type.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.signal_type
         return self._signal_type if (self._signal_type is not None) else 'unknown'
 
     @signal_type.setter
@@ -713,6 +819,8 @@ class Bay(BayBase):
     @override
     def hpd_detected(self) -> bool:
         '''Hotplug detected.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.hpd_detected
         return (self._hpd_detected is not None) and self._hpd_detected
 
     @hpd_detected.setter
@@ -726,6 +834,8 @@ class Bay(BayBase):
     @property
     def cec_detected(self) -> bool:
         '''CEC capable device detected.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.cec_detected
         return (self._cec_detected is not None) and self._cec_detected
 
     @cec_detected.setter
@@ -739,6 +849,8 @@ class Bay(BayBase):
     @property
     @override
     def mirroring(self) -> BayMirrorStatus:
+        if ((owner := self.mesh_owner) is not None):
+            return owner.mirroring
         return self._mirror
 
     @mirroring.setter
@@ -752,6 +864,8 @@ class Bay(BayBase):
     @property
     @override
     def filtered(self) -> FilteredDevices:
+        if ((owner := self.mesh_owner) is not None):
+            return owner.filtered
         return self._filtered
 
     @filtered.setter
@@ -766,6 +880,8 @@ class Bay(BayBase):
     @override
     def arc(self) -> str:
         '''Audio return channel status.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.arc
         return self._arc
 
     @arc.setter
@@ -780,6 +896,8 @@ class Bay(BayBase):
     @override
     def volume_status(self) -> VolumeMuteStatus|None:
         '''Volume and mute status.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.volume_status
         if not self.has_volume_control:
             if ((other := self.linked_bay) is not None) and other.has_volume_control:
                 return other.volume_status
@@ -848,6 +966,8 @@ class Bay(BayBase):
     @property
     @override
     def amp_settings(self) -> AmpZoneSettings|None:
+        if ((owner := self.mesh_owner) is not None):
+            return owner.amp_settings
         return self._amp_settings
 
     @amp_settings.setter
@@ -979,6 +1099,10 @@ class Bay(BayBase):
         return await self.device.get_api(f"port/set/{port}/{self.bay}/{1 if opt else 0}") is not None
 
     def bay_by_user_name(self, name:str) -> BayBase|None:
+        '''The input carrying the given user-assigned name, a mesh input by the
+        name of the bay it stands for. Hidden ones are skipped: this resolves
+        the name a picker shows, and a picker does not offer what it does not
+        list.'''
         for _, bay in self.device.inputs.items():
             if (bay.user_name == name):
                 return bay
@@ -1187,11 +1311,32 @@ class Bay(BayBase):
         if BayStatusMask.SIGNAL_DETECTED not in data.status or not self.device.is_oneip:
             self.signal_type = data.signal_type
         if self.is_output:
-            self.video_source = self.device.get_by_portnum(data.video_source)
-            self.audio_source = self.device.get_by_portnum(data.audio_source)
+            self._route_to(self._routed(data.video_source), self._routed(data.audio_source))
         else:
             self.rc_type = data.rc_type
             self.edid_profile = data.edid_profile
+
+    def _routed(self, port:int) -> BayBase|int|None:
+        '''The source a route names by port, as the device resolves it.'''
+        resolve = getattr(self.device, 'routed_source', None)
+        return resolve(port) if (resolve is not None) else self.device.get_by_portnum(port)
+
+    def _route_to(self, video:BayBase|int|None, audio:BayBase|int|None) -> None:
+        '''Set the route to sources the device has resolved: a bay, or the port
+        of one its mappings have yet to create, which is taken once they do.'''
+        self._pending_video_port = video if isinstance(video, int) else None
+        self._pending_audio_port = audio if isinstance(audio, int) else None
+        self.video_source = None if isinstance(video, int) else video
+        self.audio_source = None if isinstance(audio, int) else audio
+
+    def adopt_pending_source(self, source:BayBase) -> None:
+        '''Take source as the route a report named by its port before it existed.'''
+        if (self._pending_video_port == source.port):
+            self._pending_video_port = None
+            self.video_source = source
+        if (self._pending_audio_port == source.port):
+            self._pending_audio_port = None
+            self.audio_source = source
 
     @property
     def is_dolby(self) -> bool:
@@ -1222,7 +1367,10 @@ class Bay(BayBase):
 
     @override
     def on_mxr_update(self, data:Any) -> None:
-        if (data is None):
+        # A mesh bay describes itself through the bay it stands for, so what
+        # the unit listing it says about it is that unit's copy, and changes
+        # nothing.
+        if (data is None) or self.is_oneip_remote:
             return
         if isinstance(data, VolumeMuteStatus):
             self.volume_status = data

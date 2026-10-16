@@ -69,12 +69,13 @@ from ..Uid import MxrDeviceUid
 from typing import Any, Callable
 from ..compat import override
 from datetime import datetime
+from enum import Enum
 import logging
 import time
 
 from ..Interface import DeviceBase, BayBase, DeviceRegistry
 from ..proto.FrameBase import FrameBase
-from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, DeviceFeature, MxrSignalType, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag,
+from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, BayFeaturesMask, DeviceFeature, MxrSignalType, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag,
                               OneIPTestPattern, OneIPToneMode,
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                               MXR_SCALING_FLAG_OPTIONS_VALID, ONEIP_DEVICE_SETTING_SWITCHES,
@@ -89,6 +90,47 @@ from ..proto.FrameV2IPTestcard import (FrameV2IPTestcard, TESTCARD_REQUEST, TEST
                                        TESTCARD_PART_PATTERN, TESTCARD_PART_TONE, TESTCARD_PART_SYNC)
 
 _LOGGER = logging.getLogger(__name__)
+
+FIXED_PORTS_SINCE = 0x2B
+'''The protocol from which a OneIP unit numbers its ports PortLayout.FIXED.'''
+
+_ONEIP_BAYS = 127
+'''The bays a OneIP unit numbers in each direction.'''
+
+_SPLIT_FIRST = 16
+'''The bays of each direction that come first in PortLayout.SPLIT.'''
+
+class PortLayout(Enum):
+	'''How a OneIP unit numbers the ports of its bays.'''
+	FIXED = 0
+	'''Input n on port n, output n on port 127 + n.'''
+	SPLIT = 1
+	'''Inputs 0-15 on ports 0-15 and outputs 0-15 on 16-31, then inputs 16-126
+	on 32-142 and outputs 16-126 on 143-253.'''
+
+	def decode(self, port:int) -> tuple[bool, int]|None:
+		'''Whether port is an input's, and that bay's number. A port past the
+		last output reads as an output numbered past the last bay, which encode()
+		gives no port.'''
+		if (self == PortLayout.FIXED and 0 <= port <= 126) or (self == PortLayout.SPLIT and 0 <= port <= 15):
+			return (True, port)
+		if (self == PortLayout.SPLIT) and (16 <= port <= 31):
+			return (False, port - 16)
+		if (self == PortLayout.SPLIT) and (32 <= port <= 142):
+			return (True, port - 16)
+		if (port < 127):
+			return None
+		return (False, port - 127)
+
+	def encode(self, is_input:bool, bay:int) -> int|None:
+		'''The port of input or output bay, None past the last bay.'''
+		if not (0 <= bay < _ONEIP_BAYS):
+			return None
+		if (self == PortLayout.FIXED):
+			return bay if is_input else (bay + 127)
+		if (bay < _SPLIT_FIRST):
+			return bay if is_input else (bay + _SPLIT_FIRST)
+		return (bay + _SPLIT_FIRST) if is_input else (bay + 127)
 
 _SCALING_WRITE_PROTOCOL = 0x2F
 '''The protocol from which a unit applies a scaling write from management.'''
@@ -131,11 +173,9 @@ class Device(DeviceBase):
 		# here as well as on the bays because a device may send its mappings
 		# before the bay configuration that creates those bays, and a bay that
 		# arrives later picks its mapping up from here.
-		self._v2ip_bay_mappings:dict[tuple[str, int], MxrDeviceUid] = {}
 		# Bay mapping pages whose first port names no bay yet, by that port. A
 		# page runs on by bay number from the bay at its first port, so it cannot
 		# be filed until that bay's configuration says which one it is.
-		self._v2ip_bay_mapping_pages:dict[int, list[MxrDeviceUid]] = {}
 		self._v2ip_versions:dict[FirmwareType,FirmwareVersion] = {}
 		self._audio_endpoints:AudioEndpoints|None = None
 		# Whether the audio module uses the layout of released firmware up to
@@ -793,20 +833,69 @@ class Device(DeviceBase):
 				return b
 		return None
 
-	def _file_v2ip_bay_mappings(self, first:BayBase, page:list[MxrDeviceUid]) -> None:
-		'''File one page of this device's OneIP bay mappings, and hand every filed
-		mapping to the bay it names.
+	@property
+	def port_layout(self) -> 'PortLayout':
+		'''How the unit numbers its bays' ports, as its protocol says.'''
+		return PortLayout.FIXED if (self.protocol >= FIXED_PORTS_SINCE) else PortLayout.SPLIT
 
-		The entries run on from first by bay number rather than by port: inputs
-		and outputs share one port space, so a run of bays need not be a run of
-		ports. A device may split its list over several pages, so each is filed on
-		its own and none replaces what another said.
-		'''
-		for idx, uid in enumerate(page):
-			self._v2ip_bay_mappings[(first.mode, first.bay + idx)] = uid
+	def local_bay(self, is_input:bool) -> BayBase|None:
+		'''The unit's own bay 0 in the given direction, which its mesh bays on
+		other units stand for.'''
 		for bay in self.bays.values():
-			if ((mapped := self._v2ip_bay_mappings.get((bay.mode, bay.bay))) is not None):
-				bay.oneip_uid = mapped # pyright: ignore[reportAttributeAccessIssue]
+			if bay.is_local and (bay.is_input if is_input else bay.is_output):
+				return bay
+		return None
+
+	def routed_source(self, port:int) -> BayBase|int|None:
+		'''The bay a routing report names by port: the bay, or for a OneIP
+		unit's input port with no bay yet the port itself, since a unit sends
+		its bay configuration ahead of the mappings that create its mesh bays.
+		None for a port that names no input.'''
+		if ((bay := self.get_by_portnum(port)) is not None):
+			return bay
+		if self.is_oneip and ((decoded := self.port_layout.decode(port)) is not None) and decoded[0]:
+			return port
+		return None
+
+	def _apply_v2ip_bay_mapping_page(self, first_port:int, page:list[MxrDeviceUid]) -> None:
+		'''Take one page of the unit's OneIP bay mappings: the unit owning each
+		bay from the one on first_port on.
+
+		The entries run on by bay number in the direction of the first bay,
+		which is a run of ports only in some numberings. The unit's own bays
+		come from its bay configuration, and an entry naming the unit itself is
+		one of them. Every other entry is a mesh bay, which a page creates. A
+		zero uid maps nothing: released firmware counts more bays than it has,
+		and sends one for each extra. The page ends past the last bay.
+		'''
+		layout = self.port_layout
+		if ((decoded := layout.decode(first_port)) is None):
+			return
+		is_input, first = decoded
+		for offset, owner in enumerate(page):
+			if ((port := layout.encode(is_input, first + offset)) is None):
+				break
+			if owner.empty or (owner == self.remote_id):
+				continue
+			bay = self.get_by_portnum(port)
+			if (bay is None):
+				bay = Bay.mesh(dev=self, port=port, is_input=is_input, number=first + offset, owner=owner)
+				self.bays[port] = bay
+				self.callbacks.on_bay_registered(bay)
+				self._adopt_pending_routes(bay)
+				self.call_callbacks()
+			elif (bay.oneip_uid != owner):
+				# The bay now describes another unit's bay, under that one's name.
+				bay.oneip_uid = owner # pyright: ignore[reportAttributeAccessIssue]
+				self.callbacks.on_name_changed(bay, bay.user_name)
+				self.call_callbacks()
+
+	def _adopt_pending_routes(self, source:BayBase) -> None:
+		'''Hand a newly created bay to the outputs whose route named its port
+		before it existed.'''
+		for bay in self.bays.values():
+			if isinstance(bay, Bay):
+				bay.adopt_pending_source(source)
 
 	def _on_mxr_hello(self, hello_frame:FrameHello) -> None:
 		# received a new hello frame from this device. update local info
@@ -864,8 +953,11 @@ class Device(DeviceBase):
 		if self.online:
 			self._last_ping = datetime.now()
 		# A record with an empty name describes no bay: a unit sends one, all
-		# zero, for an input it cannot number.
-		if (data.bay_name == ''):
+		# zero, for an input it cannot number. So is a record for a OneIP bay
+		# standing for another unit: what it says about that unit's bay is never
+		# refreshed, and the bay is built from the bay mappings instead.
+		if (data.bay_name == '') or (BayFeaturesMask.ONEIP_SOURCE_REMOTE in data.features) \
+				or (BayFeaturesMask.ONEIP_SINK_REMOTE in data.features):
 			return
 		bay = self.get_by_portnum(data.port)
 		isnew = (bay is None)
@@ -873,13 +965,12 @@ class Device(DeviceBase):
 			bay = Bay(dev=self, data=data)
 			self.bays[data.port] = bay
 		bay.on_mxr_update(data)
-		if ((page := self._v2ip_bay_mapping_pages.pop(data.port, None)) is not None):
-			# The page this bay starts also names the bays after it.
-			self._file_v2ip_bay_mappings(first=bay, page=page)
-		elif ((mapped := self._v2ip_bay_mappings.get((bay.mode, bay.bay))) is not None):
-			bay.oneip_uid = mapped # pyright: ignore[reportAttributeAccessIssue]
+		# A unit maps its own OneIP bay to itself.
+		if bay.is_oneip_source or bay.is_oneip_sink:
+			bay.oneip_uid = self.remote_id # pyright: ignore[reportAttributeAccessIssue]
 		if isnew:
 			self.callbacks.on_bay_registered(bay)
+			self._adopt_pending_routes(bay)
 			self._check_config_complete()
 			self.call_callbacks()
 
@@ -892,7 +983,6 @@ class Device(DeviceBase):
 				return ep
 		return None
 
-	@override
 	@property
 	def audio_legacy(self) -> bool:
 		'''Whether the audio module speaks the layout of released firmware up to
@@ -902,6 +992,7 @@ class Device(DeviceBase):
 			return self._audio_legacy
 		return self.protocol < AUDIO_LAYOUT_SINCE
 
+	@override
 	def audio_endpoint_by_id(self, id:int) -> AudioEndpoint|None:
 		if (self._audio_endpoints is None):
 			return None
@@ -971,12 +1062,7 @@ class Device(DeviceBase):
 		elif isinstance(data, FrameV2IPBayMapping):
 			if ((first_port := data.first_port) is None):
 				return
-			# A page names the port of the bay it starts at, and a page whose first
-			# port names no bay yet waits for that bay's configuration.
-			if ((first := self.get_by_portnum(first_port)) is None):
-				self._v2ip_bay_mapping_pages[first_port] = data.bays
-				return
-			self._file_v2ip_bay_mappings(first=first, page=data.bays)
+			self._apply_v2ip_bay_mapping_page(first_port, data.bays)
 		elif isinstance(data, FrameSystemStatus):
 			if (self._sys_message is None) or (self._sys_status is None) or (self._sys_status != data.status) or (self._sys_message != data.message):
 				self._sys_status = data.status

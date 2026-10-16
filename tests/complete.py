@@ -130,10 +130,11 @@ assert completed == [dev, dev, dev], completed
 del completed[1:]   # the devices below count their announcements from one
 print('complete    : described again once the bays come again, after a reboot or offline')
 
-# ---- a V2IP transceiver: 14 bays, two of them its own
-# Its remaining bays are proxies for streams on other devices. A link record
-# describes one of the sender's own ports, so those twelve own no record and a
-# count of bays is one no page will ever reach.
+# ---- a V2IP transceiver: 14 bay records, two of them its own
+# Its remaining records are its copies of bays on other units, which are never
+# refreshed and so are not taken: its mesh bays come from its bay mappings. A
+# link record describes one of the sender's own ports, so those twelve own no
+# record either way.
 ONEIP = bytes(range(17, 33))
 tz = hello(ONEIP, 'OneIP', 'P9SN66662814', ONEIP_SOURCE | ONEIP_SINK | VIDEO_ROUTING)
 assert tz is not None and tz.is_oneip
@@ -142,8 +143,8 @@ for port in range(1, 13):
     bays += bay(port, 0, port, f'Input {port + 1}', ONEIP_SOURCE_REMOTE)
 bays += bay(16, 1, 0, 'Output 1')
 rx(ONEIP, 0x02, bays)
-assert len(tz.bays) == 14, tz.bays
-assert tz.nb_inputs + tz.nb_outputs == 14, 'every bay is an input or an output here'
+assert len(tz.bays) == 2, 'a record for another unit\'s bay was taken: %s' % tz.bays
+assert tz.nb_inputs + tz.nb_outputs == 2, 'every bay is an input or an output here'
 
 # Its V2IP source list, which completion needs for a V2IP device in its own right.
 rx(ONEIP, 0x26, bytes(40 * 13))
