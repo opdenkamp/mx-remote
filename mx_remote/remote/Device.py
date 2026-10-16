@@ -185,7 +185,7 @@ class Device(DeviceBase):
 			return ((datetime.now() - self._last_ping).total_seconds() < 60)
 		if (self.protocol >= 0x20):
 			return ((datetime.now() - self._last_ping).total_seconds() < 15)
-		return ((datetime.now() - self._last_ping).total_seconds() < 120)
+		return ((datetime.now() - self._last_ping).total_seconds() < 180)
 
 	@property
 	def rebooting(self) -> bool:
@@ -234,9 +234,15 @@ class Device(DeviceBase):
 		if self.online != self._online:
 			self._online = not self._online
 			if not self._online:
-				self._have_config = False
+				self._await_config()
 			self.callbacks.on_device_online_status_changed(self, self._online)
 			self.call_callbacks()
+
+	def _await_config(self) -> None:
+		'''Treat the device as undescribed until it sends its bays again, as a
+		unit does for one that went offline or rebooted.'''
+		self._have_config = False
+		self._bay_config_received = False
 
 	@override
 	def note_link_config(self) -> None:
@@ -800,6 +806,10 @@ class Device(DeviceBase):
 		# received a new hello frame from this device. update local info
 		self._last_ping = datetime.now()
 		changed = (self._hello != hello_frame)
+		# A unit about to reboot says so in its hello, and what it said about
+		# its bays holds only until it has said it again.
+		if (hello_frame.features is not None) and (DeviceFeature.STATUS_REBOOTING in hello_frame.features):
+			self._await_config()
 		self._hello = hello_frame
 		self._rebooting = False
 		if changed:
@@ -842,7 +852,11 @@ class Device(DeviceBase):
 			self.call_callbacks()
 
 	def _on_mxr_bay_config(self, data:BayConfig) -> None:
-		self._last_ping = datetime.now()
+		# A frame keeps a device that is still counted alive so, as a unit
+		# keeps it; once it has gone silent long enough to count as offline,
+		# only a hello brings it back.
+		if self.online:
+			self._last_ping = datetime.now()
 		bay = self.get_by_portnum(data.port)
 		isnew = (bay is None)
 		if bay is None:

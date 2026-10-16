@@ -46,7 +46,7 @@ mx = mx_remote.Remote(open_connection=False, callbacks=Watching())
 mx._uid = bytes(range(100, 116))
 mx.transmit = lambda data: len(data)  # no socket; the loop's sends are not the subject
 
-# Protocol 0x28, so the 15s ping window applies rather than the 120s one.
+# Protocol 0x28, so the 15s ping window applies rather than the 180s one.
 mx.process_frame(time.time(), create_mxr_frame(
     UID, 0x00, struct.pack('<H', 0x28) + nm('MX-1') + nm('P8SN12345678') + nm('4.7.9')
              + struct.pack('<I', (1 << 5) | (1 << 6))), ADDR)
@@ -93,6 +93,28 @@ assert slow.online, 'a 0x2A device is still inside its 60s window'
 slow._last_ping -= timedelta(seconds=16)
 assert not slow.online, 'and gone once it has passed'
 print('offline     : a 0x2A device is given 60s')
+
+# A unit gives a peer below 0x20 three minutes of silence.
+OLD = bytes(range(49, 65))
+mx.process_frame(time.time(), create_mxr_frame(
+    OLD, 0x00, struct.pack('<H', 0x1E) + nm('MX-3') + nm('P8SN12345680') + nm('4.4.2')
+             + struct.pack('<I', (1 << 5) | (1 << 6))), ADDR)
+old = mx.get_by_uid(MxrDeviceUid(OLD))
+old._last_ping -= timedelta(seconds=170)
+assert old.online, 'a device below 0x20 is still inside its 180s window'
+old._last_ping -= timedelta(seconds=11)
+assert not old.online, 'and gone once it has passed'
+print('offline     : a device below 0x20 is given 180s')
+
+# Once offline, only a hello brings it back, as a unit takes it back.
+bay = bytes([0, 0, 0, 0, 0]) + nm('In 1') + nm('In 1') + nm('1080p') + struct.pack('<II', 0, 1 << 1)
+mx.process_frame(time.time(), create_mxr_frame(OLD, 0x02, bay), ADDR)
+assert not old.online, 'a bay configuration revived a device counted offline'
+mx.process_frame(time.time(), create_mxr_frame(
+    OLD, 0x00, struct.pack('<H', 0x1E) + nm('MX-3') + nm('P8SN12345680') + nm('4.4.2')
+             + struct.pack('<I', (1 << 5) | (1 << 6))), ADDR)
+assert old.online, 'a hello did not bring it back'
+print('offline     : only a hello brings a device back')
 
 # A management client sends no bays or links, so waiting for them never ends:
 # it has to count as described, or every client that sees one discovers forever.

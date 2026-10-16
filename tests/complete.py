@@ -106,6 +106,30 @@ rx(MATRIX, 0x03, link(0, 'P8SN00000001', 'Out 1'))
 assert completed == [dev], 'a re-sent configuration must not announce completion again'
 print('complete    : announced once, when the last of it arrived')
 
+# ---- described again after a reboot or going offline
+# A unit takes what a peer said about its bays as holding only until the peer
+# reboots or goes offline, and waits for the bays again. So does this client.
+STATUS_REBOOTING = 1 << 15
+hello(MATRIX, 'MX-1', 'P8SN12345678', VIDEO_ROUTING | AUDIO_ROUTING | STATUS_REBOOTING)
+assert not dev.configuration_complete, 'a reboot left the bays described'
+rx(MATRIX, 0x03, link(0, 'P8SN00000001', 'Out 1'))
+assert completed == [dev], 'the links alone announced the bays it described before the reboot'
+hello(MATRIX, 'MX-1', 'P8SN12345678', VIDEO_ROUTING | AUDIO_ROUTING)
+rx(MATRIX, 0x02, bay(0, 0, 0, 'In 1') + bay(1, 0, 1, 'In 2'))
+assert completed == [dev, dev], 'the bays sent again did not describe it again'
+
+from datetime import timedelta
+dev._last_ping -= timedelta(seconds=16)
+dev.check_online()
+assert not dev.online and not dev.configuration_complete, 'going offline left the bays described'
+hello(MATRIX, 'MX-1', 'P8SN12345678', VIDEO_ROUTING | AUDIO_ROUTING)
+dev.check_online()
+assert dev.online and not dev.configuration_complete
+rx(MATRIX, 0x02, bay(0, 0, 0, 'In 1') + bay(1, 0, 1, 'In 2'))
+assert completed == [dev, dev, dev], completed
+del completed[1:]   # the devices below count their announcements from one
+print('complete    : described again once the bays come again, after a reboot or offline')
+
 # ---- a V2IP transceiver: 14 bays, two of them its own
 # Its remaining bays are proxies for streams on other devices. A link record
 # describes one of the sender's own ports, so those twelve own no record and a
