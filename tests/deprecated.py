@@ -167,7 +167,7 @@ for cls_name, olds in RELEASED_MEMBERS.items():
 from mx_remote.remote.Bay import Bay
 bay = next(iter(dev.bays.values()), None)
 if bay is None:
-    rx(0x02, bytes([1, 0, 0, 0]) + name('Out').ljust(32, b'\0') + bytes(64))
+    rx(0x02, bytes([1, 1, 0, 0, 0]) + name('Out') + name('Out') + bytes(16) + struct.pack('<II', 0, 1))
     bay = next(iter(dev.bays.values()), None)
 assert bay is not None, 'no bay to read aliases from'
 for old in RELEASED_MEMBERS['BayBase']:

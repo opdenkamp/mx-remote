@@ -3515,7 +3515,10 @@ class BayLink:
     def __eq__(self, value: object) -> bool:
         if not isinstance(value, BayLink):
             return False
-        return (self.serial == value.serial) and (self.bay == value.bay) and (self.features == value.features)
+        # A record names the far unit and its bay, so a link moved to another
+        # bay of the same unit is a change, not a repeat.
+        return (self.serial == value.serial) and (self.linked_bay_name == value.linked_bay_name) \
+            and (self.bay == value.bay) and (self.features == value.features)
 
     def __str__(self) -> str:
         return f"{self.serial}:{self.bay}:{self.features}"

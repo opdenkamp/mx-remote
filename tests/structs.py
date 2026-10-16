@@ -43,13 +43,17 @@ sigdesc = b'3840x2160p60Hz'                      # exactly 14, no terminator
 sigtype = bytes([16, (2 << 5) | 1])
 p = struct.pack('<H', 1) + sigdesc + sigtype + bytes(2) + struct.pack('<II', (1 << 3), (1 << 1))
 assert len(p) == 28, len(p)
+# A unit applies whole records only, and a record is its fields padded to 32.
 f = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x39, p), ADDR)
+f.process()
+assert f.bay.signal_detected is not True, 'a record short of its padding was applied'
+f = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x39, p + bytes(4)), ADDR)
 print('0x39 :', f)
 assert f.bay is not None and f.bay.port == 1, f.bay
 assert f.signal_type == '3840x2160p60Hz', repr(f.signal_type)
 f.process()
 assert f.bay.signal_detected is True
-print('0x39 : handler set signal detected on the reporting bay')
+print('0x39 : handler set signal detected on the reporting bay, from a whole record')
 
 # --- 0x39 packs one 32-byte record per bay: 28 bytes of fields, padded to 8.
 #     The padding is poisoned, and the middle record names a port no bay sits

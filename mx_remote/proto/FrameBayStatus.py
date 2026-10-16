@@ -30,13 +30,13 @@ class FrameBayStatus(FrameBase):
 
     @cached_property
     def records(self) -> list['FrameBayStatus']:
-        '''One view per bay record, this frame first.
-
-        A frame shorter than one record still carries its one bay, read as far
-        as it goes.'''
+        '''One view per whole bay record, this frame first; a unit ignores
+        bytes behind the last.'''
         size = len(self.payload) if (self.payload is not None) else 0
+        if (size < BAY_STATUS_RECORD):
+            return []
         return [self] + [FrameBayStatus(header=self.header, timestamp=self.timestamp, offset=offset)
-                         for offset in range(BAY_STATUS_RECORD, size, BAY_STATUS_RECORD)]
+                         for offset in range(BAY_STATUS_RECORD, size - BAY_STATUS_RECORD + 1, BAY_STATUS_RECORD)]
 
     @cached_property
     def bay(self) -> BayBase|None:

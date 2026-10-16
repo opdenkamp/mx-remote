@@ -46,6 +46,10 @@ class FrameBayConfig(FrameBase):
             _LOGGER.debug("hello not received")
             return
 
+        # A unit takes only whole records, and none from a frame with a
+        # partial one.
+        if (len(self.payload or b'') % 61 != 0):
+            return
         for bayconfig in self.bays:
             _LOGGER.debug(f"process {bayconfig}")
             dev.on_mxr_update(bayconfig)

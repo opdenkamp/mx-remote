@@ -52,6 +52,18 @@ rx(0x03, link(0, 'P8SN00000001', 'Out 1'))
 rx(0x03, link(1, 'P8SN00000002', 'Out 2'))
 print('links       : merged ok')
 
+# A record names the far unit and its bay, so a link moved to another bay of the
+# same unit is a change rather than a repeat.
+in1 = dev.get_by_portnum(0)
+rx(0x03, link(0, 'P8SN00000001', 'Out 3'))
+assert mx.links.get(in1).linked_bay_name == 'Out 3', 'a link moved within a unit was taken as a repeat'
+print('links       : a link moved to another bay of the same unit is a change')
+
+# A unit takes no bay from a configuration frame with a partial record.
+rx(0x02, bay(0, 0, 0, 'Renamed') + bytes(10))
+assert in1.user_name == 'In 1', 'a page with a partial record was applied'
+print('bays        : a page with a partial record is dropped')
+
 # ---- 0x31 signal status: full 112-byte report for port 1
 def av_details(port, status, svd=16, bpp_idx=2, clock=297000000, support=0x03, active=(0, 0)):
     hdr   = struct.pack('<HBBB3s', 1, support, 0x00, 8, b'\0\0\0')   # version, support, stream, depth
