@@ -292,6 +292,12 @@ assert early is not None and early.mode == 'Input', early
 assert early.oneip_uid == MxrDeviceUid(MAPPED), 'the mapping sent ahead of its bay was lost'
 print('0x44 early  : applied when the bay arrived')
 
+# A unit takes no page shorter than the uids it counts.
+SHORT = bytes(range(0xC0, 0xD0))
+rx(0x44, struct.pack('<HH', (2 << 1) | 1, 1) + bytes([0xA5] * 4) + SHORT, uid=RX)
+assert early.oneip_uid == MxrDeviceUid(MAPPED), 'a page short of its count was taken'
+print('0x44 short  : a page short of its count is dropped')
+
 # A page names the bay it starts at by its port, and its entries run on from
 # that bay by bay number. Units lay a transceiver out as below and send one page
 # per direction; a captured output page starts at 16, the port of Output 1. Read

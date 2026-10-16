@@ -72,7 +72,10 @@ class FrameV2IPBayMapping(FrameBase):
 
     @override
     def process(self) -> None:
-        '''Update the local device cache with bay-to-device mapping.'''
+        '''Update the local device cache with bay-to-device mapping. A unit
+        takes no page shorter than the uids it counts.'''
+        if (len(self.payload or b'') < 8 + (16 * self.nb_bays)):
+            return
         if (self.remote_device is not None):
             self.remote_device.on_mxr_update(self)
 
