@@ -73,4 +73,14 @@ assert asyncio.run(mx.get_by_uid(mx_remote.MxrDeviceUid(old)).ping()) is False
 assert sent == [], 'a device below 0x2A was pinged'
 print('send        : a 0x2A device is pinged by uid, a 0x29 one is refused')
 
+# ---- a discover for every unit, or for this client, is answered at once too
+DISCOVER = 0x01
+mx, sent = client()
+stranger = bytes(range(0x90, 0xA0))
+for payload, answered in ((b'', True), (OURS, True), (bytes(range(0x40, 0x50)), False)):
+    sent.clear()
+    mx.on_datagram_received(create_mxr_frame(stranger, DISCOVER, payload), ADDR)
+    assert [opcode(f) for f in sent] == ([HELLO] if answered else []), (payload.hex(), sent)
+print('discover    : every unit or this client is answered with a hello, another is not')
+
 print('ALL OK')

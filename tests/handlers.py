@@ -42,6 +42,7 @@ BASELINE = {
     'FrameBayStatus.FrameBayStatus',
     'FrameConnectStatus.FrameConnectStatus',
     'FrameDebug.FrameDebug',
+    'FrameDiscover.FrameDiscover',
     'FrameFilterStatus.FrameFilterStatus',
     'FrameFirmwareVersion.FrameFirmwareVersion',
     'FrameHello.FrameHello',

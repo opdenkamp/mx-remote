@@ -54,7 +54,8 @@ assert len(hellos) >= 2, 'a client must keep announcing with no traffic arriving
 
 # ---- arriving datagrams must not announce, asserted by behaviour rather than by
 # name: checking that "tx_hello" is absent from on_datagram_received passes as
-# soon as the announce is called under another name.
+# soon as the announce is called under another name. A temperature report asks
+# nothing of this client, unlike a discover or a ping, which are answered.
 def announces_on_receipt():
     mx = mx_remote.Remote(open_connection=False)
     mx._uid = bytes(range(0x20, 0x30))
@@ -63,7 +64,7 @@ def announces_on_receipt():
     mx.transmit = lambda data: (sent.append(data), len(data))[1]
     peer = bytes(range(1, 17))
     for _ in range(20):
-        mx.on_datagram_received(create_mxr_frame(peer, 0x01, b''), ('192.0.2.9', 8812))
+        mx.on_datagram_received(create_mxr_frame(peer, 0x15, bytes([1, 40])), ('192.0.2.9', 8812))
     return [f for f in sent if opcode(f) == HELLO]
 
 on_receipt = announces_on_receipt()

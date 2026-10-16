@@ -8,6 +8,7 @@
 
 import warnings
 from functools import cached_property
+from ..compat import override
 from .FrameBase import FrameBase
 from ..Interface import DeviceRegistry
 from ..Uid import MxrDeviceUid
@@ -33,6 +34,17 @@ class FrameDiscover(FrameBase):
         if (self.payload is None) or (len(self.payload) != 16):
             return None
         return self.payload_uuid(0)
+
+    @override
+    def process(self) -> None:
+        '''Hand a discover asking every device, or this client, to the registry,
+        which answers it with a hello.
+
+        A unit answers one from a sender it does not know too: a unit that has
+        just started discovers before anyone knows it, and takes frames only
+        from a peer it has heard a hello from.'''
+        if (self.target_uid is None) or (self.target_uid == self.mxr.uid):
+            self.mxr.on_mxr_update(self)
 
     def __str__(self) -> str:
         if (self.target_uid is None):

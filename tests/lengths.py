@@ -68,6 +68,9 @@ def sweep():
         # lookup slower without testing anything the first frame did not
         mx = mx_remote.Remote(open_connection=False)
         mx._uid = bytes(range(100, 116))
+        # no socket: a frame answered with a hello, such as a discover, is
+        # still a frame whose length is the subject
+        mx.transmit = lambda data: len(data)
         for build in PATTERNS.values():
             for length in LENGTHS:
                 for stamp in sorted({1, MXR_OPCODE_VERSIONS[opcode], MXR_PROTOCOL_VERSION}):

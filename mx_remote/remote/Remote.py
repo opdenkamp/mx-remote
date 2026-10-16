@@ -654,11 +654,12 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
     def on_mxr_update(self, data:Any) -> None:
         if isinstance(data, FrameHello):
             self._on_mxr_hello(data)
-        elif isinstance(data, FramePing):
-            # Announcing is driven by a clock, and this is the one frame that
-            # adds a hello to it: a device that hears nothing back within about
-            # 1.5s takes this client offline, and the next scheduled hello can
-            # be seconds away.
+        elif isinstance(data, (FramePing, FrameDiscover)):
+            # Announcing is driven by a clock, and these are the frames that add
+            # a hello to it. A device that pings hears nothing back within about
+            # 1.5s before it takes this client offline, and one that discovers
+            # drops this client's frames until it has had a hello; the next
+            # scheduled one can be seconds away.
             self.tx_hello()
 
     def _on_mxr_hello(self, hello_frame:FrameHello) -> None:
