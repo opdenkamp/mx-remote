@@ -130,6 +130,14 @@ assert acted_on(uid(0x15), select(uid(0x15))), 'a unit about itself'
 assert acted_on(uid(0x13), select(uid(0x10))), "a released unit did not take a peer's command"
 print('commands    : taken for the unit they name, from management; on released firmware from anyone')
 
+# Mute, trigger and volume cache nothing: the unit reports its endpoints again
+# once it has acted.
+for sub in (1, 2, 4):
+    before = [ep.status for ep in (dev.audio_endpoint_by_id(0), dev.audio_endpoint_by_id(1))]
+    rx(MANAGER, 0x43, struct.pack('<H', sub) + bytes(2) + uid(0x10) + struct.pack('<HHI', 1, 0, 1))
+    assert [ep.status for ep in (dev.audio_endpoint_by_id(0), dev.audio_endpoint_by_id(1))] == before, sub
+print('commands    : mute, trigger and volume cache nothing')
+
 # ------------------------------------------------ the 4.4.2 audio module layout
 # Released firmware up to 4.4.2 lays out 0x43 differently under the same stamp:
 # 24-byte features entries with no links, and an 8-byte SELECT_INPUT naming two
