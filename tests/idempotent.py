@@ -59,8 +59,13 @@ mx._uid = bytes(range(100, 116))
 def nm(s, sz=16):
     b = s.encode('ascii')[:sz]
     return b + bytes(sz - len(b))
-def rx(op, pl=b''):
-    mx.process_frame(time.time(), create_mxr_frame(UID, op, pl), ADDR)
+def rx(op, pl=b'', uid=UID):
+    mx.process_frame(time.time(), create_mxr_frame(uid, op, pl), ADDR)
+
+# A unit takes a hide only from management.
+MGR = bytes(range(0xD0, 0xE0))
+rx(0x00, struct.pack('<H', 0x2F) + nm('MXR Python') + nm('P9SN00000000') + nm('8.0.0')
+        + struct.pack('<I', int(mx_remote.DeviceFeature.MANAGER)), uid=MGR)
 
 FEAT = (1 << 5) | (1 << 6) | (1 << 7) | (1 << 9)
 rx(0x00, struct.pack('<H', 0x28) + nm('MX-1') + nm('P8SN12345678') + nm('5.3.0')
@@ -91,13 +96,13 @@ def snapshot():
                 getattr(b.audio_source, 'user_name', None)]
     return repr(out)
 
-def apply_twice(label, op, payload):
+def apply_twice(label, op, payload, sender=UID):
     '''Return (changed on first, changed on second) as (callbacks, state) pairs.'''
     before = snapshot(); fired.clear()
-    rx(op, payload)
+    rx(op, payload, sender)
     mid = snapshot(); first = (sum(fired.values()), mid != before)
     fired.clear()
-    rx(op, payload)
+    rx(op, payload, sender)
     after = snapshot(); second = (sum(fired.values()), after != mid)
     return first, second
 
@@ -112,7 +117,7 @@ CASES = [
     ('0x08 routing change', 0x08, struct.pack('<HHH', 1, 2, 2) + bytes([0]) + struct.pack('<H', 2)),
     ('0x12 volume',         0x12, bytes([1, 40, 41, 0])),
     ('0x15 temperature',    0x15, bytes([2, 41, 42])),
-    ('0x27 bay hide',       0x27, UID + struct.pack('<H', 0) + bytes([1])),
+    ('0x27 bay hide',       0x27, UID + struct.pack('<H', 0) + bytes([1]) + bytes(5), MGR),
     ('0x26 v2ip sources',   0x26, UID + b''.join(
         bytes(int(x) for x in ip.split('.')) + struct.pack('<H', port) + bytes(2)
         for ip, port in (('239.7.7.1', 50020), ('239.7.7.2', 50022), ('239.7.7.3', 50021)))),
@@ -123,8 +128,8 @@ CASES = [
 ]
 
 print('%-22s %-24s %s' % ('frame', 'first (cbs, state)', 'second (cbs, state)'))
-for label, op, payload in CASES:
-    first, second = apply_twice(label, op, payload)
+for label, op, payload, *sender in CASES:
+    first, second = apply_twice(label, op, payload, *sender)
     print('%-22s %-24s %s' % (label, first, second))
     assert first != (0, False), f'{label}: first application changed nothing, so this case tests nothing'
     assert second == (0, False), f'{label}: acted on the repeat -> {second}'

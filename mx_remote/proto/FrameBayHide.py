@@ -13,6 +13,9 @@ import logging
 
 _LOGGER = logging.getLogger(__name__)
 
+_HIDE_SIZE = 24
+'''A hide: uid, port and flag, padded to a multiple of eight.'''
+
 class FrameBayHide(FrameBase):
     '''Bay hide/show command and notification.'''
     @staticmethod
@@ -43,7 +46,10 @@ class FrameBayHide(FrameBase):
         return HiddenStatus.HIDDEN if pl else HiddenStatus.VISIBLE
 
     def process(self) -> None:
-        '''Update the local device cache with the bay hidden status.'''
+        '''Update the local device cache with the bay hidden status. A unit takes
+        it only from management, and only with its padding.'''
+        if (len(self.payload or b'') < _HIDE_SIZE) or not self.manages(self.target):
+            return
         if ((bay := self.bay) is None):
             return
         bay.on_mxr_update(self.hidden)

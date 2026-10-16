@@ -11,7 +11,7 @@ from typing import Any
 import logging
 from functools import cached_property
 import time
-from .Constants import MXR_OPCODE_VERSIONS, MXR_PROTOCOL_VERSION
+from .Constants import MXR_OPCODE_VERSIONS, MXR_PROTOCOL_VERSION, DeviceFeature
 from .FrameHeader import FrameHeader
 from ..Interface import DeviceBase, DeviceRegistry, BayBase
 from ..Uid import MxrDeviceUid
@@ -129,20 +129,25 @@ class FrameBase:
         '''Device instance for the device that sent this frame.'''
         return self.mxr.get_by_uid(self.remote_id)
 
-    def manages(self, subject:DeviceBase) -> bool:
-        '''Whether a unit takes a write about subject from this frame's sender.
+    def manages(self, subject:DeviceBase|None) -> bool:
+        '''Whether a unit takes a write about subject from this frame's sender,
+        as a unit judges it: the sender announces MANAGER, or it is the
+        controller the subject follows.
 
-        Asked of the subject as well as the sender because it closes the
-        window where a controller has been promoted but has no bays mapped
-        yet, and so announces neither bit while still being the controller its
-        mesh obeys. A subject that has named no controller contributes nothing
-        here rather than refusing: not knowing who a device follows is not
-        knowing that it follows nobody, and a client that has just started
-        knows nothing about anyone for as long as a broadcast period.'''
-        sender = self.remote_device
-        if (sender is not None) and sender.is_management:
+        Which controller that is comes from the mesh membership the subject
+        reports. MESH_MASTER plays no part once it has, so a controller of
+        another mesh, or one being replaced, is not management. Until it has,
+        which is the case for as long as a broadcast period after this client
+        starts, the controller's own announcement of MESH_MASTER stands in for
+        it.'''
+        if ((sender := self.remote_device) is None) or ((features := sender.features) is None):
+            return False
+        if DeviceFeature.MANAGER in features:
             return True
-        return (subject.mesh_master_uid == self.remote_id)
+        master = subject.mesh_master_uid if (subject is not None) else None
+        if (master is not None) and not master.empty:
+            return (master == self.remote_id)
+        return DeviceFeature.MESH_MASTER in features
 
     def config_subject(self, subject_uid:MxrDeviceUid|None) -> DeviceBase|None:
         '''The device a frame naming subject_uid is about, None when no unit

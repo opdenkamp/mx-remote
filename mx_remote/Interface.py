@@ -2985,21 +2985,14 @@ class DeviceBase(ABC):
     @property
     @abstractmethod
     def is_management(self) -> bool:
-        '''True when a receiver would let this device write another device's configuration.
+        '''True when this device announces itself as a writer of other devices'
+        configuration: MANAGER, which external management applications set and
+        no device firmware does, or MESH_MASTER, which a controlling device sets.
 
-        Two bits, because the two kinds of writer announce themselves
-        differently and neither implies the other. MANAGER belongs to external
-        management applications - anything driving these devices that is not one
-        of them, this library included - and no device firmware ever sets it on
-        itself, so testing it alone would refuse every write a controller makes.
-        A device that is controlling its mesh announces MESH_MASTER instead.
-
-        The bits have a hole a caller has to close elsewhere: a device sets
-        MESH_MASTER only while it is both the controller and has bays mapped, so
-        one promoted before it has any carries neither bit while still being its
-        mesh's controller. What covers that window is the controller uid the
-        devices in that mesh report, which is their question rather than this
-        device's - see mesh_master_uid.
+        Whether a unit takes a write from it is the unit's question, not this
+        device's. A unit takes one from a MANAGER, or from the controller it
+        follows (its mesh_master_uid), whatever bits that controller announces;
+        MESH_MASTER stands in for that only until the unit has named one.
         '''
 
     @property

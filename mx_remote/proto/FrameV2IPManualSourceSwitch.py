@@ -17,6 +17,10 @@ _OPCODE = 0x24
 _BASE_SIZE = 40
 _WITH_OPTIONS_SIZE = 48
 
+_MANUAL_SWITCH_SIZE = 40
+'''The shortest manual source switch a unit takes: the sink, and three streams
+of an address and a four-byte port each.'''
+
 class FrameV2IPManualSourceSwitch(FrameBase):
     '''Manual OneIP source switch: target sink + raw video/audio/anc multicast addresses.
 
@@ -101,8 +105,10 @@ class FrameV2IPManualSourceSwitch(FrameBase):
         )
 
     def process(self) -> None:
-        '''Update the local cache with the new manual route.'''
-        if (self.target_device is None):
+        '''Update the local cache with the new manual route. A unit takes it
+        only from management, and only at _MANUAL_SWITCH_SIZE bytes or more.'''
+        if (self.target_device is None) or (len(self.payload or b'') < _MANUAL_SWITCH_SIZE) \
+                or not self.manages(self.target_device):
             return
         sink_bay = self.target_device.first_output
         if (sink_bay is not None):

@@ -48,6 +48,11 @@ rx(0x00, struct.pack('<H', 0x28) + nm('MX-1') + nm('P8SN12345678') + nm('5.2.0')
         + struct.pack('<I', FEAT))
 dev = mx.get_by_uid(MxrDeviceUid(UID))
 
+# Commands a unit takes only from management come from a management client.
+MGR = bytes(range(0xD0, 0xE0))
+rx(0x00, struct.pack('<H', 0x2F) + nm('MXR Python') + nm('P9SN00000000') + nm('8.0.0')
+        + struct.pack('<I', int(mx_remote.DeviceFeature.MANAGER)), uid=MGR)
+
 AUDIO_OUT = int(BayFeaturesMask.AUDIO_ANA_OUT)
 def bay_rec(port, mode, num, name, feat=None):
     if feat is None:
@@ -104,9 +109,9 @@ assert list(temps.values()) == [41, -10, -55], 'readings are signed; a failed se
 print('0x15 temp   : %s' % (temps,))
 
 # ---- 0x27 BAY_HIDE: addressed by uid, u16 port, then the flag
-rx(0x27, UID + struct.pack('<H', inp.port) + bytes([1]))
+rx(0x27, UID + struct.pack('<H', inp.port) + bytes([1]) + bytes(5), uid=MGR)
 assert inp.hidden is True, inp.hidden
-rx(0x27, UID + struct.pack('<H', inp.port) + bytes([0]))
+rx(0x27, UID + struct.pack('<H', inp.port) + bytes([0]) + bytes(5), uid=MGR)
 assert inp.hidden is False, inp.hidden
 print('0x27 hide   : hidden set then cleared')
 
@@ -250,7 +255,7 @@ assert mx.get_by_stream_ip(ip='239.5.5.1', audio=False) is not None, 'stream ip 
 # ---- 0x1F V2IP_SOURCE_SWITCH: target uid, then video and audio ips big-endian
 def ip4(s):
     return bytes(int(x) for x in s.split('.'))
-rx(0x1F, V2 + ip4('239.5.5.1') + ip4('239.5.5.2'), uid=V2)
+rx(0x1F, V2 + ip4('239.5.5.1') + ip4('239.5.5.2'), uid=MGR)
 assert v2out.video_source is not None, 'the switch must resolve a source bay'
 print('0x1F switch : sink source -> %s' % v2out.video_source.user_name)
 
@@ -262,7 +267,7 @@ built = FrameV2IPManualSourceSwitch.construct(
     audio_ip='239.5.5.2', audio_port=50022,
     anc_ip='0.0.0.0', anc_port=0, audio_fmt=None)
 assert built is not None, 'manual switch builder returned nothing'
-rx(0x24, built.payload, uid=V2)
+rx(0x24, built.payload, uid=MGR)
 print('0x24 manual : dispatched and processed')
 
 # ---- 0x44 V2IP_BAY_MAPPING: counts, then a uid per mapped bay

@@ -134,6 +134,47 @@ for protocol, audio in ((0x28, bytes(4)), (0x27, bytes(4)), (0x26, ip4('239.1.1.
     assert p[20:24] == audio, f'{protocol:#x}: audio {p[20:24].hex()}'
 print('select      : below 0x27 the source\'s audio is named, from it none')
 
+# ------------------------------------------------- only from management
+# Current firmware takes routing and hide only from management: a sender
+# announcing MANAGER, or the controller the unit follows. MESH_MASTER stands in
+# for that controller only until the unit has said whom it follows.
+cur = sink(0x18, 0x2F)
+switch(uid(0x18), '239.1.1.1', '0.0.0.0')
+assert cur.video_source is A
+peer = uid(0x42)
+hello(peer, 0x2F, DeviceFeature.ONEIP_SINK)
+switch(uid(0x18), '239.2.2.1', '0.0.0.0', sender=peer)
+assert cur.video_source is A, 'a peer routed a current unit'
+CTRL, OTHER = uid(0x43), uid(0x44)
+hello(CTRL, 0x2F, DeviceFeature.MESH_MASTER | DeviceFeature.VIDEO_ROUTING)
+hello(OTHER, 0x2F, DeviceFeature.MESH_MASTER | DeviceFeature.VIDEO_ROUTING)
+switch(uid(0x18), '239.2.2.1', '0.0.0.0', sender=OTHER)
+assert cur.video_source is B, 'a controller was not taken while the unit had named none'
+from mx_remote.proto.FrameMeshOperation import MeshOperation
+rx(uid(0x18), 0x3B, bytes([MeshOperation.REPORT_MEMBERSHIP.value, 0, 0, 0]) + CTRL + bytes(20))
+switch(uid(0x18), '239.1.1.1', '0.0.0.0', sender=OTHER)
+assert cur.video_source is B, 'a controller the unit does not follow routed it'
+switch(uid(0x18), '239.1.1.1', '0.0.0.0', sender=CTRL)
+assert cur.video_source is A, 'the controller the unit follows was not taken'
+
+# A hide is taken at 24 bytes and a manual switch at 40, from management.
+hide = uid(0x18) + struct.pack('<H', 16) + bytes([1])
+rx(MANAGER, 0x27, hide)
+assert not cur.hidden, 'a hide short of its padding was taken'
+rx(peer, 0x27, hide + bytes(5))
+assert not cur.hidden, 'a peer hid a current unit\'s bay'
+rx(MANAGER, 0x27, hide + bytes(5))
+assert cur.hidden
+manual = uid(0x18) + b''.join(ip4(ip) + struct.pack('<HH', port, 0) for ip, port in
+                              (('239.2.2.1', 50020), ('239.2.2.2', 50022), ('0.0.0.0', 0)))
+rx(MANAGER, 0x24, manual[:38])
+assert cur.video_source is A, 'a manual switch short of 40 bytes was taken'
+rx(peer, 0x24, manual)
+assert cur.video_source is A, 'a peer\'s manual switch was taken'
+rx(MANAGER, 0x24, manual)
+assert cur.video_source is B
+print('management  : routing and hide only from MANAGER or the followed controller, at their lengths')
+
 # ------------------------------------------------- mirror and filter frames
 # Both name their sink in the first 16 bytes, and a unit takes them from the
 # sink's own unit or from management - not from whoever sent them.
