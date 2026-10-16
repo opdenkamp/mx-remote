@@ -20,7 +20,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logging.disable(logging.CRITICAL)
 import mx_remote
 from mx_remote import DeviceFeature, MxrDeviceUid, UnitNetConfig
-from mx_remote.proto.Constants import UnitCommandFlag, UnitCommandKind, UnitFlag
+from mx_remote.proto.Constants import (OneIPPowerSaveLevel, UnitCommandFlag, UnitCommandKind, UnitFlag,
+                                       UnitPowerSave)
 from mx_remote.proto.Factory import create_mxr_frame, process_mxr_frame
 
 ADDR = ('192.0.2.9', 8812)
@@ -95,6 +96,22 @@ assert s.network.dns2 == '9.9.9.10', s.network
 assert s.fan_rpm == 0, s.fan_rpm
 assert s.temperatures == () and s.status_message == '', s
 print('short       : read as far as it goes')
+
+# One byte per power save level behind the message, REDUCED first. Each differs,
+# so a read one byte off shows; a 104-byte report predates them.
+P = UnitPowerSave
+LEVELS = bytes([int(P.SUPPORTED | P.INPUT_WAKE), int(P.SUPPORTED), 0, int(P.SUPPORTED | P.OUTPUT_WAKE)])
+rx(uid(0x10), 0x4F, report() + LEVELS)
+s = dev.unit_status
+assert s.status_message == 'm' * 48, 'the levels ran into the message'
+assert s.power_save_level(OneIPPowerSaveLevel.REDUCED) == P.SUPPORTED | P.INPUT_WAKE, s.power_save
+assert s.power_save_level(OneIPPowerSaveLevel.LOW) == P.SUPPORTED, s.power_save
+assert s.power_save_level(OneIPPowerSaveLevel.OFF) == P(0), s.power_save
+assert s.power_save[3] == P.SUPPORTED | P.OUTPUT_WAKE, s.power_save
+assert s.power_save_level(OneIPPowerSaveLevel.NONE) == P(0), 'NONE is no level'
+rx(uid(0x10), 0x4F, report())
+assert dev.unit_status.power_save == (), 'a report predating the levels claimed some'
+print('power save  : one byte per level behind the message')
 
 # ------------------------------------------------------------------ commands
 

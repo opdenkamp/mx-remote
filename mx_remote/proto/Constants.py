@@ -338,8 +338,12 @@ class OneIPDeviceSetting(IntFlag):
 	'''The PTP domain the device runs in.'''
 	PTP_PRIORITY1      = (1 << 16)
 	'''The priority1 the device announces as a PTP grandmaster.'''
+	AES67              = (1 << 17)
+	'''Sends the source's audio as an AES67 flow, where the source allows.'''
+	POWER_SAVE_LEVEL   = (1 << 18)
+	'''The power save level the device powers down to.'''
 
-ONEIP_DEVICE_SETTING_SWITCHES = OneIPDeviceSetting(0xFF)
+ONEIP_DEVICE_SETTING_SWITCHES = OneIPDeviceSetting(0xFF) | OneIPDeviceSetting.AES67
 """The settings that are on or off, as opposed to carrying a value, and that
 can be written."""
 
@@ -361,6 +365,31 @@ class OneIPPtpMode(IntEnum):
 
 ONEIP_PTP_DOMAIN_MAX = 127
 """The highest PTP domain a OneIP device runs in."""
+
+class OneIPPowerSaveLevel(IntEnum):
+	'''How far a OneIP device powers down in power save, each level saving more
+	than the one before.'''
+	NONE    = 0
+	'''No level.'''
+	REDUCED = 1
+	'''Part of the video processing powers down.'''
+	LOW     = 2
+	'''All of the video processing powers down.'''
+	OFF     = 3
+	'''Everything but the network powers down.'''
+
+class UnitPowerSave(IntFlag):
+	'''What a unit offers at one power save level.'''
+	SUPPORTED   = (1 << 0)
+	'''The unit can power down to this level.'''
+	INPUT_WAKE  = (1 << 1)
+	'''A signal on the HDMI input wakes the unit.'''
+	OUTPUT_WAKE = (1 << 2)
+	'''The display powering on wakes the unit, and the unit can power it on.'''
+
+UNIT_POWER_SAVE_LEVELS = 4
+"""The power save levels a unit reports what it offers at, from
+OneIPPowerSaveLevel.REDUCED up."""
 
 class UnitFlag(IntFlag):
 	'''The flags of a unit's status report.'''

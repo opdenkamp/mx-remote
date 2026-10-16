@@ -349,6 +349,37 @@ refused(ptp.set_oneip_ptp_priority1(0x100), 'a priority1 past the field')
 refused(power.set_oneip_ptp_domain(1), 'a setting the device does not have')
 print('ptp write   : each value behind its own bit, nothing out of range sent')
 
+# ------------------------------------------------------------ power save level
+# The last byte of the block, which a sender stopping at the PTP settings does
+# not reach.
+level = hello(uid(0x22), SINK)
+LEVEL = int(S.POWER_SAVE_LEVEL | S.AES67)
+def cfg_level(subject, valid, lvl, flags=0):
+    out = bytearray(cfg_ptp(subject, valid, (0, 0, 0), flags))
+    out[175] = lvl
+    return bytes(out[:176])
+rx(uid(0x22), 0x3C, cfg_level(uid(0x22), LEVEL, 2, flags=int(S.AES67)))
+s = level.oneip_settings
+assert s.power_save_level is mx_remote.OneIPPowerSaveLevel.LOW, s.power_save_level
+assert s.get(S.AES67) is True, 'AES67 is an on/off setting'
+rx(uid(0x22), 0x3C, cfg_level(uid(0x22), LEVEL, 2)[:175])
+assert level.oneip_settings.power_save_level is mx_remote.OneIPPowerSaveLevel.LOW, \
+    'a frame too short for the level moved it'
+rx(uid(0x04), 0x3C, cfg_level(uid(0x22), LEVEL, 7))
+assert level.oneip_settings.power_save_level is mx_remote.OneIPPowerSaveLevel.LOW, 'an unnamed level was cached'
+print('level       :', level.oneip_settings)
+
+assert call(level.set_oneip_power_save_level(mx_remote.OneIPPowerSaveLevel.OFF)) is True
+block = sent[-1][24 + 128:]
+assert struct.unpack('<I', block[:4])[0] == int(S.POWER_SAVE_LEVEL)
+assert block[44:48] == bytes([0, 0, 0, 3]), block[44:48].hex()
+assert level.oneip_settings.power_save_level is mx_remote.OneIPPowerSaveLevel.OFF
+assert call(level.set_oneip_setting(S.AES67, False)) is True, 'AES67 is not switched'
+assert level.oneip_settings.get(S.AES67) is False
+refused(level.set_oneip_power_save_level(4), 'a power save level with no name')
+refused(ptp.set_oneip_power_save_level(mx_remote.OneIPPowerSaveLevel.LOW), 'a setting the device does not have')
+print('level write : the last byte of the block, nothing unnamed sent')
+
 # What the builder writes, the decoder reads back as the same settings.
 assert call(target.set_oneip_ir_profile(7)) is True
 rx(uid(0x10), 0x3C, sent[-1][24:])

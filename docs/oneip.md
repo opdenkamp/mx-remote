@@ -222,6 +222,22 @@ goes out at 176 bytes: a receiver with the schedule ignores the settings of a
 shorter frame, and one whose settings end at the idle minutes takes it all the
 same.
 
+How far a device powers down is its power save level: reduced, low or off, each
+powering more down than the one before. Its unit status says which levels it
+supports and what wakes it at each.
+
+```python
+from mx_remote import OneIPPowerSaveLevel, UnitPowerSave
+
+print(settings.power_save_level)
+print(device.unit_status.power_save_level(OneIPPowerSaveLevel.LOW))  # e.g. SUPPORTED|INPUT_WAKE
+
+await device.set_oneip_power_save_level(OneIPPowerSaveLevel.LOW)
+```
+
+A level this library does not name is refused before it is sent, and not cached
+from another controller's write.
+
 ### PTP
 
 A device's PTP mode, domain and grandmaster priority1 are settings like the

@@ -33,7 +33,7 @@ from ..proto.FrameTime import FrameTime
 from ..proto.FrameTimeZone import FrameTimeZone
 from ..proto.FrameV2IPSettingsAll import FrameV2IPSettingsAll
 from ..proto.Constants import (ONEIP_DEVICE_SETTINGS_REPORTED_ONLY, ONEIP_IR_PROFILE_MAX, ONEIP_PTP_DOMAIN_MAX,
-                               OneIPPtpMode,
+                               OneIPPowerSaveLevel, OneIPPtpMode,
                                ONEIP_IR_PROFILE_NOT_SET, OneIPDeviceSetting)
 from ..proto.Svd import SvdMap
 from ..Uid import MxrDeviceUid
@@ -468,9 +468,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         settings carries the settings behind their bits in valid, as a device
         reports them. Each device applies those it has and ignores the rest,
         and none below protocol 0x2A applies any. A setting only a device
-        reports about itself, a profile, PTP mode or PTP domain out of range and
-        a power save time that is not a time of day are refused here, since
-        every device would ignore them.
+        reports about itself, a profile, PTP mode, PTP domain or power save
+        level out of range and a power save time that is not a time of day are
+        refused here, since every device would ignore them.
 
         Nothing is cached: each device that applies a change reports its
         settings, and its oneip_settings reads that.
@@ -499,6 +499,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             why = 'no such PTP domain'
         elif (OneIPDeviceSetting.PTP_PRIORITY1 in valid) and not (0 <= (settings.ptp_priority1 or 0) <= 0xFF):
             why = 'a PTP priority1 the field cannot hold'
+        elif (OneIPDeviceSetting.POWER_SAVE_LEVEL in valid) \
+                and not (OneIPPowerSaveLevel.NONE <= (settings.power_save_level or 0) <= OneIPPowerSaveLevel.OFF):
+            why = 'no such power save level'
         if (why is not None):
             _LOGGER.warning(f"not changing the settings of every OneIP device: {why}")
             return False

@@ -37,7 +37,7 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #             s8 ir_profile, s8 ir_profile_sink, u16 idle minutes before power
 #             save, then the power save schedule: 7 x u16 start at 144,
 #             7 x u16 end at 158, then u8 PTP mode, u8 PTP domain and
-#             u8 PTP priority1 at 172..175, and 1 reserved
+#             u8 PTP priority1 at 172..175, then u8 power save level at 175
 #   176..192  VLAN: u16 flags, u16 device id, 3 x u16 port ids (SFP, UTP with
 #             PoE, UTP), u8 pinned uplink, u8 uplink in use, u8 revert
 #             seconds, 3 reserved
@@ -109,6 +109,8 @@ seven end times.'''
 _PTP_SIZE           = 3
 '''The PTP settings, behind the schedule: mode, domain and priority1, one byte
 each.'''
+_LEVEL_AT           = _SETTINGS_SIZE + _SCHEDULE_SIZE + _PTP_SIZE
+'''The power save level, the last byte of the settings block.'''
 _VLAN_OFFSET        = _SETTINGS_OFFSET + _SETTINGS_SIZE + _SCHEDULE_SIZE + 4
 '''The VLAN configuration, behind the whole 48-byte settings block.'''
 _VLAN_SIZE          = 16
@@ -125,15 +127,14 @@ def settings_block(settings:OneIPDeviceSettings) -> bytes:
                         settings.stored_ir_profiles or 0, settings.ir_profile or 0,
                         settings.ir_profile_sink or 0, settings.auto_power_save or 0)
             + struct.pack('<7H7H', *schedule.start, *schedule.end)
-            + struct.pack('<BBB', int(settings.ptp_mode or 0), settings.ptp_domain or 0,
-                          settings.ptp_priority1 or 0)
-            + bytes(1))
+            + struct.pack('<BBBB', int(settings.ptp_mode or 0), settings.ptp_domain or 0,
+                          settings.ptp_priority1 or 0, int(settings.power_save_level or 0)))
 
 def parse_settings_block(block:bytes) -> OneIPDeviceSettings:
     '''A device settings block, from its first 16 bytes on.
 
-    A bit claiming the schedule or the PTP settings in a block too short to
-    hold them is dropped.'''
+    A bit claiming the schedule, the PTP settings or the power save level in a
+    block too short to hold them is dropped.'''
     valid, flags, profiles, profile, profile_sink, minutes = struct.unpack_from('<IIIbbH', block)
     valid = OneIPDeviceSetting(valid)
     schedule = None
@@ -147,10 +148,16 @@ def parse_settings_block(block:bytes) -> OneIPDeviceSettings:
         ptp = struct.unpack_from('<BBB', block, _SETTINGS_SIZE + _SCHEDULE_SIZE)
     else:
         valid &= ~ONEIP_DEVICE_SETTINGS_PTP
+    level = 0
+    if (len(block) > _LEVEL_AT):
+        level = block[_LEVEL_AT]
+    else:
+        valid &= ~OneIPDeviceSetting.POWER_SAVE_LEVEL
     return OneIPDeviceSettings(valid=valid, flags=OneIPDeviceSetting(flags), ir_profiles=profiles,
                               ir_profile=profile, ir_profile_sink=profile_sink,
                               auto_power_save=minutes, power_save=schedule,
-                              ptp_mode=ptp[0], ptp_domain=ptp[1], ptp_priority1=ptp[2])
+                              ptp_mode=ptp[0], ptp_domain=ptp[1], ptp_priority1=ptp[2],
+                              power_save_level=level)
 
 class V2IPDeviceOptions:
     '''Parsed OneIP device options (TX rate and per-stream DSCP marking).'''

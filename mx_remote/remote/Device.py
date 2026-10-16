@@ -78,7 +78,7 @@ from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, DeviceFeature, M
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                               MXR_SCALING_FLAG_OPTIONS_VALID, ONEIP_DEVICE_SETTING_SWITCHES,
                               ONEIP_IR_PROFILE_MAX, ONEIP_IR_PROFILE_NOT_SET, ONEIP_VLAN_PORT_SFP,
-                              ONEIP_PTP_DOMAIN_MAX, OneIPPtpFlag, OneIPPtpMode, UnitCommandFlag,
+                              ONEIP_PTP_DOMAIN_MAX, OneIPPowerSaveLevel, OneIPPtpFlag, OneIPPtpMode, UnitCommandFlag,
                               UnitCommandKind)
 from ..proto.FrameUnitCommand import FrameUnitCommand
 from ..proto.FrameV2IPAudio import FrameV2IPAudio
@@ -1401,6 +1401,19 @@ class Device(DeviceBase):
 			return False
 		return self._send_v2ip_settings(OneIPDeviceSettings(
 			valid=OneIPDeviceSetting.PTP_PRIORITY1, ptp_priority1=priority1))
+
+	async def set_oneip_power_save_level(self, level:OneIPPowerSaveLevel) -> bool:
+		'''Set the level this OneIP device powers down to in power save.
+
+		A level this library does not name is refused, since a device ignores it.
+		One the unit does not offer is one its unit_status reports without
+		UnitPowerSave.SUPPORTED. The terms of set_oneip_setting() apply.
+		'''
+		if not (OneIPPowerSaveLevel.NONE <= level <= OneIPPowerSaveLevel.OFF):
+			_LOGGER.warning(f"not setting power save level {level} on {self}: no such level")
+			return False
+		return self._send_v2ip_settings(OneIPDeviceSettings(
+			valid=OneIPDeviceSetting.POWER_SAVE_LEVEL, power_save_level=level))
 
 	async def set_oneip_vlan(self, vlan:OneIPVlan) -> bool:
 		'''Change this OneIP device's VLAN configuration.

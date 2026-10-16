@@ -10,11 +10,11 @@ from functools import cached_property
 import ipaddress
 import struct
 from ..compat import override
-from .Constants import UNIT_MAX_TEMPERATURES, UnitFlag
+from .Constants import UNIT_MAX_TEMPERATURES, UNIT_POWER_SAVE_LEVELS, UnitFlag, UnitPowerSave
 from .FrameBase import FrameBase
 from ..Interface import UnitNetConfig, UnitStatus
 
-# mxr_unit_status, 104 bytes, naturally aligned so without padding:
+# mxr_unit_status, 108 bytes, naturally aligned so without padding:
 #     0       u32 flags
 #     4..24   u32 uptime, boot count, reboot count, encoder and decoder health
 #    24..44   IP configuration: address, netmask, gateway, two DNS servers,
@@ -24,11 +24,13 @@ from ..Interface import UnitNetConfig, UnitStatus
 #             u8 temperature count
 #    50..56   up to six i8 temperatures
 #    56..104  status message
+#   104..108  what the unit offers at each power save level, from REDUCED up
 #
 # The report grows at the back, so a frame is read as far as it goes and the
 # fields it does not reach read as zero.
-UNIT_STATUS_SIZE = 104
 _MESSAGE_AT = 50 + UNIT_MAX_TEMPERATURES
+_POWER_SAVE_AT = _MESSAGE_AT + 48
+UNIT_STATUS_SIZE = _POWER_SAVE_AT + UNIT_POWER_SAVE_LEVELS
 
 def parse_net_config(data:bytes) -> UnitNetConfig:
     '''Five addresses in network byte order, 20 bytes.'''
@@ -44,7 +46,11 @@ class FrameUnitStatus(FrameBase):
         flags = UnitFlag(flags)
         fan_rpm, fan_duty, status, revert, count = struct.unpack_from('<HBBBB', p, 44)
         count = min(count, UNIT_MAX_TEMPERATURES)
-        message = p[_MESSAGE_AT:UNIT_STATUS_SIZE].split(b'\0', 1)[0].decode('ascii', errors='replace')
+        # Empty rather than zero for a unit that predates the levels: it says
+        # nothing about them, not that it supports none.
+        power_save = () if (len(self.payload or b'') < UNIT_STATUS_SIZE) else \
+            tuple(UnitPowerSave(b) for b in p[_POWER_SAVE_AT:UNIT_STATUS_SIZE])
+        message = p[_MESSAGE_AT:_POWER_SAVE_AT].split(b'\0', 1)[0].decode('ascii', errors='replace')
         return UnitStatus(flags=flags, uptime=uptime,
                           boot_count=(boots if (UnitFlag.BOOT_COUNT in flags) else None),
                           reboot_count=reboots, encoder_health=encoder, decoder_health=decoder,
@@ -52,7 +58,7 @@ class FrameUnitStatus(FrameBase):
                           fan_rpm=(fan_rpm if (UnitFlag.FAN_SPEED in flags) else None),
                           fan_duty=fan_duty, status=status, net_revert_s=revert,
                           temperatures=struct.unpack_from(f'<{count}b', p, 50),
-                          status_message=message)
+                          status_message=message, power_save=power_save)
 
     @override
     def process(self) -> None:

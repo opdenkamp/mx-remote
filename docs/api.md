@@ -81,6 +81,9 @@ bit, and the range of the infrared profiles.
 .. autoclass:: mx_remote.OneIPPowerSaveSchedule
    :members:
 
+.. autoclass:: mx_remote.proto.Constants.OneIPPowerSaveLevel
+   :members:
+
 .. autoclass:: mx_remote.OneIPVlan
    :members:
 
@@ -138,6 +141,11 @@ A unit's health and IP configuration, and the commands sent to one unit.
    :members:
 
 .. autodata:: mx_remote.proto.Constants.UNIT_MAX_TEMPERATURES
+
+.. autoclass:: mx_remote.proto.Constants.UnitPowerSave
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.UNIT_POWER_SAVE_LEVELS
 ```
 
 ## OneIP test card

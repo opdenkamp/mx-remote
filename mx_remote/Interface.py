@@ -2016,6 +2016,17 @@ class UnitStatus:
     """Temperatures in degrees Celsius, at most UNIT_MAX_TEMPERATURES of them."""
     status_message: str = ''
     """The message of the current system status."""
+    power_save: tuple[UnitPowerSave, ...] = ()
+    """What the unit offers at each power save level, from
+    OneIPPowerSaveLevel.REDUCED up; empty for a unit that predates the field. A
+    route change or a command wakes the unit at every level it supports."""
+
+    def power_save_level(self, level:OneIPPowerSaveLevel|int) -> UnitPowerSave:
+        """What the unit offers at a power save level, empty for
+        OneIPPowerSaveLevel.NONE or a level it does not report."""
+        if not (1 <= int(level) <= len(self.power_save)):
+            return UnitPowerSave(0)
+        return self.power_save[int(level) - 1]
 
     @property
     def network_pending(self) -> bool:
@@ -2027,7 +2038,8 @@ class UnitStatus:
         return (f"up {self.uptime}s boots {self.boot_count} reboots {self.reboot_count} "
                 f"encoder {self.encoder_health:#x} decoder {self.decoder_health:#x} net [{self.network}] "
                 f"fan {self.fan_rpm} rpm {self.fan_duty}% status {self.status} '{self.status_message}' "
-                f"temperatures {list(self.temperatures)} flags {self.flags!r}")
+                f"temperatures {list(self.temperatures)} flags {self.flags!r}"
+                f"{f' power save {[int(p) for p in self.power_save]}' if self.power_save else ''}")
 
 @dataclass(frozen=True)
 class OneIPPtpState:
@@ -2245,7 +2257,8 @@ class OneIPDeviceSettings:
                  flags:OneIPDeviceSetting=OneIPDeviceSetting(0), ir_profiles:int=0,
                  ir_profile:int=0, ir_profile_sink:int=0, auto_power_save:int=0,
                  power_save:OneIPPowerSaveSchedule|None=None, ptp_mode:OneIPPtpMode|int=OneIPPtpMode.OFF,
-                 ptp_domain:int=0, ptp_priority1:int=0) -> None:
+                 ptp_domain:int=0, ptp_priority1:int=0,
+                 power_save_level:OneIPPowerSaveLevel|int=OneIPPowerSaveLevel.NONE) -> None:
         self._valid = OneIPDeviceSetting(valid)
         self._flags = OneIPDeviceSetting(flags)
         self._ir_profiles = ir_profiles
@@ -2256,6 +2269,7 @@ class OneIPDeviceSettings:
         self._ptp_mode = int(ptp_mode)
         self._ptp_domain = ptp_domain
         self._ptp_priority1 = ptp_priority1
+        self._power_save_level = int(power_save_level)
 
     @property
     def valid(self) -> OneIPDeviceSetting:
@@ -2334,6 +2348,14 @@ class OneIPDeviceSettings:
             return None
         return self._ptp_priority1
 
+    @property
+    def power_save_level(self) -> OneIPPowerSaveLevel|int|None:
+        """The level the device powers down to in power save, a raw int for one
+        this library does not name, None while it is not reported."""
+        if (OneIPDeviceSetting.POWER_SAVE_LEVEL not in self._valid):
+            return None
+        return _wire_enum(OneIPPowerSaveLevel, self._power_save_level)
+
     def merge(self, previous:'OneIPDeviceSettings|None') -> 'OneIPDeviceSettings':
         """
         Fold this received block onto the cached one.
@@ -2363,15 +2385,17 @@ class OneIPDeviceSettings:
             ptp_domain=(self._ptp_domain if (OneIPDeviceSetting.PTP_DOMAIN in valid)
                         else previous._ptp_domain),
             ptp_priority1=(self._ptp_priority1 if (OneIPDeviceSetting.PTP_PRIORITY1 in valid)
-                           else previous._ptp_priority1))
+                           else previous._ptp_priority1),
+            power_save_level=(self._power_save_level if (OneIPDeviceSetting.POWER_SAVE_LEVEL in valid)
+                              else previous._power_save_level))
 
     def as_applied_to(self, reported:OneIPDeviceSetting) -> 'OneIPDeviceSettings':
         """
         This block limited to what a device takes from a write about it.
 
-        A device applies a setting only if it has it, a profile, PTP mode or PTP
-        domain only within its range, and never what only it can report about
-        itself.
+        A device applies a setting only if it has it, a profile, PTP mode, PTP
+        domain or power save level only within its range, and never what only
+        it can report about itself.
         """
         valid = (self._valid & reported) & ~ONEIP_DEVICE_SETTINGS_REPORTED_ONLY
         if not (0 <= self._ir_profile < ONEIP_IR_PROFILE_MAX):
@@ -2382,21 +2406,24 @@ class OneIPDeviceSettings:
             valid &= ~OneIPDeviceSetting.PTP_MODE
         if (self._ptp_domain > ONEIP_PTP_DOMAIN_MAX):
             valid &= ~OneIPDeviceSetting.PTP_DOMAIN
+        if (self._power_save_level > OneIPPowerSaveLevel.OFF):
+            valid &= ~OneIPDeviceSetting.POWER_SAVE_LEVEL
         return OneIPDeviceSettings(valid=valid, flags=self._flags, ir_profiles=self._ir_profiles,
                                   ir_profile=self._ir_profile, ir_profile_sink=self._ir_profile_sink,
                                   auto_power_save=self._auto_power_save, power_save=self._power_save,
                                   ptp_mode=self._ptp_mode, ptp_domain=self._ptp_domain,
-                                  ptp_priority1=self._ptp_priority1)
+                                  ptp_priority1=self._ptp_priority1,
+                                  power_save_level=self._power_save_level)
 
     def __eq__(self, other:Any) -> bool:
         if not isinstance(other, OneIPDeviceSettings):
             return NotImplemented
         return ((self._valid, self._flags, self._ir_profiles, self._ir_profile, self._ir_profile_sink,
                  self._auto_power_save, self._power_save, self._ptp_mode, self._ptp_domain,
-                 self._ptp_priority1)
+                 self._ptp_priority1, self._power_save_level)
                 == (other._valid, other._flags, other._ir_profiles, other._ir_profile, other._ir_profile_sink,
                     other._auto_power_save, other._power_save, other._ptp_mode, other._ptp_domain,
-                    other._ptp_priority1))
+                    other._ptp_priority1, other._power_save_level))
 
     def __ne__(self, other:Any) -> bool:
         result = self.__eq__(other)
@@ -2424,6 +2451,8 @@ class OneIPDeviceSettings:
             parts.append(f"ptp_domain={self.ptp_domain}")
         if (self.ptp_priority1 is not None):
             parts.append(f"ptp_priority1={self.ptp_priority1}")
+        if ((level := self.power_save_level) is not None):
+            parts.append(f"power_save_level={level.name.lower() if isinstance(level, OneIPPowerSaveLevel) else level}")
         return " ".join(parts)
 
     def __repr__(self) -> str:
@@ -3067,6 +3096,10 @@ class DeviceBase(ABC):
     @abstractmethod
     async def set_oneip_ptp_priority1(self, priority1:int) -> bool:
         '''set the priority1 the device announces as a PTP grandmaster'''
+
+    @abstractmethod
+    async def set_oneip_power_save_level(self, level:OneIPPowerSaveLevel) -> bool:
+        '''set the level the device powers down to in power save'''
 
     @abstractmethod
     async def set_oneip_vlan(self, vlan:OneIPVlan) -> bool:
