@@ -136,6 +136,9 @@ class HiddenStatus(IntEnum):
         return str(self)
 
 class FirmwareVersion:
+    '''One firmware component's version. timestamp is when the image was built
+    or installed, in seconds since 1970, or 0 when it carries none, and hash the
+    image's checksum.'''
     def __init__(self, type:FirmwareType, timestamp:int, version:str, hash:int) -> None:
         self._firmware_type = type
         self._timestamp = timestamp

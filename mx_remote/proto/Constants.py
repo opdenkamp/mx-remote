@@ -1179,12 +1179,24 @@ class EdidProfile(IntEnum):
 
 class FirmwareType(IntEnum):
 	'''Firmware component type identifiers.'''
-	UNKNOWN = 0
+	UNKNOWN = -1
+	'''A component this build has no name for. Never on the wire.'''
+	MCU = 0
+	'''The unit's own firmware.'''
 	VIDEO_PROCESSOR = 1
-	LINUX = 2
-	LOADING_OVERLAY = 3
+	'''The video processor's image.'''
+	RTOS = 2
+	'''The video processor's RTOS image.'''
+	LOADER = 3
+	'''The video processor's loader image.'''
+	BOOTLOADER = 4
+	'''The unit's bootloader.'''
 	FPGA = 1
 	'''Deprecated: use VIDEO_PROCESSOR.'''
+	LINUX = 2
+	'''Deprecated: use RTOS.'''
+	LOADING_OVERLAY = 3
+	'''Deprecated: use LOADER.'''
 
 	# No clamping __init__ here: IntEnum rejects an unknown value before __init__
 	# would run, so a guard there never fires - it only looks like one. Decode
@@ -1192,12 +1204,16 @@ class FirmwareType(IntEnum):
 	# build does not recognise.
 
 	def __str__(self) -> str:
+		if (self.value == FirmwareType.MCU.value):
+			return "MCU"
 		if (self.value == FirmwareType.VIDEO_PROCESSOR.value):
 			return "Video Processor"
-		if (self.value == FirmwareType.LINUX.value):
-			return "Linux"
-		if (self.value == FirmwareType.LOADING_OVERLAY.value):
-			return "Loading Overlay"
+		if (self.value == FirmwareType.RTOS.value):
+			return "RTOS"
+		if (self.value == FirmwareType.LOADER.value):
+			return "Loader"
+		if (self.value == FirmwareType.BOOTLOADER.value):
+			return "Bootloader"
 		return "Unknown"
 
 	def __repr__(self) -> str:

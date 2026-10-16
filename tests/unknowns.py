@@ -3,6 +3,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logging.disable(logging.CRITICAL)
 import mx_remote
 from mx_remote.proto.Factory import create_mxr_frame, process_mxr_frame
+from mx_remote.Uid import MxrDeviceUid
 from mx_remote.proto.Constants import (decode_enum, FirmwareType, RCKey, RCAction, UtpLinkSpeed,
     MXR_OPCODE_VERSIONS)
 
@@ -19,7 +20,8 @@ mx.process_frame(time.time(), create_mxr_frame(UID, 0x02, bay(0,0,0,'In 1')+bay(
 # --- the helper itself
 assert decode_enum(FirmwareType, 99) == FirmwareType.UNKNOWN
 assert decode_enum(FirmwareType, None) == FirmwareType.UNKNOWN
-assert decode_enum(FirmwareType, 2) == FirmwareType.LINUX
+assert decode_enum(FirmwareType, 2) == FirmwareType.RTOS
+assert decode_enum(FirmwareType, 0) == FirmwareType.MCU, 'type 0 is the unit firmware, not unknown'
 assert decode_enum(RCKey, 9999) is None, 'RCKey has no UNKNOWN, so unknown is None'
 assert decode_enum(RCAction, 99) is None
 assert decode_enum(UtpLinkSpeed, 7) == UtpLinkSpeed.UNKNOWN
@@ -38,6 +40,27 @@ f = rx(0x2A, struct.pack('<III', 99, 0xCAFEBABE, 1700000000) + nm('9.9.9', 128))
 assert f.fw_type == FirmwareType.UNKNOWN, f.fw_type
 assert f.build_timestamp == 1700000000
 print('0x2A   :', f)
+
+# A video processor report carries the RTOS and loader hashes behind its 144
+# bytes, then the unit's firmware and bootloader, each with its own hash, time
+# and version, as units on the mesh send all 200.
+report = (struct.pack('<III', 1, 0x11111111, 1700000001) + nm('fpga-3.1', 128) + bytes([0xA5] * 4)
+          + struct.pack('<II', 0x22222222, 0x33333333)
+          + struct.pack('<IIII', 0x44444444, 1700000002, 0x55555555, 1700000003)
+          + nm('4.7.9', 16) + nm('boot-1.2', 16))
+assert len(report) == 200, len(report)
+f = rx(0x2A, report)
+got = {v.firmware_type: (v.hash, v.timestamp, v.version) for v in f.versions}
+assert got == {FirmwareType.VIDEO_PROCESSOR: (0x11111111, 1700000001, 'fpga-3.1'),
+               FirmwareType.RTOS: (0x22222222, 1700000001, 'fpga-3.1'),
+               FirmwareType.LOADER: (0x33333333, 1700000001, 'fpga-3.1'),
+               FirmwareType.MCU: (0x44444444, 1700000002, '4.7.9'),
+               FirmwareType.BOOTLOADER: (0x55555555, 1700000003, 'boot-1.2')}, got
+assert set(mx.get_by_uid(MxrDeviceUid(UID)).oneip_firmware_versions) >= set(got), 'not every version was kept'
+assert [v.firmware_type for v in rx(0x2A, report[:199]).versions] == \
+    [FirmwareType.VIDEO_PROCESSOR, FirmwareType.RTOS, FirmwareType.LOADER], 'a block was read past the frame'
+assert len(rx(0x2A, report[:151]).versions) == 1
+print('0x2A   : a video processor report names five components')
 
 # 0x0B an RC key code this build does not know
 f = rx(0x0B, struct.pack('<HH', 1, 9999))

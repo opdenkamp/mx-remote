@@ -11,6 +11,14 @@ from .FrameBase import FrameBase
 from .Constants import FirmwareType, MXR_FW_VERSION_LEN, decode_enum
 from ..Interface import FirmwareVersion
 
+# A video processor report carries two more blocks behind its 144 bytes. The
+# first, up to 152, holds the hashes of the RTOS and loader images, which share
+# the video processor's version and install time. The second, up to 200,
+# describes the unit's own firmware and its bootloader: a u32 hash and a u32 time
+# each at 152 and 160, then their 16-byte versions at 168 and 184.
+_RTOS_LOADER_END = 152
+_MCU_END = 200
+
 class FrameFirmwareVersion(FrameBase):
     '''Firmware version report from a device.'''
     @cached_property
@@ -48,10 +56,33 @@ class FrameFirmwareVersion(FrameBase):
             return FirmwareVersion(type=self.fw_type, timestamp=timestamp, version=version, hash=hash)
         return None
 
+    @cached_property
+    def versions(self) -> list[FirmwareVersion]:
+        '''Every component the report describes: its own, and behind a video
+        processor's the RTOS, the loader, the unit's firmware and its
+        bootloader, as far as the frame reaches.'''
+        if ((version := self.version) is None):
+            return []
+        rv = [version]
+        if (self.fw_type != FirmwareType.VIDEO_PROCESSOR):
+            return rv
+        length = len(self.payload or b'')
+        if (length >= _RTOS_LOADER_END):
+            for fw_type, at in ((FirmwareType.RTOS, 144), (FirmwareType.LOADER, 148)):
+                rv.append(FirmwareVersion(type=fw_type, timestamp=version.timestamp, version=version.version,
+                                          hash=(self.payload_u32(at) or 0)))
+        if (length >= _MCU_END):
+            for fw_type, at, version_at in ((FirmwareType.MCU, 152, 168), (FirmwareType.BOOTLOADER, 160, 184)):
+                rv.append(FirmwareVersion(type=fw_type, timestamp=(self.payload_u32(at + 4) or 0),
+                                          version=(self.payload_str(version_at, 16) or ''),
+                                          hash=(self.payload_u32(at) or 0)))
+        return rv
+
     def process(self) -> None:
-        '''Update the local device cache with the firmware version.'''
-        if ((dev := self.remote_device) is not None) and ((version := self.version) is not None):
-            dev.on_mxr_update(version)
+        '''Update the local device cache with every firmware version reported.'''
+        if ((dev := self.remote_device) is not None):
+            for version in self.versions:
+                dev.on_mxr_update(version)
 
     def __str__(self) -> str:
         hash = self.hash if (self.hash is not None) else 0
