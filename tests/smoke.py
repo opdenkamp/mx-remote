@@ -43,4 +43,23 @@ assert MxrSignalType(bytes([0, (5 << 5)])).is_set is False
 assert mxr_sig_bpp_get(5) == 0 and mxr_sig_bpp_get(0) == 0
 print('sigtype ok:', st)
 assert oneip_rate_valid(5) and oneip_rate_valid(100) and not oneip_rate_valid(4) and not oneip_rate_valid(101)
+
+# --- multicast goes out with the TTL units send with
+import socket
+from mx_remote.remote.ConnectionAsync import ConnectionAsync
+class Recording:
+    def __init__(self, *args):
+        self.opts = {}
+    def setsockopt(self, level, name, value):
+        self.opts[(level, name)] = value
+    def bind(self, addr):
+        pass
+real_socket = socket.socket
+socket.socket = Recording
+try:
+    tx = ConnectionAsync(callbacks=None, target_ip='239.255.255.250', port=8812, local_ip='192.0.2.9')._create_tx_socket()
+finally:
+    socket.socket = real_socket
+assert tx.opts[(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL)] == 64, tx.opts
+print('ttl ok    : multicast sent with a TTL of 64')
 print('ALL OK')

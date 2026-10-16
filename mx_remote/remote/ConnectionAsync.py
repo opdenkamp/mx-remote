@@ -62,6 +62,10 @@ def is_posix_os() -> bool:
     '''Return True if the current OS is POSIX-compatible.'''
     return (os.name == 'posix')
 
+MULTICAST_TTL = 64
+'''The TTL a unit sends on the discovery group with. Anything lower leaves a
+unit more routed hops away hearing every unit but this client.'''
+
 class ConnectionAsync(asyncio.DatagramProtocol):
     ''' send and receive UDP data '''
     def __init__(self, callbacks:ConnectionCallbacks, target_ip:str, port:int, local_ip:str|None=None) -> None:
@@ -111,7 +115,7 @@ class ConnectionAsync(asyncio.DatagramProtocol):
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
         if self.is_multicast:
-            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 3)
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, MULTICAST_TTL)
         else:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
