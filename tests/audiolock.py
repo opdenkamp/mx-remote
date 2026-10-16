@@ -130,6 +130,55 @@ assert acted_on(uid(0x15), select(uid(0x15))), 'a unit about itself'
 assert acted_on(uid(0x13), select(uid(0x10))), "a released unit did not take a peer's command"
 print('commands    : taken for the unit they name, from management; on released firmware from anyone')
 
+# ------------------------------------------------ the 4.4.2 audio module layout
+# Released firmware up to 4.4.2 lays out 0x43 differently under the same stamp:
+# 24-byte features entries with no links, and an 8-byte SELECT_INPUT naming two
+# of the unit's own endpoints.
+def legacy_tree(reporter):
+    p = bytearray([0xA5] * (36 + 2 * 24))
+    p[0:2] = struct.pack('<H', 0)
+    p[4:20] = reporter
+    p[28:30] = struct.pack('<H', 2)
+    for i, (ep, feat) in enumerate(((3, AudioFeatures.FEATURE_OUTPUT), (4, AudioFeatures.FEATURE_INPUT))):
+        at = 36 + 24 * i
+        p[at], p[at + 1] = ep, 1
+        p[at + 8:at + 12] = struct.pack('<I', feat)
+        p[at + 12:at + 16] = struct.pack('<I', 0)
+    return bytes(p)
+rx(uid(0x16), 0x00, struct.pack('<H', 0x1E) + name('ONEIP') + name('P8SN12345680')
+                    + name('4.4.2') + struct.pack('<I', int(DeviceFeature.ONEIP_SINK)))
+old = mx.get_by_uid(MxrDeviceUid(uid(0x16)))
+assert old.audio_legacy, 'a unit below 0x27 that has not reported was taken to speak the current layout'
+rx(uid(0x16), 0x43, legacy_tree(uid(0x16)))
+assert old.audio_endpoint_by_id(3) is not None and old.audio_endpoint_by_id(4) is not None, \
+    'a 4.4.2 features report was not read at its 24-byte entries'
+assert old.audio_endpoint_by_id(3).features.is_output and old.audio_legacy
+assert not dev.audio_legacy, 'a unit that reported the current layout'
+# The layout a unit's report shows is remembered, whatever its protocol says.
+rx(uid(0x17), 0x00, struct.pack('<H', 0x28) + name('ONEIP') + name('P8SN12345681')
+                    + name('4.4.2') + struct.pack('<I', int(DeviceFeature.ONEIP_SINK)))
+odd = mx.get_by_uid(MxrDeviceUid(uid(0x17)))
+assert not odd.audio_legacy
+rx(uid(0x17), 0x43, legacy_tree(uid(0x17)))
+assert odd.audio_legacy, 'the layout of a unit\'s own report was not remembered'
+
+body = struct.pack('<H', 3) + bytes(2) + uid(0x16) + struct.pack('<HHI', 3, 0, 4)
+sel = process_mxr_frame(mx, 0.0, create_mxr_frame(uid(0x16), 0x43, body), ADDR)._frame.select_input
+assert (sel.target_uid, sel.target_id, sel.source_uid, sel.source_id) == \
+    (MxrDeviceUid(uid(0x16)), 3, MxrDeviceUid(uid(0x16)), 4), str(sel)
+
+from mx_remote.proto.FrameV2IPAudio import FrameV2IPAudio
+ep3, ep4 = old.audio_endpoint_by_id(3), old.audio_endpoint_by_id(4)
+built = FrameV2IPAudio.construct_select_input(mxr=mx, sink=old.remote_id, sink_ep=ep3, source=old.remote_id,
+                                              source_ep=ep4, legacy=True)
+assert built.payload == body, built.payload.hex()
+assert FrameV2IPAudio.construct_select_input(mxr=mx, sink=old.remote_id, sink_ep=ep3, source=dev.remote_id,
+                                             source_ep=ep4, legacy=True) is None, \
+    'a route from another unit to a 4.4.2 unit was built'
+assert FrameV2IPAudio.construct_volume(mxr=mx, target=old.remote_id, endpoint_id=3, volume=50) is None, \
+    'the volume command, which a 4.4.2 unit reads as selecting an output'
+print('4.4.2       : 24-byte entries, an 8-byte selection of its own endpoints, no volume')
+
 # --------------------------------------------------------------------- writing
 
 sent = []

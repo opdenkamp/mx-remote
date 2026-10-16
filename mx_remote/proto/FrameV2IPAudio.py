@@ -21,6 +21,16 @@ V2IP_AUDIO_EP_ID_NONE = 0xFF
 _AUDIO_CMD_SIZE = 20
 _AUDIO_DEV_HEADER_SIZE = 16
 _AUDIO_ENTRY_SIZE = 16
+_AUDIO_ENTRY_SIZE_LEGACY = 24
+'''The entry width of the audio module on released firmware up to 4.4.2, which
+sends no links behind its entries.'''
+_ENTRIES_AT = 36
+_SELECT_INPUT_SIZE = 56
+'''The length of a current SELECT_INPUT: the header, two uids and two ids.'''
+AUDIO_LAYOUT_SINCE = 0x27
+'''The protocol of the earliest firmware known to carry the current audio module
+layout; a unit below it that has not reported its endpoints is taken to carry
+the older one.'''
 _AUDIO_LINKS_HEADER_SIZE = 4
 _AUDIO_LINK_SIZE = 20
 
@@ -368,8 +378,9 @@ class AudioLinksImpl(AudioLinks):
 
 class AudioConfig:
     '''Parsed audio configuration containing endpoints and their properties.'''
-    def __init__(self, data:FrameBase) -> None:
+    def __init__(self, data:FrameBase, stride:int=_AUDIO_ENTRY_SIZE) -> None:
         self.data = data
+        self._stride = stride
 
     @cached_property
     def features(self) -> int|None:
@@ -390,7 +401,7 @@ class AudioConfig:
     def entries(self) -> list[AudioEntry]:
         rv = []
         for x in range(self.nb_endpoints):
-            rv.append(AudioEntry(frame=self.data, idx=(36 + (x * 16))))
+            rv.append(AudioEntry(frame=self.data, idx=(_ENTRIES_AT + (x * self._stride))))
         return rv
 
     @cached_property
@@ -402,7 +413,8 @@ class AudioConfig:
 
     @cached_property
     def endpoints(self) -> AudioEndpoints:
-        rv = AudioEndpoints()
+        rv = AudioEndpoints(legacy_layout=((self._stride == _AUDIO_ENTRY_SIZE_LEGACY)
+                                           if (self.nb_endpoints > 0) else None))
         eps:dict[int,AudioEndpointImpl] = {}
 
         for entry in self.entries:
@@ -472,24 +484,34 @@ class AudioChangeSourceImpl(AudioChangeSource):
         self.data = data
 
     @property
+    def legacy(self) -> bool:
+        '''Whether this is the 8-byte body of the audio module on released
+        firmware up to 4.4.2: the sink endpoint and the endpoint to feed it,
+        both on the unit the header names.'''
+        return len(self.data.payload or b'') < _SELECT_INPUT_SIZE
+
+    @property
     def source_uid(self) -> MxrDeviceUid|None:
         '''Device supplying the audio.'''
-        return self.data.payload_uuid(idx=36)
+        return self.data.payload_uuid(idx=4) if self.legacy else self.data.payload_uuid(idx=36)
 
     @property
     def target_uid(self) -> MxrDeviceUid|None:
         '''Device whose endpoint is changing source, read from the body.'''
-        return self.data.payload_uuid(idx=20)
+        return self.data.payload_uuid(idx=4) if self.legacy else self.data.payload_uuid(idx=20)
 
     @property
     def source_id(self) -> int|None:
         '''Endpoint id on the source device.'''
+        if self.legacy:
+            source = self.data.payload_u32(idx=24)
+            return source if ((source is None) or (source <= 0xFFFF)) else None
         return self.data.payload_u16(idx=54)
 
     @property
     def target_id(self) -> int|None:
         '''Endpoint id on the target device.'''
-        return self.data.payload_u16(idx=52)
+        return self.data.payload_u16(idx=20) if self.legacy else self.data.payload_u16(idx=52)
 
     def __str__(self) -> str:
         return f"source change {self.source_uid}:{self.source_id} -> {self.target_uid}:{self.target_id}"
@@ -766,9 +788,12 @@ class FrameV2IPAudio(FrameBase):
             _LOGGER.warning(e)
 
     @staticmethod
-    def construct_select_input(mxr:DeviceRegistry, sink:MxrDeviceUid, sink_ep:AudioEndpoint, source:MxrDeviceUid, source_ep:AudioEndpoint) -> FrameBase|None:
-        '''Build an audio input selection frame for transmission.'''
-        return FrameV2IPAudioChangeSource.construct(mxr=mxr, sink=sink, sink_ep=sink_ep, source=source, source_ep=source_ep)
+    def construct_select_input(mxr:DeviceRegistry, sink:MxrDeviceUid, sink_ep:AudioEndpoint, source:MxrDeviceUid, source_ep:AudioEndpoint,
+                               legacy:bool=False) -> FrameBase|None:
+        '''Build an audio input selection frame for transmission, in the layout
+        of released firmware up to 4.4.2 when legacy is set.'''
+        return FrameV2IPAudioChangeSource.construct(mxr=mxr, sink=sink, sink_ep=sink_ep, source=source,
+                                                    source_ep=source_ep, legacy=legacy)
 
     @staticmethod
     def construct_features(
@@ -795,8 +820,10 @@ class FrameV2IPAudio(FrameBase):
 
     @staticmethod
     def construct_volume(mxr:DeviceRegistry, target:MxrDeviceUid, endpoint_id:int, volume:int) -> FrameBase|None:
-        body = _audio_cmd_header(AudioCommandOpcode.VOLUME, target) + _pack_audio_param(endpoint_id, volume & 0xFFFFFFFF)
-        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x43, payload=body)
+        '''Always None. No unit acts on the command: the audio module defines it
+        but neither sends nor handles it, and a unit on released firmware reads
+        the same sub-opcode as a request to select an output.'''
+        return None
 
     @staticmethod
     def construct_lock(mxr:DeviceRegistry, target:MxrDeviceUid, endpoint_id:int, locked:bool) -> FrameBase|None:
@@ -828,25 +855,45 @@ class FrameV2IPAudioConfig(FrameV2IPAudio):
             raise Exception(f"invalid opcode {self.opcode}")
 
     @cached_property
+    def layout(self) -> tuple[int, int|None]|None:
+        '''How wide the report's entries are and where a link block behind them
+        starts, or None for a report no unit would take.
+
+        The audio module on released firmware up to 4.4.2 sends 24-byte entries
+        and no links, under the same stamp. The length alone can read either
+        way once links trail the entries, so the current layout is taken
+        whenever its own link count accounts for the length, and the older one
+        only when the length is exactly its entries.'''
+        count = AudioConfig(data=self).nb_endpoints
+        length = len(self.payload or b'')
+        end = _ENTRIES_AT + (count * _AUDIO_ENTRY_SIZE)
+        if (length == end):
+            return (_AUDIO_ENTRY_SIZE, None)
+        if ((links := self.payload_u16(end)) is not None) \
+                and (length == end + _AUDIO_LINKS_HEADER_SIZE + (links * _AUDIO_LINK_SIZE)):
+            return (_AUDIO_ENTRY_SIZE, end)
+        if (length == _ENTRIES_AT + (count * _AUDIO_ENTRY_SIZE_LEGACY)):
+            return (_AUDIO_ENTRY_SIZE_LEGACY, None)
+        return None
+
+    @cached_property
     def audio_config(self) -> AudioConfig:
-        return AudioConfig(data=self)
+        return AudioConfig(data=self, stride=(self.layout[0] if (self.layout is not None) else _AUDIO_ENTRY_SIZE))
 
     @cached_property
     def complete(self) -> bool:
-        '''Whether the report holds the entries it counts, and the links behind
-        them when it carries any; a unit takes nothing from one that does not.'''
-        if (len(self) < 36 + (self.audio_config.nb_endpoints * 16)):
-            return False
-        return (self.audio_links is None) or self.audio_links.complete
+        '''Whether the report holds exactly the entries it counts, and the
+        links behind them when it carries any; a unit takes nothing else.'''
+        return (self.layout is not None)
 
     @cached_property
     def has_audio_links(self) -> bool:
-        return (len(self) > 36 + (self.audio_config.nb_endpoints * 16))
+        return (self.layout is not None) and (self.layout[1] is not None)
 
     @cached_property
     def audio_links(self) -> AudioLinks|None:
-        if self.has_audio_links:
-            return AudioLinksImpl(data=self, idx=(36 + (self.audio_config.nb_endpoints * 16)))
+        if (self.layout is not None) and ((at := self.layout[1]) is not None):
+            return AudioLinksImpl(data=self, idx=at)
         return None
 
     @override
@@ -884,8 +931,19 @@ class FrameV2IPAudioChangeSource(FrameV2IPAudio):
         target.on_mxr_update(data=self.select_input)
 
     @staticmethod
-    def construct(mxr:DeviceRegistry, sink:MxrDeviceUid, sink_ep:AudioEndpoint, source:MxrDeviceUid, source_ep:AudioEndpoint) -> FrameBase|None:
-        '''Build an audio source change frame for transmission.'''
+    def construct(mxr:DeviceRegistry, sink:MxrDeviceUid, sink_ep:AudioEndpoint, source:MxrDeviceUid, source_ep:AudioEndpoint,
+                  legacy:bool=False) -> FrameBase|None:
+        '''Build an audio source change frame for transmission.
+
+        legacy builds the 8-byte body the audio module on released firmware up
+        to 4.4.2 reads, which names two of the sink unit's own endpoints, so it
+        is refused for a source on another unit. Neither layout checks the
+        length, so each unit is sent only its own.'''
+        if legacy:
+            if (source != sink):
+                return None
+            return FrameBase.construct_base(mxr=mxr, opcode=0x43, payload=(
+                _audio_cmd_header(AudioCommandOpcode.SELECT_INPUT, sink) + _pack_audio_param(sink_ep.id, source_ep.id)))
         payload = AudioCommandOpcode.SELECT_INPUT.value.to_bytes(2, 'little') + bytes(2) \
             + sink.byte_value \
             + sink.byte_value \

@@ -872,8 +872,11 @@ class AudioLinks(ABC):
         pass
 
 class AudioEndpoints:
-    def __init__(self) -> None:
+    def __init__(self, legacy_layout:bool|None=None) -> None:
         self.endpoints:dict[int,AudioEndpoint] = {}
+        self.legacy_layout = legacy_layout
+        '''Whether the report used the audio module layout of released firmware
+        up to 4.4.2, None when it described no endpoint and so did not say.'''
 
     def add(self, endpoint:AudioEndpoint) -> None:
         self.endpoints[endpoint.id] = endpoint

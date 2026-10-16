@@ -83,7 +83,7 @@ from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, DeviceFeature, M
                               ONEIP_PTP_DOMAIN_MAX, OneIPPowerSaveLevel, OneIPPtpFlag, OneIPPtpMode, UnitCommandFlag,
                               UnitCommandKind)
 from ..proto.FrameUnitCommand import FrameUnitCommand
-from ..proto.FrameV2IPAudio import FrameV2IPAudio
+from ..proto.FrameV2IPAudio import AUDIO_LAYOUT_SINCE, FrameV2IPAudio
 from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
 from ..proto.FrameV2IPTestcard import (FrameV2IPTestcard, TESTCARD_REQUEST, TESTCARD_SET,
                                        TESTCARD_PART_PATTERN, TESTCARD_PART_TONE, TESTCARD_PART_SYNC)
@@ -138,6 +138,9 @@ class Device(DeviceBase):
 		self._v2ip_bay_mapping_pages:dict[int, list[MxrDeviceUid]] = {}
 		self._v2ip_versions:dict[FirmwareType,FirmwareVersion] = {}
 		self._audio_endpoints:AudioEndpoints|None = None
+		# Whether the audio module uses the layout of released firmware up to
+		# 4.4.2, as the device's own features report showed; None before one.
+		self._audio_legacy:bool|None = None
 		self._sys_status:int|None = None
 		self._sys_message:str|None = None
 		self._topology:list[TopologyEntry]|None = None
@@ -890,6 +893,15 @@ class Device(DeviceBase):
 		return None
 
 	@override
+	@property
+	def audio_legacy(self) -> bool:
+		'''Whether the audio module speaks the layout of released firmware up to
+		4.4.2: as its features report showed, or before one, for a unit below
+		AUDIO_LAYOUT_SINCE.'''
+		if (self._audio_legacy is not None):
+			return self._audio_legacy
+		return self.protocol < AUDIO_LAYOUT_SINCE
+
 	def audio_endpoint_by_id(self, id:int) -> AudioEndpoint|None:
 		if (self._audio_endpoints is None):
 			return None
@@ -987,6 +999,8 @@ class Device(DeviceBase):
 			previous = self._audio_endpoints
 			changed = (previous is None) or (previous != data) or not previous.same_status(data)
 			self._audio_endpoints = data
+			if (data.legacy_layout is not None):
+				self._audio_legacy = data.legacy_layout
 			if (self.is_oneip_tz or self.is_oneip_tx):
 				first_input = self.first_input
 				first_ep = data.tree_first_output

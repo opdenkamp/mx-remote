@@ -936,7 +936,11 @@ class Bay(BayBase):
             ep = source.device.audio_endpoint_by_name(name=endpoint)
             if (ep is None) or (self.audio_endpoint is None):
                 return False
-            frame = FrameV2IPAudio.construct_select_input(mxr=self.device.registry, sink=self.device.remote_id, sink_ep=self.audio_endpoint, source=source.device.remote_id, source_ep=ep)
+            # A unit on released firmware up to 4.4.2 routes only between its
+            # own endpoints, which the builder refuses otherwise.
+            frame = FrameV2IPAudio.construct_select_input(mxr=self.device.registry, sink=self.device.remote_id, sink_ep=self.audio_endpoint,
+                                                          source=source.device.remote_id, source_ep=ep,
+                                                          legacy=getattr(self.device, 'audio_legacy', False))
         else:
             frame = FrameV2IPSourceSwitch.construct(mxr=self.device.registry, target=self, audio=source)
         if (frame is not None):
