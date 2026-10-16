@@ -257,6 +257,10 @@ class DeviceFeature(IntFlag):
 	'''Powers its video processor down in power save. A device without it refuses to enter power save.'''
 	VLAN               = (1 << 28)
 	'''Tags its uplink by the VLAN configuration it reports, and takes one written to it.'''
+	OSD_SYNC           = (1 << 29)
+	'''Copies the overlay settings and logos of another unit when asked.'''
+	STATUS_UPGRADING   = (1 << 30)
+	'''Is downloading or installing a firmware or video processor upgrade. STATUS_REBOOTING follows when it reboots to complete it.'''
 	BOOT_BIT           = (1 << 31)
 	'''Flips on every reboot, so a peer that sees it change knows the device restarted.'''
 
@@ -940,6 +944,8 @@ class RCType(IntEnum):
 	DISH = 5
 	DIRECTV = 6
 	MX_REMOTE = 7
+	INTERNAL = 8
+	'''Routed inside the device itself.'''
 
 	def __str__(self) -> str:
 		if self.value == RCType.IR.value:
@@ -958,13 +964,15 @@ class RCType(IntEnum):
 			return "DirecTV"
 		if self.value == RCType.MX_REMOTE.value:
 			return "MX-Remote"
+		if self.value == RCType.INTERNAL.value:
+			return "Internal"
 		return "Unknown"
 
 	@staticmethod
 	def values() -> dict[int, str]:
 		rv:dict[int, str] = {}
-		for val in range(8):
-			rv[val] = str(RCType(val))
+		for val in RCType:
+			rv[val.value] = str(val)
 		return rv
 
 class RCStatus(IntEnum):

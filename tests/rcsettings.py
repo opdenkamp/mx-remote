@@ -62,10 +62,12 @@ f = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x45, rc(status=9))
 assert f.rc_status == 9 and not isinstance(f.rc_status, RCStatus), f.rc_status
 print('0x45 : unknown status', f.rc_status, 'passed through, not clamped')
 
-# an unknown rc_target does not raise
+# target 8 is routed inside the device; one past it does not raise
 f = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x45, rc(rc_target=8)), ADDR)
+assert f.rc_target == RCType.INTERNAL, f.rc_target
+f = process_mxr_frame(mx, time.time(), create_mxr_frame(UID, 0x45, rc(rc_target=9)), ADDR)
 assert f.rc_target is None
-print('0x45 : RC_TARGET_INTERNAL decoded as unknown, not an error')
+print('0x45 : RC_TARGET_INTERNAL decoded, an unknown target as None, not an error')
 
 # reading the block as one LE u16 and shifting would give a different answer,
 # which is the trap MCU warned about - assert we do not
