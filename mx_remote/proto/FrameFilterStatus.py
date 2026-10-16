@@ -31,7 +31,7 @@ class FrameFilterStatus(FrameBase):
         '''File the source filter list under the sink the frame names.'''
         if (len(self.payload or b'') % 16 != 0):
             return
-        if ((dev := self.config_subject(self.target_uid)) is None):
+        if ((dev := self.command_subject(self.target_uid)) is None):
             return
         if ((first_output := dev.first_output) is None):
             return

@@ -57,7 +57,7 @@ class FrameMirrorStatus(FrameBase):
         '''File the mirroring status under the sink the frame names.'''
         if (len(self.payload or b'') != _MIRROR_SIZE):
             return
-        if ((dev := self.config_subject(self.target)) is not None) \
+        if ((dev := self.command_subject(self.target)) is not None) \
                 and ((first_out := dev.first_output) is not None):
             first_out.on_mxr_update(self.target_bay)
 

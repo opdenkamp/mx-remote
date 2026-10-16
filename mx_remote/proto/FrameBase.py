@@ -18,6 +18,10 @@ from ..Uid import MxrDeviceUid
 
 _LOGGER = logging.getLogger(__name__)
 
+MANAGEMENT_ONLY_SINCE = 0x2F
+'''The protocol from which a unit takes a command for itself, or another unit's,
+only from management.'''
+
 def append_payload_str(payload:list[int], value:str, sz:int) -> list[int]:
     '''Append a fixed-size ASCII string to a payload byte list, zero-padded to sz.
 
@@ -148,6 +152,27 @@ class FrameBase:
         if (master is not None) and not master.empty:
             return (master == self.remote_id)
         return DeviceFeature.MESH_MASTER in features
+
+    def takes_command(self, subject:DeviceBase|None) -> bool:
+        '''Whether subject takes a routing, hide, mirror, filter or module
+        command from this frame's sender: from management only since
+        MANAGEMENT_ONLY_SINCE, and from any sender on firmware before it, which
+        every released unit runs.'''
+        if self.manages(subject):
+            return True
+        return (subject is not None) and (subject.protocol < MANAGEMENT_ONLY_SINCE)
+
+    def command_subject(self, subject_uid:MxrDeviceUid|None) -> DeviceBase|None:
+        '''The device a command naming subject_uid is about, as config_subject()
+        finds it, except that a unit on released firmware takes one from any
+        sender, as takes_command() says.'''
+        if (subject_uid is None):
+            return None
+        if (subject_uid == self.remote_id):
+            return self.remote_device
+        if ((subject := self.mxr.get_by_uid(subject_uid)) is None):
+            return None
+        return subject if self.takes_command(subject) else None
 
     def config_subject(self, subject_uid:MxrDeviceUid|None) -> DeviceBase|None:
         '''The device a frame naming subject_uid is about, None when no unit

@@ -47,8 +47,9 @@ class FrameBayHide(FrameBase):
 
     def process(self) -> None:
         '''Update the local device cache with the bay hidden status. A unit takes
-        it only from management, and only with its padding.'''
-        if (len(self.payload or b'') < _HIDE_SIZE) or not self.manages(self.target):
+        it only from management unless it runs released firmware, and only with
+        its padding.'''
+        if (len(self.payload or b'') < _HIDE_SIZE) or not self.takes_command(self.target):
             return
         if ((bay := self.bay) is None):
             return

@@ -748,12 +748,13 @@ class FrameV2IPAudio(FrameBase):
 
         The header names a unit at 4: for a features or links report the
         sender itself, as a unit reports only its own, and for a command the
-        unit that must act, which takes it only from management.'''
+        unit that must act, which takes it only from management unless it runs
+        released firmware.'''
         if ((sender := self.remote_device) is None) or ((uid := self.uid) is None):
             return False
         if self.opcode in (AudioCommandOpcode.FEATURES, AudioCommandOpcode.LINKS):
             return (uid == sender.remote_id)
-        return (self.config_subject(uid) is not None)
+        return (self.command_subject(uid) is not None)
 
     def process(self) -> None:
         '''Dispatch processing to the resolved sub-type frame.'''

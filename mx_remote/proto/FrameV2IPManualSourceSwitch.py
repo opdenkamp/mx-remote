@@ -106,9 +106,10 @@ class FrameV2IPManualSourceSwitch(FrameBase):
 
     def process(self) -> None:
         '''Update the local cache with the new manual route. A unit takes it
-        only from management, and only at _MANUAL_SWITCH_SIZE bytes or more.'''
+        only from management unless it runs released firmware, and only at
+        _MANUAL_SWITCH_SIZE bytes or more.'''
         if (self.target_device is None) or (len(self.payload or b'') < _MANUAL_SWITCH_SIZE) \
-                or not self.manages(self.target_device):
+                or not self.takes_command(self.target_device):
             return
         sink_bay = self.target_device.first_output
         if (sink_bay is not None):

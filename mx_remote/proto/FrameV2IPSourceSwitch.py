@@ -92,8 +92,9 @@ class FrameV2IPSourceSwitch(FrameBase):
 
         A video of 0.0.0.0 keeps the sink's video where it is. An audio of
         0.0.0.0 has the sink take its audio from its video again, dropping a
-        separate audio route. A unit takes it only from management.'''
-        if (self.target_device is not None) and self.manages(self.target_device):
+        separate audio route. A unit takes it only from management, unless it
+        runs released firmware.'''
+        if (self.target_device is not None) and self.takes_command(self.target_device):
             sink_bay = self.target_device.first_output
             if (sink_bay is not None):
                 sink_bay.on_mxr_update(SelectedBays(self.video_bay, self.audio_bay,

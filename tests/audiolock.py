@@ -113,18 +113,22 @@ rx(uid(0x14), 0x43, lockable_tree(0, 0, reporter=uid(0x14)) + links(uid(0x14), 2
 assert late.audio_endpoint_by_id(1) is None, 'a features report short of the links it counts was taken'
 print('reports     : only about their sender, only whole, links at 20')
 
-# A command names the unit that must act at 4, which takes it only from
-# management.
+# A command names the unit that must act at 4. A unit on current firmware takes
+# it only from management; released firmware, below 0x2F, from anyone.
 MANAGER = uid(0x30)
 rx(MANAGER, 0x00, struct.pack('<H', 0x2F) + name('MXR Python') + name('P9SN00000000')
                  + name('8.0.0') + struct.pack('<I', int(DeviceFeature.MANAGER)))
-select = struct.pack('<H', 3) + bytes(2) + uid(0x10) + uid(0x10) + uid(0x13) + struct.pack('<HH', 0, 1)
+rx(uid(0x15), 0x00, struct.pack('<H', 0x2F) + name('ONEIP') + name('P8SN12345679')
+                    + name('5.0.0') + struct.pack('<I', int(DeviceFeature.ONEIP_SINK)))
+def select(target):
+    return struct.pack('<H', 3) + bytes(2) + target + target + uid(0x13) + struct.pack('<HH', 0, 1)
 def acted_on(sender, body):
     return process_mxr_frame(mx, 0.0, create_mxr_frame(sender, 0x43, body), ADDR).acted_on
-assert acted_on(MANAGER, select), 'management selecting an input was not taken'
-assert not acted_on(uid(0x13), select), "a peer's command for another unit was taken"
-assert acted_on(uid(0x10), select), 'a unit about itself'
-print('commands    : taken for the unit they name, from management')
+assert acted_on(MANAGER, select(uid(0x15))), 'management selecting an input was not taken'
+assert not acted_on(uid(0x13), select(uid(0x15))), "a peer's command for a current unit was taken"
+assert acted_on(uid(0x15), select(uid(0x15))), 'a unit about itself'
+assert acted_on(uid(0x13), select(uid(0x10))), "a released unit did not take a peer's command"
+print('commands    : taken for the unit they name, from management; on released firmware from anyone')
 
 # --------------------------------------------------------------------- writing
 

@@ -188,26 +188,40 @@ print('management  : routing and hide only from MANAGER or the followed controll
 # ------------------------------------------------- mirror and filter frames
 # Both name their sink in the first 16 bytes, and a unit takes them from the
 # sink's own unit or from management - not from whoever sent them.
+# A sink on current firmware takes them only from management.
 STRANGER = uid(0x41)
 hello(STRANGER, 0x28, DeviceFeature.ONEIP_SINK)
-rx(STRANGER, 0x32, uid(0x10) + uid(0x01))
-assert not (out.mirroring and out.mirroring.is_mirroring), 'a third party set the mirror'
-rx(MANAGER, 0x32, uid(0x10) + uid(0x01))
-assert out.mirroring.is_mirroring and out.mirroring.target.device == MxrDeviceUid(uid(0x01)), out.mirroring
-rx(uid(0x10), 0x32, uid(0x10) + bytes([0xFF] * 16))
-assert not out.mirroring.is_mirroring, 'a mirror of all 0xFF is no mirror'
-rx(MANAGER, 0x32, uid(0x10) + uid(0x01) + bytes(8))
-assert not out.mirroring.is_mirroring, 'a mirror at a length a unit drops was taken'
+mout = sink(0x1A, 0x2F)
+rx(STRANGER, 0x32, uid(0x1A) + uid(0x01))
+assert not (mout.mirroring and mout.mirroring.is_mirroring), 'a third party set the mirror'
+rx(MANAGER, 0x32, uid(0x1A) + uid(0x01))
+assert mout.mirroring.is_mirroring and mout.mirroring.target.device == MxrDeviceUid(uid(0x01)), mout.mirroring
+rx(uid(0x1A), 0x32, uid(0x1A) + bytes([0xFF] * 16))
+assert not mout.mirroring.is_mirroring, 'a mirror of all 0xFF is no mirror'
+rx(MANAGER, 0x32, uid(0x1A) + uid(0x01) + bytes(8))
+assert not mout.mirroring.is_mirroring, 'a mirror at a length a unit drops was taken'
 print('mirror      : filed under the sink it names, all 0xFF is none, only at 32 bytes')
 
-rx(MANAGER, 0x38, uid(0x10) + uid(0x01) + uid(0x02))
-assert out.filtered is not None and len(out.filtered) == 2, out.filtered
+rx(MANAGER, 0x38, uid(0x1A) + uid(0x01) + uid(0x02))
+assert mout.filtered is not None and len(mout.filtered) == 2, mout.filtered
 manager = mx.get_by_uid(MxrDeviceUid(MANAGER))
 assert manager.first_output is None, 'fixture: the manager has no output to misfile on'
-rx(MANAGER, 0x38, uid(0x10) + uid(0x01) + bytes(4))
-assert len(out.filtered) == 2, 'a list of no whole number of uids was taken'
-rx(STRANGER, 0x38, uid(0x10))
-assert len(out.filtered) == 2, 'a third party set the list'
+rx(MANAGER, 0x38, uid(0x1A) + uid(0x01) + bytes(4))
+assert len(mout.filtered) == 2, 'a list of no whole number of uids was taken'
+rx(STRANGER, 0x38, uid(0x1A))
+assert len(mout.filtered) == 2, 'a third party set the list'
 print('filter      : filed under the sink it names, whole uids only')
+
+# --------------------------------------- released firmware takes them from anyone
+# Below 0x2F a unit applies routing, hide, mirror and filter from any sender.
+switch(uid(0x10), '239.2.2.1', '0.0.0.0', sender=STRANGER)
+assert out.video_source is B, "a released unit's route from a peer was dropped"
+rx(STRANGER, 0x27, uid(0x10) + struct.pack('<H', 16) + bytes([1]) + bytes(5))
+assert out.hidden, "a released unit's hide from a peer was dropped"
+rx(STRANGER, 0x32, uid(0x10) + uid(0x02))
+assert out.mirroring.is_mirroring, "a released unit's mirror from a peer was dropped"
+rx(STRANGER, 0x38, uid(0x10) + uid(0x01))
+assert len(out.filtered) == 1, "a released unit's filter from a peer was dropped"
+print('released    : below 0x2F routing, hide, mirror and filter come from anyone')
 
 print('ALL OK')
