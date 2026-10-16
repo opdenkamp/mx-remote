@@ -117,6 +117,23 @@ assert out.video_source is None, out.video_source
 assert seen.video == [None], seen.video
 print('routing     : video port 0xFFFE clears the video source')
 
+# Audio port 0xFFFE is audio following the video, which drops a separate audio
+# source; 0xFFFF is no port, and leaves both where they are.
+def routing(video, audio):
+    rx(uid(0x10), 0x08, struct.pack('<HHH', 16, video, video) + bytes([0]) + struct.pack('<H', audio))
+
+switch(uid(0x10), '239.1.1.1', '239.2.2.2')
+assert (out.video_source, out.audio_source) == (A, B), (out.video_source, out.audio_source)
+seen.video.clear(); seen.audio.clear()
+routing(0xFFFF, 0xFFFF)
+assert (out.video_source, out.audio_source) == (A, B), 'port 0xFFFF moved the route'
+assert (seen.video, seen.audio) == ([], []), (seen.video, seen.audio)
+routing(0xFFFF, 0xFFFE)
+assert out.video_source is A, out.video_source
+assert out.audio_source is A, 'a separate audio source outlived audio port 0xFFFE'
+assert seen.audio == [A], 'the audio rejoining the video was not reported: %s' % seen.audio
+print('routing     : audio port 0xFFFE has the audio follow the video, 0xFFFF leaves it')
+
 # ----------------------------------------------- what this client asks for
 # From 0x27 a video route names no audio, so the audio follows it. Below 0x27
 # some firmware routes no audio for that, so the source's audio is named.

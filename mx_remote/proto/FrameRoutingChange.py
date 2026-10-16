@@ -12,7 +12,8 @@ from .FrameBase import FrameBase
 from ..Interface import BayBase, SelectedBays
 
 _ROUTE_NONE = 0xFFFE
-'''The video port a OneIP reports for an output that shows nothing.'''
+'''The port a OneIP reports for no source: as the video port, an output that
+shows nothing; as the audio port, audio that follows the video.'''
 
 class FrameRoutingChange(FrameBase):
     '''Routing change information frame.'''
@@ -53,7 +54,8 @@ class FrameRoutingChange(FrameBase):
                     return None
                 return resolve(port) if (resolve is not None) else dev.get_by_portnum(port)
             sink_bay.on_mxr_update(SelectedBays(routed(4), routed(7),
-                                                clear_video=(self.payload_u16(4) == _ROUTE_NONE)))
+                                                clear_video=(self.payload_u16(4) == _ROUTE_NONE),
+                                                audio_follows=(self.payload_u16(7) == _ROUTE_NONE)))
 
     def __str__(self) -> str:
         return f"routing change {self.sink_bay} to {self.video_bay}"
