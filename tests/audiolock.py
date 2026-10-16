@@ -47,9 +47,10 @@ def hello(n):
                    + name('5.0.0') + struct.pack('<I', int(DeviceFeature.ONEIP_SINK)))
     return mx.get_by_uid(MxrDeviceUid(uid(n)))
 
-def lockable_tree(status0, status1):
+def lockable_tree(status0, status1, reporter=uid(0x10)):
     p = bytearray([0xA5] * 68)
     p[0:2] = struct.pack('<H', 0)              # the FEATURES sub-opcode
+    p[4:20] = reporter                         # a unit reports only its own
     p[28:30] = struct.pack('<H', 2)            # entries
     p[36], p[37] = 0, 1                        # endpoint 0
     p[44:48] = struct.pack('<I', AudioFeatures.FEATURE_OUTPUT)
@@ -86,6 +87,44 @@ f = process_mxr_frame(mx, 0.0, create_mxr_frame(uid(0x11), 0x43, body), ADDR)
 assert (f._frame.param.endpoint, f._frame.param.locked) == (5, True), str(f)
 rx(uid(0x10), 0x43, body)
 print('lock read   :', f._frame.param)
+
+# ------------------------------------------- whose report, whose command
+# A features or links report names its sender at 4, as a unit reports only its
+# own; one naming another unit, or too short for what it counts, is dropped.
+other = hello(0x13)
+rx(uid(0x13), 0x43, lockable_tree(0, 0, reporter=uid(0x10)))
+assert other.audio_endpoint_by_id(0) is None, 'a report naming another unit was taken'
+rx(uid(0x13), 0x43, lockable_tree(0, 0, reporter=uid(0x13))[:67])
+assert other.audio_endpoint_by_id(0) is None, 'a report short of its entries was taken'
+rx(uid(0x13), 0x43, lockable_tree(0, 0, reporter=uid(0x13)))
+assert other.audio_endpoint_by_id(1) is not None
+
+# A links report carries its block behind the command header, at 20, and is
+# taken only whole.
+def links(reporter, count, *recs):
+    return (struct.pack('<H', 5) + bytes(2) + reporter + struct.pack('<H', count) + bytes(2)
+            + b''.join(struct.pack('<BB', ep, far) + bytes(2) + dev_uid for ep, far, dev_uid in recs))
+rx(uid(0x13), 0x43, links(uid(0x13), 2, (1, 0, uid(0x10))))
+assert other.audio_endpoint_by_id(1).link(mx) is None, 'a links report short of its count was taken'
+rx(uid(0x13), 0x43, links(uid(0x13), 1, (1, 0, uid(0x10))))
+assert other.audio_endpoint_by_id(1).link(mx) is dev.audio_endpoint_by_id(0), 'the block at 20 was not read'
+late = hello(0x14)
+rx(uid(0x14), 0x43, lockable_tree(0, 0, reporter=uid(0x14)) + links(uid(0x14), 2, (1, 0, uid(0x10)))[20:])
+assert late.audio_endpoint_by_id(1) is None, 'a features report short of the links it counts was taken'
+print('reports     : only about their sender, only whole, links at 20')
+
+# A command names the unit that must act at 4, which takes it only from
+# management.
+MANAGER = uid(0x30)
+rx(MANAGER, 0x00, struct.pack('<H', 0x2F) + name('MXR Python') + name('P9SN00000000')
+                 + name('8.0.0') + struct.pack('<I', int(DeviceFeature.MANAGER)))
+select = struct.pack('<H', 3) + bytes(2) + uid(0x10) + uid(0x10) + uid(0x13) + struct.pack('<HH', 0, 1)
+def acted_on(sender, body):
+    return process_mxr_frame(mx, 0.0, create_mxr_frame(sender, 0x43, body), ADDR).acted_on
+assert acted_on(MANAGER, select), 'management selecting an input was not taken'
+assert not acted_on(uid(0x13), select), "a peer's command for another unit was taken"
+assert acted_on(uid(0x10), select), 'a unit about itself'
+print('commands    : taken for the unit they name, from management')
 
 # --------------------------------------------------------------------- writing
 

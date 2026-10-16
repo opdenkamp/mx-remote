@@ -346,6 +346,12 @@ class AudioLinksImpl(AudioLinks):
         return val
 
     @cached_property
+    def complete(self) -> bool:
+        '''Whether the block holds every link it counts; a unit takes none from
+        one that does not.'''
+        return len(self.data.payload or b'') >= (self._idx + _AUDIO_LINKS_HEADER_SIZE + self.nb_links * _AUDIO_LINK_SIZE)
+
+    @cached_property
     def entries(self) -> list[AudioLink]:
         rv = []
         for x in range(self.nb_links):
@@ -736,9 +742,22 @@ class FrameV2IPAudio(FrameBase):
             return FrameV2IPAudioLock(header=self.header)
         raise Exception(f"unhandled audio opcode {self.opcode}")
 
+    @cached_property
+    def acted_on(self) -> bool:
+        '''Whether a unit acts on this frame.
+
+        The header names a unit at 4: for a features or links report the
+        sender itself, as a unit reports only its own, and for a command the
+        unit that must act, which takes it only from management.'''
+        if ((sender := self.remote_device) is None) or ((uid := self.uid) is None):
+            return False
+        if self.opcode in (AudioCommandOpcode.FEATURES, AudioCommandOpcode.LINKS):
+            return (uid == sender.remote_id)
+        return (self.config_subject(uid) is not None)
+
     def process(self) -> None:
         '''Dispatch processing to the resolved sub-type frame.'''
-        if (self.remote_device is None):
+        if not self.acted_on:
             return
         try:
             self._frame.process()
@@ -792,7 +811,8 @@ class FrameV2IPAudio(FrameBase):
 
     @cached_property
     def uid(self) -> MxrDeviceUid|None:
-        return self.payload_uuid(idx=2)
+        '''The unit the header names: the reporting unit, or the one that must act.'''
+        return self.payload_uuid(idx=4)
 
     def __str__(self) -> str:
         try:
@@ -811,6 +831,14 @@ class FrameV2IPAudioConfig(FrameV2IPAudio):
         return AudioConfig(data=self)
 
     @cached_property
+    def complete(self) -> bool:
+        '''Whether the report holds the entries it counts, and the links behind
+        them when it carries any; a unit takes nothing from one that does not.'''
+        if (len(self) < 36 + (self.audio_config.nb_endpoints * 16)):
+            return False
+        return (self.audio_links is None) or self.audio_links.complete
+
+    @cached_property
     def has_audio_links(self) -> bool:
         return (len(self) > 36 + (self.audio_config.nb_endpoints * 16))
 
@@ -823,7 +851,7 @@ class FrameV2IPAudioConfig(FrameV2IPAudio):
     @override
     def process(self) -> None:
         '''Update the local device cache with audio endpoint configuration and links.'''
-        if (self.remote_device is None):
+        if (self.remote_device is None) or not self.complete:
             return
         self.remote_device.on_mxr_update(data=self.audio_config.endpoints)
         if self.has_audio_links:
@@ -849,10 +877,10 @@ class FrameV2IPAudioChangeSource(FrameV2IPAudio):
 
     @override
     def process(self) -> None:
-        '''Update the local device cache with the audio source change.'''
-        if (self.remote_device is None):
+        '''Update the cache of the unit the header names with the audio source change.'''
+        if (self.uid is None) or ((target := self.mxr.get_by_uid(self.uid)) is None):
             return
-        self.remote_device.on_mxr_update(data=self.select_input)
+        target.on_mxr_update(data=self.select_input)
 
     @staticmethod
     def construct(mxr:DeviceRegistry, sink:MxrDeviceUid, sink_ep:AudioEndpoint, source:MxrDeviceUid, source_ep:AudioEndpoint) -> FrameBase|None:
@@ -876,13 +904,14 @@ class FrameV2IPAudioLinks(FrameV2IPAudio):
             raise Exception(f"invalid opcode {self.opcode}")
 
     @cached_property
-    def audio_links(self) -> AudioLinks:
-        return AudioLinksImpl(data=self)
+    def audio_links(self) -> AudioLinksImpl:
+        '''The link block, behind the command header.'''
+        return AudioLinksImpl(data=self, idx=_AUDIO_CMD_SIZE)
 
     @override
     def process(self) -> None:
         '''Update the local device cache with audio link configuration.'''
-        if (self.remote_device is None):
+        if (self.remote_device is None) or not self.audio_links.complete:
             return
         self.remote_device.on_mxr_update(data=self.audio_links)
 
@@ -900,6 +929,11 @@ class FrameV2IPAudioMute(FrameV2IPAudio):
     def param(self) -> AudioMute:
         return AudioMute(data=self)
 
+    @override
+    def process(self) -> None:
+        '''Nothing is cached: the unit reports its endpoints again once it has
+        acted.'''
+
     def __str__(self) -> str:
         return f"{str(self.remote_device)} {self.param}"
 
@@ -914,6 +948,11 @@ class FrameV2IPAudioTrigger(FrameV2IPAudio):
     def param(self) -> AudioTrigger:
         return AudioTrigger(data=self)
 
+    @override
+    def process(self) -> None:
+        '''Nothing is cached: the unit reports its endpoints again once it has
+        acted.'''
+
     def __str__(self) -> str:
         return f"{str(self.remote_device)} {self.param}"
 
@@ -927,6 +966,11 @@ class FrameV2IPAudioVolume(FrameV2IPAudio):
     @cached_property
     def param(self) -> AudioVolume:
         return AudioVolume(data=self)
+
+    @override
+    def process(self) -> None:
+        '''Nothing is cached: the unit reports its endpoints again once it has
+        acted.'''
 
     def __str__(self) -> str:
         return f"{str(self.remote_device)} {self.param}"
