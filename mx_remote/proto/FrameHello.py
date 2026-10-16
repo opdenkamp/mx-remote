@@ -41,6 +41,11 @@ class FrameHello(FrameBase):
         # announcing CONFIG_INITIALISED, and this client zeroes every field it
         # does not set, which is what the bit promises.
         features = DeviceFeature.MANAGER | DeviceFeature.CONFIG_INITIALISED
+        # While it holds an overlay sync it also announces itself as the mesh's
+        # overlay sync manager, which has the controller leave units' requests
+        # for a new sync to it.
+        if getattr(mxr, 'osd_sync_held', False):
+            features |= DeviceFeature.OSD_SYNC
         payload += [ (features >> 0) & 0xFF, (features >> 8) & 0xFF, (features >> 16) & 0xFF, (features >> 24) & 0xFF ]
         return FrameBase.construct_base(mxr=mxr, opcode=0, payload=bytes(payload))
 

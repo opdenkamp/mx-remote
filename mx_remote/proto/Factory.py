@@ -243,6 +243,9 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 	if hdr.opcode == 0x52:
 		from .FrameV2IPSinkSdp import FrameV2IPSinkSdp
 		return FrameV2IPSinkSdp(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x53:
+		from .FrameV2IPOsdSync import FrameV2IPOsdSync
+		return FrameV2IPOsdSync(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x50:
 		from .FrameUnitCommand import FrameUnitCommand
 		return FrameUnitCommand(header=hdr, timestamp=timestamp)

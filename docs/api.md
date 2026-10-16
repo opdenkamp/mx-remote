@@ -41,6 +41,50 @@ What the source on an input is showing, and how much of it a unit keeps.
 .. autodata:: mx_remote.proto.Constants.BAY_CONTENT_VALUE_MAX
 ```
 
+## Overlay sync
+
+A management unit having other units copy its overlay captions, logo choice and
+place, backgrounds and logo images.
+
+```{eval-rst}
+.. autoclass:: mx_remote.proto.Constants.OsdSyncWhat
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OsdSyncState
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OsdSyncSize
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OsdCaptionAlign
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OsdCaptionFormat
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OsdCaptionField
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OsdLogoField
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.OSD_SYNC_SLOTS
+
+.. autodata:: mx_remote.proto.Constants.OSD_SYNC_RECORDS_MAX
+
+.. autodata:: mx_remote.proto.Constants.OSD_SYNC_FONT_MAX
+
+.. autodata:: mx_remote.proto.Constants.OSD_SYNC_TEXT_MAX
+
+.. autodata:: mx_remote.proto.Constants.OSD_SYNC_IMAGE_MAX
+
+.. autodata:: mx_remote.proto.Constants.OSD_SYNC_IMAGE_WIDTH_MAX
+
+.. autodata:: mx_remote.proto.Constants.OSD_SYNC_IMAGE_HEIGHT_MAX
+
+.. autodata:: mx_remote.proto.Constants.OSD_SYNC_PERCENT_MAX
+```
+
 ## Device identity
 
 ```{eval-rst}

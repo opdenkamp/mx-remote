@@ -31,6 +31,8 @@ from ..Interface import (
 	OneIPVlan,
 	OneIPTestcard,
 	OneIPSinkSdp,
+	OsdSync,
+	OsdSyncReport,
 	OneIPTestSync,
 	OneIPTestTone,
 	TimeZone,
@@ -169,6 +171,8 @@ class Device(DeviceBase):
 		self._unit_status:UnitStatus|None = None
 		self._v2ip_testcard:OneIPTestcard|None = None
 		self._v2ip_sink_sdp:OneIPSinkSdp|None = None
+		self._osd_sync:OsdSync|None = None
+		self._osd_sync_report:OsdSyncReport|None = None
 		self._time_zone:TimeZone|None = None
 		self._clock:DeviceClock|None = None
 		self._mesh_master_uid:MxrDeviceUid|None = None
@@ -1043,6 +1047,15 @@ class Device(DeviceBase):
 			if (self._v2ip_testcard != data):
 				self._v2ip_testcard = data
 				self.call_callbacks()
+		elif isinstance(data, OsdSync):
+			self._osd_sync = data
+			self.callbacks.on_osd_sync(self, data)
+			self.call_callbacks()
+		elif isinstance(data, OsdSyncReport):
+			if (self._osd_sync_report != data):
+				self._osd_sync_report = data
+				self.callbacks.on_osd_sync_report(self, data)
+				self.call_callbacks()
 		elif isinstance(data, OneIPSinkSdp):
 			if (self._v2ip_sink_sdp != data):
 				self._v2ip_sink_sdp = data
@@ -1673,6 +1686,16 @@ class Device(DeviceBase):
 			_LOGGER.warning(f"not setting lip-sync {sync} on {self}: a value is out of range")
 			return False
 		return self._send_v2ip_testcard(TESTCARD_SET, TESTCARD_PART_SYNC, OneIPTestcard(sync=sync))
+
+	@property
+	@override
+	def osd_sync(self) -> OsdSync|None:
+		return self._osd_sync
+
+	@property
+	@override
+	def osd_sync_report(self) -> OsdSyncReport|None:
+		return self._osd_sync_report
 
 	@property
 	@override

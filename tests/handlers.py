@@ -80,6 +80,7 @@ BASELINE = {
     'FrameV2IPPowerSave.FrameV2IPPowerSave',
     'FrameV2IPSinkSdp.FrameV2IPSinkSdp',
     'FrameV2IPSourceSwitch.FrameV2IPSourceSwitch',
+    'FrameV2IPOsdSync.FrameV2IPOsdSync',
     'FrameV2IPSources.FrameV2IPSources',
     'FrameV2IPStats.FrameV2IPStats',
     'FrameV2IPTestcard.FrameV2IPTestcard',

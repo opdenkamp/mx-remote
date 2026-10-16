@@ -10,7 +10,7 @@
 from enum import IntEnum, IntFlag
 from typing import TypeVar
 
-MXR_PROTOCOL_VERSION = 0x2E
+MXR_PROTOCOL_VERSION = 0x2F
 """Highest mx_remote protocol version this library understands.
 
 Mirrors the firmware's own protocol version. Bump
@@ -31,7 +31,7 @@ every 20-30s once every device it knows is on 0x2A.
 0x2B.
 
 0x2E is the row of V2IP_SINK_SDP, so an output's session description report
-arrives stamped 0x2E."""
+arrives stamped 0x2E, and 0x2F the row of V2IP_OSD_SYNC."""
 
 MXR_PROTOCOL_VERSION_SLOW_HELLO = 0x2A
 """First protocol version whose devices may hello only every 20-30s."""
@@ -120,6 +120,7 @@ MXR_OPCODE_VERSIONS: dict[int, int] = {
     0x50: 0x2C,  # SYS_UNIT_COMMAND
     0x51: 0x2D,  # BAY_CONTENT
     0x52: 0x2E,  # V2IP_SINK_SDP
+    0x53: 0x2F,  # V2IP_OSD_SYNC
 }
 """Per-opcode minimum compatible protocol version, mirroring the firmware's
 own opcode table. Transmitters stamp the
@@ -416,6 +417,91 @@ BAY_CONTENT_KEY_MAX = 31
 
 BAY_CONTENT_VALUE_MAX = 255
 """The most bytes in a BayContentField value, UTF-8 encoded."""
+
+class OsdSyncWhat(IntFlag):
+	'''What an overlay sync copies.'''
+	CAPTIONS    = (1 << 0)
+	LOGO        = (1 << 1)
+	'''Which logo is shown, and where.'''
+	BACKGROUNDS = (1 << 2)
+	'''Background colours.'''
+	LOGO_SLOTS  = (1 << 3)
+	'''The logo images in the four slots.'''
+
+class OsdSyncState(IntEnum):
+	'''How far a unit has got with taking an overlay sync.'''
+	TAKING   = 0
+	DONE     = 1
+	'''Every setting written and committed.'''
+	FAILED   = 2
+	'''Failed, for the reason the report gives.'''
+	DEFERRED = 3
+	'''Kept for later, as the unit's video processor is off in power save.'''
+
+class OsdSyncSize(IntEnum):
+	'''The output size an overlay setting applies at.'''
+	LARGE = 1
+	'''Large outputs, which every value but SMALL also means.'''
+	SMALL = 2
+
+class OsdCaptionAlign(IntEnum):
+	'''How a caption's lines are aligned.'''
+	LEFT    = 0
+	CENTRE  = 1
+	RIGHT   = 2
+	DEFAULT = 0xFF
+	'''The layout's default.'''
+
+class OsdCaptionFormat(IntEnum):
+	'''How a caption's text is read.'''
+	PLAIN    = 0
+	MARKDOWN = 1
+	DEFAULT  = 0xFF
+	'''The layout's default.'''
+
+class OsdCaptionField(IntFlag):
+	'''The caption fields an overlay setting gives. A field left out keeps what
+	the unit has.'''
+	FONT   = (1 << 0)
+	SIZE   = (1 << 1)
+	X      = (1 << 2)
+	Y      = (1 << 3)
+	ALIGN  = (1 << 4)
+	FORMAT = (1 << 5)
+	COLOUR = (1 << 6)
+	WRAP   = (1 << 7)
+	TEXT   = (1 << 8)
+
+class OsdLogoField(IntFlag):
+	'''The logo fields an overlay setting gives. A field left out keeps what the
+	unit has.'''
+	LOGO = (1 << 0)
+	X    = (1 << 1)
+	Y    = (1 << 2)
+
+OSD_SYNC_SLOTS = 4
+"""The logo slots an overlay sync can copy."""
+
+OSD_SYNC_RECORDS_MAX = 128
+"""The most settings one overlay sync carries."""
+
+OSD_SYNC_FONT_MAX = 31
+"""The longest caption font name, in bytes."""
+
+OSD_SYNC_TEXT_MAX = 360
+"""The longest caption text a unit shows, in bytes. It cuts a longer one short."""
+
+OSD_SYNC_IMAGE_MAX = 512 * 1024
+"""The largest logo image a unit takes, in bytes."""
+
+OSD_SYNC_IMAGE_WIDTH_MAX = 1920
+"""The widest logo image a unit takes, in pixels."""
+
+OSD_SYNC_IMAGE_HEIGHT_MAX = 1080
+"""The tallest logo image a unit takes, in pixels."""
+
+OSD_SYNC_PERCENT_MAX = 100
+"""The largest size a logo is shown at, in percent."""
 
 ONEIP_SDP_MAX = 2048
 """The longest session description a OneIP output takes, in bytes."""

@@ -381,6 +381,37 @@ application, which this client announces itself as, and only from protocol
 after its last page, so one is refused before it is sent. Nothing acknowledges
 the pages; `oneip_sink_sdp` reads what the output reports next.
 
+### Overlay sync
+
+A management unit can have the other units copy its overlay captions, logo
+choice and place, backgrounds and logo images. Watching one between units:
+
+```python
+print(controller.osd_sync)         # the last sync it sent
+print(unit.osd_sync_report)        # taking, done, failed or deferred, and why
+```
+
+This client can send one too, which every unit then takes:
+
+```python
+from mx_remote import OsdCaption, OsdSyncContent, OsdSyncEntry, OsdSyncImage
+from mx_remote.proto.Constants import OsdCaptionField, OsdSyncWhat
+
+seq = await mx.send_osd_sync(OsdSyncContent(
+    what=OsdSyncWhat.CAPTIONS,
+    entries=(OsdSyncEntry(value=OsdCaption(text='Lobby'), set=OsdCaptionField.TEXT),),
+    images=None))                  # or four OsdSyncImage, served by this client
+await mx.resend_osd_sync(unit)     # one unit again
+await mx.clear_osd_sync()          # stop answering for it
+```
+
+Each unit asks for the settings it lacks and takes only those, so this client
+holds the content and answers until it is replaced or cleared, announcing
+itself meanwhile as the mesh's overlay sync manager: a unit waking from power
+save then takes this content rather than the controller's. Logo images are
+served over HTTP from this client, on `logo_port` or a free port. Content a unit
+would refuse is refused before anything is sent; see `send_osd_sync`.
+
 ### Every device at once
 
 One broadcast changes settings on every OneIP device of the mesh. Each device

@@ -22,8 +22,8 @@ from datetime import datetime, timezone
 from .ConnectionAsync import ConnectionAsync
 from ..const import MXR_HELLO_INTERVAL_MIN, MXR_HELLO_INTERVAL_RAND, __version__
 from .Device import Device
-from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, mxr_broadcast_address, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages
-from ..proto.Constants import MXR_PROTOCOL_VERSION, DeviceFeature
+from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, mxr_broadcast_address, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest
+from ..proto.Constants import MXR_PROTOCOL_VERSION, DeviceFeature, OsdSyncWhat
 from ..proto.FrameDiscover import FrameDiscover, constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
 from ..proto.FrameHello import FrameHello, constructFrameHello
@@ -32,6 +32,8 @@ from ..proto.FrameBase import FrameBase
 from ..proto.FrameTime import FrameTime
 from ..proto.FrameTimeZone import FrameTimeZone
 from ..proto.FrameV2IPSettingsAll import FrameV2IPSettingsAll
+from ..proto.FrameV2IPOsdSync import FrameV2IPOsdSync
+from .OsdSync import LogoServer, OsdSender, PASS_GAP, osd_content_refusal
 from ..proto.Constants import (ONEIP_DEVICE_SETTINGS_REPORTED_ONLY, ONEIP_DSCP_MAX, ONEIP_IR_PROFILE_MAX, ONEIP_PTP_DOMAIN_MAX,
                                OneIPPowerSaveLevel, OneIPPtpMode,
                                ONEIP_IR_PROFILE_NOT_SET, OneIPDeviceSetting)
@@ -93,7 +95,7 @@ def _missed_state(before:_Heard|None, device:DeviceBase) -> bool:
 class Remote(DeviceRegistry, ConnectionCallbacks):
     ''' Main component that handles the network connections and registration of remote devices '''
 
-    def __init__(self, target_ip:str|None=None, port:int|None=None, http_session:aiohttp.ClientSession|None=None, open_connection:bool=True, callbacks:MxrCallbacks|None=None, name:str="MXR Python", local_ip:str|None=None, broadcast:bool|None=None, addr_filter:str|None=None, uid_path:str|None=None) -> None:
+    def __init__(self, target_ip:str|None=None, port:int|None=None, http_session:aiohttp.ClientSession|None=None, open_connection:bool=True, callbacks:MxrCallbacks|None=None, name:str="MXR Python", local_ip:str|None=None, broadcast:bool|None=None, addr_filter:str|None=None, uid_path:str|None=None, logo_port:int|None=None) -> None:
         '''Initialise the remote controller.
 
         :param target_ip: multicast/broadcast IP to use, or None for the default
@@ -107,6 +109,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         :param addr_filter: only log frames from this IP address when set
         :param uid_path: file holding this client's uid, or None for ~/.mxr-uid.
             Give concurrent clients on one host separate paths - see _load_uid
+        :param logo_port: TCP port to serve overlay sync logo images on, or None
+            for a free one
         '''
         DeviceRegistry.__init__(self)
         ConnectionCallbacks.__init__(self)
@@ -129,6 +133,10 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._state_request:MxrDeviceUid|None = None
         self._addr_filter = addr_filter
         self._svd = SvdMap()
+        self._osd = OsdSender()
+        self._osd_queued = asyncio.Event()
+        self._logos = LogoServer()
+        self._logo_port = logo_port
         if open_connection:
             self.conn = ConnectionAsync(callbacks=self, target_ip=self.target_ip, port=self.port, local_ip=self._local_ip)
         else:
@@ -348,9 +356,10 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         # announce before it answers.
         self.tx_hello()
         self.tx_discover()
-        checker = asyncio.create_task(self._background_probe())
-        self._tasks.add(checker)
-        checker.add_done_callback(self._on_task_done)
+        for loop in (self._background_probe(), self._osd_loop()):
+            task = asyncio.create_task(loop)
+            self._tasks.add(task)
+            task.add_done_callback(self._on_task_done)
 
     async def stop_async(self) -> None:
         '''Stop the server and close all connections.'''
@@ -365,6 +374,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
+        self._osd.drop()
+        await self._logos.stop()
         if self.conn is not None:
             self.conn.close()
         if self._own_session:
@@ -662,9 +673,133 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         if (self._state_request is not None):
             self._request_state(self._state_request)
 
+    # ---- overlay sync ----
+
+    @property
+    def osd_sync_held(self) -> bool:
+        '''Whether this client holds an overlay sync, and so announces itself as
+        the mesh's overlay sync manager.'''
+        return self._osd.holds
+
+    async def send_osd_sync(self, content:OsdSyncContent) -> int|None:
+        '''Have every unit copy content, and keep it in place, returning the
+        sync's number, or None when it was refused or did not go out.
+
+        Units take a sync from the mesh controller or a management application,
+        which this client announces itself as. Each unit fetches the images
+        from a server this client runs, then asks for the settings, which this
+        client answers until the content is replaced or clear_osd_sync(). Meanwhile
+        it announces itself as the mesh's overlay sync manager, so a unit waking
+        from power save takes this content too, rather than the controller's.
+        The controller can still send its own over it; the last sync a unit
+        took is what it shows. Each unit's osd_sync_report says how it went.
+
+        Refused for content a unit would refuse: copying nothing, more than
+        OSD_SYNC_RECORDS_MAX settings, a caption font over OSD_SYNC_FONT_MAX or
+        text over OSD_SYNC_TEXT_MAX bytes, a logo other than -1 to 4, or an image
+        that is not a PNG within OSD_SYNC_IMAGE_MAX bytes and
+        OSD_SYNC_IMAGE_WIDTH_MAX by OSD_SYNC_IMAGE_HEIGHT_MAX pixels, shown at
+        over OSD_SYNC_PERCENT_MAX percent. Refused content leaves the held sync as
+        it was; content that fails to go out leaves none held.
+        '''
+        if ((why := osd_content_refusal(content)) is not None):
+            _LOGGER.warning(f"not sending an overlay sync: {why}")
+            return None
+        http_port = 0
+        if (content.images is not None):
+            try:
+                await self._logos.start(self._logo_port or 0)
+            except OSError as e:
+                _LOGGER.warning(f"not sending an overlay sync: the logo server did not start: {e}")
+                await self.clear_osd_sync()
+                return None
+            self._logos.images = tuple(image.png for image in content.images)
+            http_port = self._logos.port
+        was_held = self._osd.holds
+        self._osd.hold(content, http_port)
+        # Announced first, so the controller has stood back by the time a unit
+        # deferring this sync wakes and asks for it.
+        if not was_held:
+            self.tx_hello()
+        seq = self._tx_osd_sync(MxrDeviceUid(bytes(16)), None, None)
+        if (seq is None):
+            await self.clear_osd_sync()
+        return seq
+
+    async def resend_osd_sync(self, device:DeviceBase) -> int|None:
+        '''Have one unit copy the held sync again, returning the new sync's
+        number. As send_osd_sync().
+
+        Refused while no sync is held, and for a unit that does not announce
+        DeviceFeature.OSD_SYNC, as one that does not take overlay syncs.'''
+        if (device.features is None) or (DeviceFeature.OSD_SYNC not in device.features):
+            _LOGGER.warning(f"not resending an overlay sync to {device}: it takes none")
+            return None
+        if not self._osd.holds:
+            _LOGGER.warning(f"not resending an overlay sync to {device}: none is held")
+            return None
+        return self._tx_osd_sync(device.remote_id, None, device)
+
+    async def clear_osd_sync(self) -> None:
+        '''Stop holding the sync this client sent, and hand the overlay sync
+        manager's part back to the controller. Units keep what they took; one
+        still taking it fails, as its requests go unanswered.'''
+        await self._logos.stop()
+        if self._osd.drop():
+            self.tx_hello()
+
+    def _tx_osd_sync(self, target:MxrDeviceUid, what:OsdSyncWhat|None, to:DeviceBase|None) -> int|None:
+        '''Number and send a new sync of the held content.'''
+        if ((sync := self._osd.new_sync(what)) is None):
+            return None
+        seq, what, http_port, records, slots = sync
+        frame = FrameV2IPOsdSync.construct_sync(mxr=self, target=target, seq=seq, what=what, http_port=http_port,
+                                                records=records, slots=slots, to=to)
+        if (frame is None) or (self.transmit(frame.frame) != len(frame.frame)):
+            return None
+        return seq
+
+    def _answer_osd_request(self, request:OsdSyncRequest) -> None:
+        '''Answer a unit's overlay sync request: queue the settings it lacks, or
+        send it a new sync of its own.'''
+        what = self._osd.answer(request)
+        if (self._osd.queued > 0):
+            self._osd_queued.set()
+        if (what is not None) and ((unit := self.get_by_uid(request.target)) is not None):
+            self._tx_osd_sync(request.target, what, unit)
+
+    def _osd_pass(self) -> int:
+        '''Send the next few settings units asked for, returning how many.'''
+        sent = 0
+        for unit, seq, index, records, entry in self._osd.next_pass():
+            frame = FrameV2IPOsdSync.construct_setting(mxr=self, target=unit, seq=seq, index=index,
+                                                       records=records, entry=entry, to=self.get_by_uid(unit))
+            if (frame is not None):
+                self.transmit(frame.frame)
+                sent += 1
+        return sent
+
+    async def _osd_loop(self) -> None:
+        '''Send settings as units ask for them, until the client is closing.'''
+        while not self._closing:
+            try:
+                if (self._osd_pass() > 0):
+                    await asyncio.sleep(PASS_GAP)
+                    continue
+            except Exception:
+                _LOGGER.warning(f"overlay sync pass failed: {traceback.format_exc()}")
+            self._osd_queued.clear()
+            if (self._osd.queued == 0):
+                try:
+                    await asyncio.wait_for(self._osd_queued.wait(), timeout=1)
+                except asyncio.TimeoutError:
+                    pass
+
     @override
     def on_mxr_update(self, data:Any) -> None:
-        if isinstance(data, FrameHello):
+        if isinstance(data, OsdSyncRequest):
+            self._answer_osd_request(data)
+        elif isinstance(data, FrameHello):
             self._on_mxr_hello(data)
         elif isinstance(data, (FramePing, FrameDiscover)):
             # Announcing is driven by a clock, and these are the frames that add

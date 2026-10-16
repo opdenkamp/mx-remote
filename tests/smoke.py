@@ -10,7 +10,7 @@ print('version', mx_remote.const.VERSION, 'proto', hex(MXR_PROTOCOL_VERSION))
 # This client announces, and takes up to, the newest version any opcode it
 # handles is stamped at.
 assert MXR_PROTOCOL_VERSION == max(MXR_OPCODE_VERSIONS.values()), hex(MXR_PROTOCOL_VERSION)
-assert MXR_OPCODE_VERSIONS[0x52] == 0x2E  # V2IP_SINK_SDP
+assert MXR_OPCODE_VERSIONS[0x52] == 0x2E and MXR_OPCODE_VERSIONS[0x53] == 0x2F  # V2IP_SINK_SDP, V2IP_OSD_SYNC
 assert MXR_OPCODE_VERSIONS[0x49] == 0x28 and MXR_OPCODE_VERSIONS[0x3C] == 0x11
 assert MXR_OPCODE_VERSIONS[0x4F] == 0x2C and MXR_OPCODE_VERSIONS[0x50] == 0x2C  # SYS_UNIT_STATUS, SYS_UNIT_COMMAND
 assert DeviceFeature.VIDEO_WALL == (1 << 24)

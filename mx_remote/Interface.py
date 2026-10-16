@@ -2270,6 +2270,164 @@ class OneIPPtpMessages:
                 if (bit in valid)]
 
 @dataclass(frozen=True)
+class OsdSyncSlot:
+    """One logo slot, as an overlay sync describes it."""
+    bytes: int = 0
+    """The PNG's size in bytes; zero empties the slot."""
+    crc32: int = 0
+    """The PNG's CRC-32."""
+    percent: int = 0
+    """The size it is shown at, in percent."""
+
+@dataclass(frozen=True)
+class OsdSync:
+    """
+    An overlay sync, as its source sent it: a management unit having other
+    units copy its overlay captions, logo choice and place, backgrounds and
+    logo images. A unit takes one only from a management unit: the mesh
+    controller, or one that announces DeviceFeature.MANAGER.
+    """
+    seq: int
+    """The sync's number at its source."""
+    target: MxrDeviceUid
+    """The unit it is for, or an empty uid for every unit."""
+    what: OsdSyncWhat
+    """What it copies."""
+    http_port: int
+    """The source's HTTP port, zero meaning 80."""
+    source_ip: str
+    """The source's address, 0.0.0.0 meaning the sender's."""
+    records: int
+    """How many settings follow."""
+    slots: tuple[OsdSyncSlot, ...]|None
+    """The logo slots, when it copies them. A unit fetches a slot whose size or
+    CRC differs from its own from http://source_ip:http_port/osd-sync/slotN.png,
+    N being 1 to 4."""
+
+@dataclass(frozen=True)
+class OsdSyncRequest:
+    """A unit asking for an overlay sync, or for settings of one it is taking,
+    or management asking for a new sync for a unit."""
+    target: MxrDeviceUid
+    """The unit the sync is for, which sent the request unless management did."""
+    seq: int
+    """The sync whose settings it asks for, or zero asking for a new sync."""
+    what: OsdSyncWhat
+    """What it asks a new sync to copy."""
+    missing: bytes
+    """The settings it lacks, bit i standing for setting i, 16 bytes."""
+    source: MxrDeviceUid
+    """Who sent the sync it asks about. Empty when it asks for a new sync, and
+    from a unit whose module does not name the source."""
+
+    def is_missing(self, index:int) -> bool:
+        """Whether the unit lacks setting index."""
+        return (0 <= index // 8 < len(self.missing)) and ((self.missing[index // 8] & (1 << (index % 8))) != 0)
+
+@dataclass(frozen=True)
+class OsdCaption:
+    """A caption, as an overlay setting gives it."""
+    text: str = ''
+    font: str = ''
+    """The font's name, empty for the layout's."""
+    size: int = 0
+    """The size, zero for the layout's."""
+    x: int = -0x8000
+    """The horizontal position, -32768 for the layout's."""
+    y: int = -0x8000
+    """The vertical position, -32768 for the layout's."""
+    wrap: int = -2
+    """The wrap width in pixels: -1 automatic, 0 none, -2 the layout's."""
+    align: OsdCaptionAlign|int = OsdCaptionAlign.DEFAULT
+    format: OsdCaptionFormat|int = OsdCaptionFormat.DEFAULT
+    colour: int = 0xFFFFFFFF
+    """The colour as 0xRRGGBB, 0xFFFFFFFF for the layout's."""
+
+@dataclass(frozen=True)
+class OsdLogo:
+    """A logo choice and place, as an overlay setting gives it."""
+    logo: int = 0
+    """0 the built-in logo, -1 none, 1 to 4 a slot."""
+    x: int = -0x8000
+    """The horizontal position, -32768 for the layout's."""
+    y: int = -0x8000
+    """The vertical position, -32768 for the layout's."""
+
+OsdSyncValue = OsdCaption|OsdLogo|int
+"""What one overlay setting sets: a caption, a logo choice and place, or a
+background colour as 0xRRGGBB, 0xFFFFFFFF for the layout's."""
+
+@dataclass(frozen=True)
+class OsdSyncSetting:
+    """One setting of an overlay sync, which its source sends to one unit."""
+    seq: int
+    """The sync it belongs to."""
+    target: MxrDeviceUid
+    """The unit it is for."""
+    index: int
+    """Its place in the sync, below records."""
+    records: int
+    """How many settings the sync has."""
+    size: OsdSyncSize|int
+    """The output size it applies at."""
+    layers: int
+    """The layers it applies to, a bit per layer."""
+    set: int
+    """The fields it gives: OsdCaptionField bits for a caption, OsdLogoField
+    bits for a logo, and bit 0 for a background's colour."""
+    value: OsdSyncValue
+
+@dataclass(frozen=True)
+class OsdSyncReport:
+    """
+    How a unit is getting on with an overlay sync. A unit reports taking, then
+    done or failed. One in power save reports deferred, and reports again once
+    it takes the sync on waking.
+    """
+    seq: int
+    """The sync it reports on, numbered by the source that sent it."""
+    state: OsdSyncState|int
+    written: int
+    """The settings it wrote."""
+    refused: int
+    """The settings it refused."""
+    reason: str
+    """Why it failed or refused any."""
+
+@dataclass(frozen=True)
+class OsdSyncEntry:
+    """One setting of an overlay sync this client sends."""
+    value: OsdSyncValue
+    """What it sets."""
+    set: int
+    """The fields it gives, as in OsdSyncSetting.set. A field given its default
+    value goes back to the layout's."""
+    size: OsdSyncSize = OsdSyncSize.LARGE
+    """The output size it applies at."""
+    layers: int = 1
+    """The layers it applies to, a bit per layer. A unit leaves out the layers
+    it does not have, and skips the setting when none is left."""
+
+@dataclass(frozen=True)
+class OsdSyncImage:
+    """The logo image for one slot."""
+    png: bytes = b''
+    """The PNG. Empty empties the slot."""
+    percent: int = 0
+    """The size it is shown at: 0 at its own pixels, 1 to 100 its longer side as
+    a percent of the large overlay."""
+
+@dataclass(frozen=True)
+class OsdSyncContent:
+    """What this client has units copy."""
+    what: OsdSyncWhat
+    """The kinds of setting it copies. OsdSyncWhat.LOGO_SLOTS follows from images."""
+    entries: tuple[OsdSyncEntry, ...] = ()
+    """The settings, which units write in this order."""
+    images: tuple[OsdSyncImage, ...]|None = None
+    """The four logo slots, or None to leave every unit's own."""
+
+@dataclass(frozen=True)
 class OneIPSinkSdp:
     """
     What a OneIP output plays from a session description, as it last reported
@@ -3286,6 +3444,16 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
+    def osd_sync(self) -> OsdSync|None:
+        '''The last overlay sync this management unit sent, None until it has.'''
+
+    @property
+    @abstractmethod
+    def osd_sync_report(self) -> OsdSyncReport|None:
+        '''This unit's last report on taking an overlay sync, None until it has.'''
+
+    @property
+    @abstractmethod
     def oneip_sink_sdp(self) -> OneIPSinkSdp|None:
         '''What this OneIP output plays from a session description, as it last
         reported it, None until it has. It reports when that changes and at
@@ -3877,6 +4045,24 @@ class MxrCallbacks:
         lval = "up" if val else "down"
         _LOGGER.debug(f"{bay} HDBaseT link {lval}")
         self.on_bay_update(bay)
+
+    def on_osd_sync(self, dev:DeviceBase, sync:OsdSync) -> None:
+        ''' called when management unit 'dev' sent an overlay sync '''
+        _LOGGER.debug(f"{dev} overlay sync {sync.seq}")
+        self.on_device_update(dev)
+
+    def on_osd_sync_report(self, dev:DeviceBase, report:OsdSyncReport) -> None:
+        ''' called when unit 'dev' reported on taking an overlay sync '''
+        _LOGGER.debug(f"{dev} overlay sync {report.seq}: {report.state!r} {report.reason}")
+        self.on_device_update(dev)
+
+    def on_osd_sync_requested(self, dev:DeviceBase, request:OsdSyncRequest) -> None:
+        ''' called when 'dev' asked for an overlay sync, or for settings of one '''
+        pass
+
+    def on_osd_sync_setting(self, dev:DeviceBase, setting:OsdSyncSetting) -> None:
+        ''' called when management unit 'dev' sent a unit a setting of an overlay sync '''
+        pass
 
     def on_bay_content_changed(self, bay:BayBase, content:BayContent) -> None:
         ''' called when what the source on input 'bay' shows changed '''
