@@ -134,6 +134,16 @@ for protocol, audio in ((0x28, bytes(4)), (0x27, bytes(4)), (0x26, ip4('239.1.1.
     assert p[20:24] == audio, f'{protocol:#x}: audio {p[20:24].hex()}'
 print('select      : below 0x27 the source\'s audio is named, from it none')
 
+# --------------------------------------------- a OneIP output takes a volume
+DIG_OUT = int(BayFeaturesMask.AUDIO_DIG_OUT)
+vol = hello(uid(0x19), 0x2F, DeviceFeature.ONEIP_SINK | DeviceFeature.VOLUME_CONTROL)
+rx(uid(0x19), 0x02, bay_rec(16, 1, 0, 'Output', SINK_LOCAL | DIG_OUT))
+vout = vol.get_by_portnum(16)
+sent.clear()
+assert vout.volume_set(40) is True, 'a OneIP output refused a volume'
+assert int.from_bytes(sent[-1][20:22], 'little') == 0x14 and sent[-1][24 + 18] == 40, sent[-1].hex()
+print('volume      : a OneIP output, with its digital audio output, takes a volume')
+
 # ------------------------------------------------- only from management
 # Current firmware takes routing and hide only from management: a sender
 # announcing MANAGER, or the controller the unit follows. MESH_MASTER stands in

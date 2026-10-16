@@ -280,7 +280,10 @@ class Bay(BayBase):
     @property
     @override
     def has_volume_control(self) -> bool:
+        '''Whether a unit takes a volume for the bay. A OneIP output carries a
+        digital audio output and takes one.'''
         return BayFeaturesMask.AUDIO_ANA_OUT in self.features \
+            or BayFeaturesMask.AUDIO_DIG_OUT in self.features \
             or BayFeaturesMask.AUDIO_AMP_OUT in self.features \
             or BayFeaturesMask.AUDIO_ANA_IN in self.features \
             or BayFeaturesMask.AUDIO_DIG_IN in self.features
