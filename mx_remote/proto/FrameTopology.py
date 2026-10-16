@@ -12,8 +12,12 @@ from .FrameBase import FrameBase
 from ..Uid import MxrDeviceUid
 import struct
 
+# Each entry is a uid and a u32 port mask, padded to 24 bytes.
+_ENTRY_SIZE = 24
+
 class TopologyEntry:
-    '''Single entry in the topology map (device UID and connection mask).'''
+    '''Single entry in the topology map: a device's uid, and the mask of the
+    sender's switch ports its MAC address was learnt on.'''
     def __init__(self, uid:MxrDeviceUid, mask:int):
         self.uid = uid
         self.mask = mask
@@ -33,9 +37,9 @@ class FrameTopology(FrameBase):
         data = self.payload
         if (data is None):
             return []
-        while len(data) >= 20:
+        while len(data) >= _ENTRY_SIZE:
             topo.append(TopologyEntry(MxrDeviceUid(data[0:16]), struct.unpack('<L', data[16:20])[0]))
-            data = data[20:]
+            data = data[_ENTRY_SIZE:]
         return topo
 
     @cached_property

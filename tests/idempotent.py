@@ -116,7 +116,7 @@ CASES = [
     ('0x26 v2ip sources',   0x26, UID + b''.join(
         bytes(int(x) for x in ip.split('.')) + struct.pack('<H', port) + bytes(2)
         for ip, port in (('239.7.7.1', 50020), ('239.7.7.2', 50022), ('239.7.7.3', 50021)))),
-    ('0x30 topology',       0x30, PEER + struct.pack('<I', 3)),
+    ('0x30 topology',       0x30, PEER + struct.pack('<I', 3) + bytes(4)),
     ('0x32 mirror',         0x32, UID + PEER),
     ('0x38 filter',         0x38, UID + PEER),
     ('0x3E amp dolby',      0x3E, UID + bytes([2, 0b11])),

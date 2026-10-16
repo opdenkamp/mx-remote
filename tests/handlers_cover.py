@@ -132,9 +132,11 @@ filtered = out.filtered
 assert filtered is not None and len(filtered) == 1, filtered
 print('0x38 filter : %d source filtered' % len(filtered))
 
-# ---- 0x30 TOPOLOGY: 20-byte entries, uid then a mask
-rx(0x30, PEER + struct.pack('<I', 0x03))
-assert dev._topology, dev._topology       # no public accessor; the handler writes here
+# ---- 0x30 TOPOLOGY: 24-byte entries, uid then a mask and padding
+SECOND = bytes(range(80, 96))
+rx(0x30, PEER + struct.pack('<I', 0x03) + bytes([0xA5] * 4) + SECOND + struct.pack('<I', 0x0C) + bytes([0xA5] * 4))
+topo = dev._topology                      # no public accessor; the handler writes here
+assert [(bytes(e.uid.byte_value), e.mask) for e in topo] == [(PEER, 0x03), (SECOND, 0x0C)], topo
 print('0x30 topo   : %d entr(y/ies)' % len(dev._topology))
 
 # ---- 0x3E AMP_DOLBY_STATE: uid, then mode and flags
