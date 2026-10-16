@@ -7,6 +7,7 @@
 '''Protocol frame for source routing change notifications.'''
 
 from functools import cached_property
+from typing import Any
 from .FrameBase import FrameBase
 from ..Interface import BayBase, SelectedBays
 
@@ -42,8 +43,16 @@ class FrameRoutingChange(FrameBase):
 
     def process(self) -> None:
         '''Update the local device cache with the new routing.'''
-        if ((sink_bay := self.sink_bay) is not None):
-            sink_bay.on_mxr_update(SelectedBays(self.video_bay, self.audio_bay,
+        if ((sink_bay := self.sink_bay) is not None) and ((dev := self.remote_device) is not None):
+            # A OneIP unit's input port names a source before its mapping has
+            # created the bay.
+            resolve = getattr(dev, 'routed_source', None)
+            def routed(at:int) -> Any:
+                port = self.payload_u16(at)
+                if (port is None):
+                    return None
+                return resolve(port) if (resolve is not None) else dev.get_by_portnum(port)
+            sink_bay.on_mxr_update(SelectedBays(routed(4), routed(7),
                                                 clear_video=(self.payload_u16(4) == _ROUTE_NONE)))
 
     def __str__(self) -> str:

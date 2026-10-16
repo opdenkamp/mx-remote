@@ -1423,9 +1423,10 @@ class BayBase(ABC):
 
 class SelectedBays:
     '''A route a frame reports for an output. video and audio are None where the
-    frame names no bay; clear_video says the output shows nothing, and
-    audio_follows that its audio follows its video again.'''
-    def __init__(self, video:BayBase|None, audio:BayBase|None, clear_video:bool=False,
+    frame names no bay, and the port of a OneIP unit's input its mappings have
+    yet to create; clear_video says the output shows nothing, and audio_follows
+    that its audio follows its video again.'''
+    def __init__(self, video:BayBase|int|None, audio:BayBase|int|None, clear_video:bool=False,
                  audio_follows:bool=False) -> None:
         self._video = video
         self._audio = audio
@@ -1433,11 +1434,11 @@ class SelectedBays:
         self.audio_follows = audio_follows
 
     @property
-    def video(self) -> BayBase|None:
+    def video(self) -> BayBase|int|None:
         return self._video
 
     @property
-    def audio(self) -> BayBase|None:
+    def audio(self) -> BayBase|int|None:
         return self._audio
 
 

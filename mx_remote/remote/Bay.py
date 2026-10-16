@@ -1323,11 +1323,20 @@ class Bay(BayBase):
 
     def _route_to(self, video:BayBase|int|None, audio:BayBase|int|None) -> None:
         '''Set the route to sources the device has resolved: a bay, or the port
-        of one its mappings have yet to create, which is taken once they do.'''
-        self._pending_video_port = video if isinstance(video, int) else None
-        self._pending_audio_port = audio if isinstance(audio, int) else None
-        self.video_source = None if isinstance(video, int) else video
-        self.audio_source = None if isinstance(audio, int) else audio
+        of one its mappings have yet to create, which is taken once they do.
+
+        A source that names nothing, 0xFF among them, keeps the route: a unit
+        writes 0xFF to both fields of its output's record whenever either is
+        unrouted, or routed to a port too wide for the field. Its routing change
+        report is what clears a route.'''
+        if (video is not None):
+            self._pending_video_port = video if isinstance(video, int) else None
+            if not isinstance(video, int):
+                self.video_source = video
+        if (audio is not None):
+            self._pending_audio_port = audio if isinstance(audio, int) else None
+            if not isinstance(audio, int):
+                self.audio_source = audio
 
     def adopt_pending_source(self, source:BayBase) -> None:
         '''Take source as the route a report named by its port before it existed.'''
@@ -1392,13 +1401,15 @@ class Bay(BayBase):
             # falls back to whatever it was using - so clearing the route on
             # None would invent a state no device is in.
             if data.clear_video:
+                self._pending_video_port = None
                 self.video_source = None
-            elif (data.video is not None):
-                self.video_source = data.video
+            else:
+                self._route_to(data.video, None)
             if data.audio_follows:
+                self._pending_audio_port = None
                 self.audio_source = None
-            elif (data.audio is not None):
-                self.audio_source = data.audio
+            else:
+                self._route_to(None, data.audio)
         elif isinstance(data, PowerStatus):
             self.power_status = data
         elif isinstance(data, SignalStatus):

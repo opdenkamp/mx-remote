@@ -70,6 +70,11 @@ def page(is_input, first_port, uids):
     return (struct.pack('<HH', (len(uids) << 1) | int(is_input), first_port) + bytes([0xA5] * 4)
             + b''.join(uids))
 
+def route(sink, video, audio):
+    '''A 0x08 routing change: u16 ports, the sink at 0, the selected input at
+    2, video at 4, the scrambled flag at 6 and audio at 7.'''
+    return struct.pack('<HHHBH', sink, video, video, 0xA5, audio)
+
 def receiver(n):
     '''Its own output on port 127, and the stale records it sends for two mesh
     inputs on ports 1 and 2 and a mesh output on 128.'''
@@ -138,6 +143,7 @@ print('ports       : split below 0x2B, across the split by bay number; fixed fro
 # the mapping that creates that source's bay.
 rr = hello(uid(0x31), 0x27, DeviceFeature.ONEIP_SINK, 'RX0006')
 for port, is_input in ((15, True), (17, False), (31, False), (32, True), (142, True), (143, False)):
+    rx(uid(0x31), 0x08, route(16, 0xFFFE, 0xFFFE))
     rx(uid(0x31), 0x02, rec(16, 1, 0, 'Output 1', 'Lounge', 0, F.HDMI_OUT | F.ONEIP_SINK_LOCAL, port, port))
     rx(uid(0x31), 0x44, page(True, port, [uid(0x60)]))
     routed = rr.get_by_portnum(16).video_source
@@ -222,6 +228,26 @@ assert sink.video_source is None
 rx(uid(0x12), 0x44, page(True, 2, [uid(0x13)]))
 assert sink.video_source is rt.get_by_portnum(2), 'a route named before its mapping was lost'
 print('early route : a route names a mesh input before its mapping creates it')
+
+# A unit reports 0xFF for both of an output's sources whenever either is
+# unrouted, so its bay configuration only ever sets a route; the routing change
+# report clears it, and names its sources the same way.
+OUT = F.HDMI_OUT | F.ONEIP_SINK_LOCAL
+rx(uid(0x12), 0x44, page(True, 3, [uid(0x14), uid(0x15)]))
+rx(uid(0x12), 0x02, rec(127, 1, 0, 'Output 1', 'Lounge', 0, OUT, 2, 3))
+rx(uid(0x12), 0x02, rec(127, 1, 0, 'Output 1', 'Lounge', 0, OUT, 0xFF, 0xFF))
+assert (sink.video_source, sink.audio_source) == (rt.get_by_portnum(2), rt.get_by_portnum(3)), \
+    'a record of 0xFF dropped the route'
+rx(uid(0x12), 0x08, route(127, 0xFFFE, 0xFFFE))
+assert sink.video_source is None, 'the routing change did not clear the route'
+rx(uid(0x12), 0x08, route(127, 4, 4))
+assert sink.video_source is rt.get_by_portnum(4) and sink.audio_source is rt.get_by_portnum(4)
+rx(uid(0x12), 0x08, route(127, 9, 9))
+rx(uid(0x12), 0x44, page(True, 9, [uid(0x16)]))
+assert sink.video_source is rt.get_by_portnum(9), 'a routing change naming a mesh input before its mapping'
+rx(uid(0x12), 0x08, route(127, 128, 128))
+assert sink.video_source is rt.get_by_portnum(9), 'an output port moved the route'
+print('route 0xFF  : a record only sets a route, the routing change clears it')
 
 r = receiver(0x14)
 transmitter(uid(0x15), 'Apple TV')
