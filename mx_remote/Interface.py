@@ -1640,9 +1640,9 @@ class OneIPDscpConfig:
 
     DSCP 0 (CS0) is a legal marking, so each wire byte carries a set bit
     alongside its value and a stream whose byte is unset reads back as None
-    here. Firmware treats the marking as all-or-nothing: it only applies one
-    when all three streams carry a value, and otherwise falls back to CS2
-    (``ONEIP_DSCP_DEFAULT``) - ``complete`` reports which case a frame is in.
+    here. A unit treats the marking as all-or-nothing: it keeps a frame's
+    markings only when all three streams carry a value, and otherwise keeps
+    the ones it had - ``complete`` reports which case a frame is in.
     """
     def __init__(self, video:int|None, audio:int|None, anc:int|None) -> None:
         self._video = video
@@ -1664,23 +1664,16 @@ class OneIPDscpConfig:
     @property
     def carried(self) -> bool:
         """
-        True when this frame carried a marking at all.
-
-        Gated on the video byte alone, matching the firmware cache, which stores
-        all three bytes verbatim. Not ``complete``: a partial set does overwrite
-        a peer's marking, so treating it as absent would report a marking the
-        peer does not hold.
+        True when this frame carried a marking for the video stream. A unit
+        takes the markings only when they are ``complete``.
         """
         return (self._video is not None)
 
     @property
     def complete(self) -> bool:
         """
-        True when all three streams carry a marking.
-
-        Whether a marking is applied, as opposed to carried: firmware falls back
-        to CS2 on all three streams unless every byte is set, so a partial set is
-        cached and reported but never applied.
+        True when all three streams carry a marking, the only case a unit
+        takes the frame's markings in.
         """
         return (self._video is not None) and (self._audio is not None) and (self._anc is not None)
 
@@ -1695,8 +1688,8 @@ class OneIPDscpConfig:
         def one(v:int|None) -> str:
             return str(v) if (v is not None) else "unset"
         rv = f"video:{one(self._video)} audio:{one(self._audio)} anc:{one(self._anc)}"
-        # a partial set is cached and reported, but firmware will not apply it
-        return rv if self.complete else (rv + " (partial, not applied)")
+        # a partial set is decoded and reported, but no unit takes it
+        return rv if self.complete else (rv + " (partial, not taken)")
 
     def __repr__(self) -> str:
         return str(self)
@@ -1772,7 +1765,8 @@ class DeviceOneIPDetails:
             video, audio, anc = previous._video, previous._audio, previous._anc
         arc = self._arc if oneip_stream_valid(self._arc) else previous._arc
         tx_rate = self._tx_rate if oneip_rate_valid(self._tx_rate) else previous._tx_rate
-        dscp = self._dscp if ((self._dscp is not None) and self._dscp.carried) else previous._dscp
+        # A unit keeps the markings only when all three carry their set bit.
+        dscp = self._dscp if ((self._dscp is not None) and self._dscp.complete) else previous._dscp
         scaling = self._merge_scaling(previous._scaling)
 
         if (video is self._video) and (audio is self._audio) and (anc is self._anc)                 and (arc is self._arc) and (tx_rate == self._tx_rate)                 and (dscp is self._dscp) and (scaling is self._scaling):

@@ -96,17 +96,18 @@ print('mode-only  : scaling', sc(d))
 assert d.scaling.mode == 0x2060 and d.scaling.refresh == 50
 assert (d.scaling.flags & MXR_SCALING_FLAG_OPTIONS_VALID) != 0, 'options validity lost'
 
-# 7. a PARTIAL dscp set (video+audio set, anc unset) overwrites - it is not "absent".
-#    firmware gates the cache on the video byte alone and stores all three verbatim.
-d = rx(cfg(dscp=(MXR_ONEIP_DSCP_SET | 8, MXR_ONEIP_DSCP_SET | 12, 0)))
-print('dscp partial :', d.dscp, '| carried', d.dscp.carried, '| complete', d.dscp.complete)
-assert (d.dscp.video, d.dscp.audio, d.dscp.anc) == (8, 12, None), str(d.dscp)
-assert d.dscp.carried and not d.dscp.complete
+# 7. a unit keeps a frame's markings only when all three carry their set bit
+d = rx(cfg(dscp=(MXR_ONEIP_DSCP_SET | 8, MXR_ONEIP_DSCP_SET | 12, MXR_ONEIP_DSCP_SET | 0)))
+print('dscp whole   :', d.dscp, '| complete', d.dscp.complete)
+assert (d.dscp.video, d.dscp.audio, d.dscp.anc) == (8, 12, 0), str(d.dscp)
+assert d.dscp.complete
 
-# 8. video byte unset = the frame carried no marking at all, so keep the cache
-d = rx(cfg(dscp=(0, MXR_ONEIP_DSCP_SET | 20, MXR_ONEIP_DSCP_SET | 20)))
-print('dscp no-video:', d.dscp)
-assert (d.dscp.video, d.dscp.audio, d.dscp.anc) == (8, 12, None), 'cache not kept'
+# 8. a PARTIAL set, by video or not, is one the unit did not take: the cache stays
+for partial in ((MXR_ONEIP_DSCP_SET | 20, MXR_ONEIP_DSCP_SET | 20, 0),
+                (0, MXR_ONEIP_DSCP_SET | 20, MXR_ONEIP_DSCP_SET | 20)):
+    d = rx(cfg(dscp=partial))
+    print('dscp partial :', d.dscp)
+    assert (d.dscp.video, d.dscp.audio, d.dscp.anc) == (8, 12, 0), 'a partial set replaced the markings'
 
 # 9. the second options group is announced and read as a pair, and a write
 #    carrying another group does not unsay it - the marker is also the report
