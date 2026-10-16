@@ -50,6 +50,10 @@ from ..const import V2IP_UDP_PORT_AUDIO
 
 _LOGGER = logging.getLogger(__name__)
 
+_AUDIO_FOLLOWS_SINCE = 0x27
+'''The protocol from which every unit's audio follows its video for a source
+switch naming no audio. Some units below it route no audio instead.'''
+
 class Bay(BayBase):
     '''Represents a single input or output bay on an MX Remote device.'''
 
@@ -412,15 +416,15 @@ class Bay(BayBase):
 
     @video_source.setter
     def video_source(self, source:BayBase|None) -> None:
-        if not self.is_output:
+        '''Set the video source, None for none. Audio that follows the video
+        moves with it, and is reported as moving.'''
+        if not self.is_output or (source == self._video_source):
             return
-        if source is None:
-            self._video_source = source
-            return
-        if (self._video_source is None) or (source != self._video_source):
-            self._video_source = source
-            self.callbacks.on_video_source_changed(self, source)
-            self.call_callbacks()
+        audio = self.audio_source
+        self._video_source = source
+        self.callbacks.on_video_source_changed(self, source)
+        self._report_audio_move(audio)
+        self.call_callbacks()
 
     @property
     @override
@@ -445,17 +449,20 @@ class Bay(BayBase):
 
     @audio_source.setter
     def audio_source(self, source:BayBase|None) -> None:
+        '''Set a separate audio source, or None for audio that follows the video.'''
         if not self.is_output:
             return
-        if source is None:
-            self._audio_source = source
-            return
-        prev = self.audio_source
-        if (self._audio_source is None) or (source != self._audio_source):
-            self._audio_source = source
-        if (prev != self.audio_source):
-            self.callbacks.on_audio_source_changed(bay=self, audio_source=self.audio_source)
+        audio = self.audio_source
+        self._audio_source = source
+        if self._report_audio_move(audio):
             self.call_callbacks()
+
+    def _report_audio_move(self, previous:BayBase|None) -> bool:
+        '''Report the audio source moving from previous, True when it did.'''
+        if (previous == self.audio_source):
+            return False
+        self.callbacks.on_audio_source_changed(bay=self, audio_source=self.audio_source)
+        return True
 
     @property
     @override
@@ -938,7 +945,14 @@ class Bay(BayBase):
         if self.is_oneip_sink:
             source_bay = self.device.get_by_portnum(port)
             if source_bay is not None:
-                frame = FrameV2IPSourceSwitch.construct(mxr=self.device.registry, target=self, video=source_bay)
+                # The sink's audio then follows the video, dropping a separate
+                # audio route. Firmware up to 4.4.4 routes no audio for that
+                # instead, and no stamp tells those builds from later ones, so
+                # a unit below 0x27 is told the source's audio stream, which
+                # every version plays.
+                audio = source_bay if (self.device.protocol < _AUDIO_FOLLOWS_SINCE) else None
+                frame = FrameV2IPSourceSwitch.construct(mxr=self.device.registry, target=self, video=source_bay,
+                                                        audio=audio)
                 if frame is not None:
                     if self.device.registry.transmit(frame.frame) != len(frame.frame):
                         return False
@@ -1209,9 +1223,13 @@ class Bay(BayBase):
             # advertising bay and arrives here as None, while the addressed sink
             # falls back to whatever it was using - so clearing the route on
             # None would invent a state no device is in.
-            if (data.video is not None):
+            if data.clear_video:
+                self.video_source = None
+            elif (data.video is not None):
                 self.video_source = data.video
-            if (data.audio is not None):
+            if data.audio_follows:
+                self.audio_source = None
+            elif (data.audio is not None):
                 self.audio_source = data.audio
         elif isinstance(data, PowerStatus):
             self.power_status = data

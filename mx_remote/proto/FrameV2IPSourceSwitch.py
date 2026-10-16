@@ -88,11 +88,16 @@ class FrameV2IPSourceSwitch(FrameBase):
         return self.mxr.get_by_stream_ip(ip=self.audio, audio=True)
 
     def process(self) -> None:
-        '''Update the local device cache with the new source routing.'''
+        '''Update the local device cache with the new source routing.
+
+        A video of 0.0.0.0 keeps the sink's video where it is. An audio of
+        0.0.0.0 has the sink take its audio from its video again, dropping a
+        separate audio route.'''
         if (self.target_device is not None):
             sink_bay = self.target_device.first_output
             if (sink_bay is not None):
-                sink_bay.on_mxr_update(SelectedBays(self.video_bay, self.audio_bay))
+                sink_bay.on_mxr_update(SelectedBays(self.video_bay, self.audio_bay,
+                                                    audio_follows=(self.audio == '0.0.0.0')))
 
     def __str__(self) -> str:
         return f"OneIP source switch: {self.target_device} -> {self.video}={self.video_bay}/{self.audio}={self.audio_bay}"

@@ -1410,9 +1410,15 @@ class BayBase(ABC):
         pass
 
 class SelectedBays:
-    def __init__(self, video:BayBase|None, audio:BayBase|None) -> None:
+    '''A route a frame reports for an output. video and audio are None where the
+    frame names no bay; clear_video says the output shows nothing, and
+    audio_follows that its audio follows its video again.'''
+    def __init__(self, video:BayBase|None, audio:BayBase|None, clear_video:bool=False,
+                 audio_follows:bool=False) -> None:
         self._video = video
         self._audio = audio
+        self.clear_video = clear_video
+        self.audio_follows = audio_follows
 
     @property
     def video(self) -> BayBase|None:

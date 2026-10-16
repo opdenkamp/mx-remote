@@ -10,6 +10,9 @@ from functools import cached_property
 from .FrameBase import FrameBase
 from ..Interface import BayBase, SelectedBays
 
+_ROUTE_NONE = 0xFFFE
+'''The video port a OneIP reports for an output that shows nothing.'''
+
 class FrameRoutingChange(FrameBase):
     '''Routing change information frame.'''
     @cached_property
@@ -40,7 +43,8 @@ class FrameRoutingChange(FrameBase):
     def process(self) -> None:
         '''Update the local device cache with the new routing.'''
         if ((sink_bay := self.sink_bay) is not None):
-            sink_bay.on_mxr_update(SelectedBays(self.video_bay, self.audio_bay))
+            sink_bay.on_mxr_update(SelectedBays(self.video_bay, self.audio_bay,
+                                                clear_video=(self.payload_u16(4) == _ROUTE_NONE)))
 
     def __str__(self) -> str:
         return f"routing change {self.sink_bay} to {self.video_bay}"

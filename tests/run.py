@@ -55,6 +55,7 @@ SUITES = [
     'v2iptestcard', # a V2IP sink's test pattern, tone and lip-sync flash
     'audiolock',    # an audio endpoint's status, and locking its source
     'staterequest', # a device that may have missed state is asked for it
+    'routes',       # what a OneIP output is routed to, as the frames a unit acts on move it
     'deprecated',   # the V2IP names 5.11.0 exported still resolve, with a warning
 ]
 
