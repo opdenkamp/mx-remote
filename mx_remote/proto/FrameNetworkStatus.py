@@ -143,8 +143,10 @@ class NetworkPortStatusImplPre22(NetworkPortStatus):
 
     @cached_property
     def querier(self) -> str|None:
+        '''The IGMP querier the port sees, None for none, which a unit sends
+        as 0.0.0.0.'''
         ip = int.from_bytes(self.data[136:140], "big")
-        return socket.inet_ntoa(struct.pack('!L', ip))
+        return socket.inet_ntoa(struct.pack('!L', ip)) if (ip != 0) else None
 
     @cached_property
     def cable_status(self) -> list[UtpCableStatus]|None:
@@ -225,9 +227,11 @@ class NetworkPortStatusImpl(NetworkPortStatus):
 
     @cached_property
     def querier(self) -> str|None:
+        '''The IGMP querier the port sees, None for none, which a unit sends
+        as 0.0.0.0.'''
         if self.features_status.support_igmp and self.features_status.port_uplink:
             ip = int.from_bytes(self.data[32:36], "big")
-            return socket.inet_ntoa(struct.pack('!L', ip))
+            return socket.inet_ntoa(struct.pack('!L', ip)) if (ip != 0) else None
         return None
 
     @cached_property

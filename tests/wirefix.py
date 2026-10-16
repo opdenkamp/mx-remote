@@ -474,6 +474,19 @@ wrong = NetworkPortStatusImpl(data=net_0x12(), protocol=0x22)
 assert wrong.name != 'sgmii', wrong.name
 print('0x29 net    : the 0x12 form read as 0x22 renames the port')
 
+# A querier of 0.0.0.0 is a unit seeing none.
+st = stamped(0x29, net_0x22(), 0x22).status
+assert st.querier is None, st.querier
+seen = bytearray(net_0x22())
+seen[32:36] = bytes([192, 0, 2, 1])
+assert stamped(0x29, bytes(seen), 0x22).status.querier == '192.0.2.1'
+print('0x29 net    : a querier of 0.0.0.0 is none')
+
+# ------------------------------------------------------------ 0x35 setup status
+# Sent as 0 or 1, and read as a unit reads it: anything but 0 is completed.
+assert [stamped(0x35, bytes([v]), 0x01).setup_completed for v in (0, 1, 2)] == [False, True, True]
+print('0x35 setup  : anything but 0 is completed')
+
 # ------------------------------------------- 0x42 refusals the module makes silently
 # A multiviewer answers no 0x42 set at all. A value it refuses is dropped with
 # nothing on the wire to say so, and the only confirmation of any set is the

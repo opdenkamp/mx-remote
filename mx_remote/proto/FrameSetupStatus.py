@@ -18,12 +18,14 @@ class FrameSetupStatus(FrameBase):
     '''Setup-completed status announcement.
 
     Wire layout (mxr_dev_tx_setup_status):
-        0     uint8_t status   1 = setup complete, 0 = not complete
+        0     uint8_t status   sent as 1 = setup complete, 0 = not complete
     '''
 
     @cached_property
     def setup_completed(self) -> bool | None:
-        return self.payload_bool(0)
+        '''Read as a unit reads it: anything but 0 is completed.'''
+        value = self.payload_u8(0)
+        return None if (value is None) else (value != 0)
 
     def __str__(self) -> str:
         return f"setup status from {self.remote_device}: completed={self.setup_completed}"
