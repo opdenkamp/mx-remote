@@ -158,6 +158,17 @@ class Bay(BayBase):
             return None
         return getattr(owner, 'local_bay')(self._modenum == _MODE_INPUT)
 
+    def _acted_on(self, what:str) -> 'Bay|None':
+        '''The bay a command about this one acts on: this bay, or for a mesh bay
+        bay 0 of the unit it stands for, which holds everything the mesh bay
+        reports. None, with the reason logged, while that unit has not reported
+        the bay, as there is nowhere to send the command.'''
+        if not self.is_oneip_remote:
+            return self
+        if ((owner := self.mesh_owner) is None):
+            _LOGGER.warning(f"not sending {what} to {self}: the bay it stands for has not been reported")
+        return owner
+
     @property
     def mesh_bays(self) -> list['Bay']:
         '''The mesh bays on other units standing for this bay.'''
@@ -990,6 +1001,9 @@ class Bay(BayBase):
     @override
     async def select_edid_profile(self, profile:EdidProfile) -> bool:
         '''Select the EDID profile for this bay.'''
+        if self.is_oneip_remote:
+            owner = self._acted_on('an EDID profile')
+            return (await owner.select_edid_profile(profile)) if (owner is not None) else False
         frame = FrameEDIDProfile.construct(mxr=self.device.registry, target=self.device, profile=profile)
         if frame is not None:
             if self.device.registry.transmit(frame.frame) != len(frame.frame):
@@ -1001,6 +1015,9 @@ class Bay(BayBase):
     @override
     async def set_hidden(self, hidden:bool) -> bool:
         '''Set the bay hidden state.'''
+        if self.is_oneip_remote:
+            owner = self._acted_on('a hide')
+            return (await owner.set_hidden(hidden)) if (owner is not None) else False
         frame = FrameBayHide.construct(mxr=self.device.registry, target=self, hidden=hidden)
         if frame is not None:
             if self.device.registry.transmit(frame.frame) != len(frame.frame):
@@ -1026,6 +1043,10 @@ class Bay(BayBase):
         nothing. Confirm by waiting for ``audio_source`` to change.
         '''
         if not self.is_oneip_sink:
+            return False
+        # A mesh output is routed on the unit it stands for; its sources are
+        # named in the numbering of the unit listing it, which the caller used.
+        if ((sink := self._acted_on('an audio route')) is None):
             return False
         if isinstance(source, int):
             source = self.device.get_by_portnum(source)
@@ -1055,7 +1076,7 @@ class Bay(BayBase):
                 audio_ip = host
                 audio_port = int(port_s) if port_s else V2IP_UDP_PORT_AUDIO
             frame = FrameV2IPManualSourceSwitch.construct(
-                mxr=self.device.registry, target=self.device,
+                mxr=self.device.registry, target=sink.device,
                 video_ip="0.0.0.0", video_port=0,
                 audio_ip=audio_ip, audio_port=audio_port,
                 anc_ip="0.0.0.0", anc_port=0,
@@ -1063,15 +1084,15 @@ class Bay(BayBase):
             )
         elif (endpoint is not None) and isinstance(source, BayBase):
             ep = source.device.audio_endpoint_by_name(name=endpoint)
-            if (ep is None) or (self.audio_endpoint is None):
+            if (ep is None) or (sink.audio_endpoint is None):
                 return False
             # A unit on released firmware up to 4.4.2 routes only between its
             # own endpoints, which the builder refuses otherwise.
-            frame = FrameV2IPAudio.construct_select_input(mxr=self.device.registry, sink=self.device.remote_id, sink_ep=self.audio_endpoint,
+            frame = FrameV2IPAudio.construct_select_input(mxr=self.device.registry, sink=sink.device.remote_id, sink_ep=sink.audio_endpoint,
                                                           source=source.device.remote_id, source_ep=ep,
-                                                          legacy=getattr(self.device, 'audio_legacy', False))
+                                                          legacy=getattr(sink.device, 'audio_legacy', False))
         else:
-            frame = FrameV2IPSourceSwitch.construct(mxr=self.device.registry, target=self, audio=source)
+            frame = FrameV2IPSourceSwitch.construct(mxr=self.device.registry, target=sink, audio=source)
         if (frame is not None):
             if self.device.registry.transmit(frame.frame) != len(frame.frame):
                 return False
@@ -1091,6 +1112,10 @@ class Bay(BayBase):
         if not self.is_output:
             return False
         if self.is_oneip_sink:
+            # A mesh output is routed on the unit it stands for; the port is in
+            # the numbering of the unit listing it, which the caller used.
+            if ((sink := self._acted_on('a video route')) is None):
+                return False
             source_bay = self.device.get_by_portnum(port)
             if source_bay is not None:
                 # The sink's audio then follows the video, dropping a separate
@@ -1098,8 +1123,8 @@ class Bay(BayBase):
                 # instead, and no stamp tells those builds from later ones, so
                 # a unit below 0x27 is told the source's audio stream, which
                 # every version plays.
-                audio = source_bay if (self.device.protocol < _AUDIO_FOLLOWS_SINCE) else None
-                frame = FrameV2IPSourceSwitch.construct(mxr=self.device.registry, target=self, video=source_bay,
+                audio = source_bay if (sink.device.protocol < _AUDIO_FOLLOWS_SINCE) else None
+                frame = FrameV2IPSourceSwitch.construct(mxr=self.device.registry, target=sink, video=source_bay,
                                                         audio=audio)
                 if frame is not None:
                     if self.device.registry.transmit(frame.frame) != len(frame.frame):
@@ -1127,6 +1152,9 @@ class Bay(BayBase):
     @override
     async def set_name(self, name:str) -> bool:
         '''Set the user-defined name for this bay.'''
+        if self.is_oneip_remote:
+            owner = self._acted_on('a rename')
+            return (await owner.set_name(name)) if (owner is not None) else False
         frame = FrameSetName.construct(mxr=self.device.registry, target=self, name=name)
         if frame is not None:
             if self.device.registry.transmit(frame.frame) != len(frame.frame):
@@ -1137,6 +1165,9 @@ class Bay(BayBase):
 
     @override
     async def tx_action(self, action:RCAction) -> bool:
+        if self.is_oneip_remote:
+            owner = self._acted_on('an action')
+            return (await owner.tx_action(action)) if (owner is not None) else False
         pkt = FrameRCAction.construct(mxr=self.device.registry, target=self, action=action)
         if pkt is None:
             return False
@@ -1145,6 +1176,9 @@ class Bay(BayBase):
     @override
     async def power_on(self) -> bool:
         '''Power on the connected device.'''
+        if self.is_oneip_remote:
+            owner = self._acted_on('power on')
+            return (await owner.power_on()) if (owner is not None) else False
         if await self.tx_action(RCAction.ACTION_POWER_ON):
             self.power_status = PowerStatus.ON
             return True
@@ -1153,6 +1187,9 @@ class Bay(BayBase):
     @override
     async def power_off(self) -> bool:
         '''Power off the connected device.'''
+        if self.is_oneip_remote:
+            owner = self._acted_on('power off')
+            return (await owner.power_off()) if (owner is not None) else False
         if await self.tx_action(RCAction.ACTION_POWER_OFF):
             self.power_status = PowerStatus.OFF
             return True
@@ -1208,6 +1245,9 @@ class Bay(BayBase):
     @override
     def volume_set(self, volume:int, muted:bool|None=None) -> bool:
         ''' Change the volume on the remote device '''
+        if self.is_oneip_remote:
+            owner = self._acted_on('a volume')
+            return (owner.volume_set(volume, muted)) if (owner is not None) else False
         if self._volume_set(volume=volume, muted=muted):
             return True
 
@@ -1227,6 +1267,9 @@ class Bay(BayBase):
     @override
     async def send_key(self, key:int) -> bool:
         '''Send a key press to the connected device.'''
+        if self.is_oneip_remote:
+            owner = self._acted_on('a key')
+            return (await owner.send_key(key)) if (owner is not None) else False
         cmd = f"key/sendkey/{str(key)}/{self.mode}/{self.bay}"
         _LOGGER.debug(cmd)
         return await self.device.get_api(cmd) is not None
@@ -1364,6 +1407,9 @@ class Bay(BayBase):
 
     @override
     def set_zone_settings(self, settings:AmpZoneSettings) -> bool:
+        if self.is_oneip_remote:
+            owner = self._acted_on('zone settings')
+            return (owner.set_zone_settings(settings)) if (owner is not None) else False
         frame = FrameAmpZoneSettings.construct(mxr=self.device.registry, target=self, settings=settings)
         if (frame is not None):
             if self.device.registry.transmit(frame.frame) != len(frame.frame):

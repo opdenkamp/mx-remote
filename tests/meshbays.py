@@ -259,4 +259,37 @@ transmitter(uid(0x15), 'Apple TV', S.HIDDEN)
 assert out.bay_by_user_name('Apple TV') is None, 'a hidden source was offered'
 print('by name     : a mesh input is found by its owner\'s name, and not while it is hidden')
 
+# ------------------------------------- commands about a mesh bay go to its owner
+# A mesh bay is read through the bay it stands for, so a command about it goes
+# to that unit about that bay; until the unit has reported it there is no one to
+# send to. A route names the owner as the sink, its source in the numbering of
+# the unit listing the mesh bay.
+import asyncio
+sent = []
+mx.transmit = lambda data: (sent.append(bytes(data)), len(data))[1]
+r = receiver(0x50)
+rx(uid(0x50), 0x44, page(True, 1, [uid(0x51)]))
+rx(uid(0x50), 0x44, page(False, 128, [uid(0x52)]))
+mesh_in, mesh_out = r.get_by_portnum(1), r.get_by_portnum(128)
+assert asyncio.run(mesh_in.set_name('Den')) is False and sent == [], 'a command for an unreported bay went out'
+owner_in = transmitter(uid(0x51), 'Apple TV')
+assert asyncio.run(mesh_in.set_name('Den')) is True
+p = sent[-1][24:]
+assert int.from_bytes(sent[-1][20:22], 'little') == 0x22 and p[:16] == uid(0x51) and p[16:18] == bytes(2), p.hex()
+assert asyncio.run(mesh_in.set_hidden(True)) is True and sent[-1][24:40] == uid(0x51)
+
+# a OneIP output standing for mesh output 128, with a source the receiver lists
+hello(uid(0x52), 0x2F, DeviceFeature.ONEIP_SINK, 'RX0052')
+rx(uid(0x52), 0x02, rec(127, 1, 0, 'Output 1', 'Bar', 0, F.HDMI_OUT | F.ONEIP_SINK_LOCAL))
+# the receiver's one input record, for its mesh input on port 1
+rx(uid(0x50), 0x26, uid(0x51) + b''.join(bytes([239, 2, 2, n]) + struct.pack('<H', port) + bytes(2)
+                                          for n, port in ((1, 50020), (2, 50022), (3, 50021))))
+sent.clear()
+ok = asyncio.run(mesh_out.select_video_source(1))
+assert ok and sent, 'routing a mesh output'
+p = sent[-1][24:]
+assert int.from_bytes(sent[-1][20:22], 'little') == 0x1F and p[:16] == uid(0x52), 'the listing unit was rerouted: %s' % p.hex()
+assert p[16:20] == bytes([239, 2, 2, 1]), 'the source was not the listing unit\'s port 1: %s' % p[16:20].hex()
+print('commands    : sent to the unit a mesh bay stands for, refused before it is known')
+
 print('ALL OK')

@@ -79,6 +79,12 @@ reported the bay, the rest reads as never reported. A change to the bay is
 reported for every mesh bay standing for it too, except its registration and
 the key presses and actions that arrive on it.
 
+A command about a mesh bay - a rename, hide, EDID profile, action, key,
+power, volume, zone settings or route - goes to the unit it stands for, about
+that unit's bay, and is refused while that unit has not reported the bay. A
+route names that unit as the sink, and its source by port in the numbering of
+the unit listing the mesh bay.
+
 Mesh bays are created by the unit's bay mappings, numbered by port in the
 unit's own numbering: from protocol 0x2B input n is port n and output n port
 127 + n; below it the first 16 bays of each direction come first.
