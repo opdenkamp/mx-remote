@@ -240,6 +240,18 @@ What an output plays from a session description, and how it is timed.
 .. autodata:: mx_remote.proto.Constants.ONEIP_SDP_MAX
 ```
 
+## OneIP stream encryption
+
+How a source unit encrypts its streams, as it reports it.
+
+```{eval-rst}
+.. autoclass:: mx_remote.OneIPPrivacy
+   :members:
+
+.. autoclass:: mx_remote.OneIPPrivacyStream
+   :members:
+```
+
 ## OneIP test card
 
 A sink's test pattern, tone and lip-sync flash, and the ranges it accepts.

@@ -10,7 +10,7 @@
 from enum import IntEnum, IntFlag
 from typing import TypeVar
 
-MXR_PROTOCOL_VERSION = 0x2F
+MXR_PROTOCOL_VERSION = 0x30
 """Highest mx_remote protocol version this library understands.
 
 Mirrors the firmware's own protocol version. Bump
@@ -31,7 +31,8 @@ every 20-30s once every device it knows is on 0x2A.
 0x2B.
 
 0x2E is the row of V2IP_SINK_SDP, so an output's session description report
-arrives stamped 0x2E, and 0x2F the row of V2IP_OSD_SYNC."""
+arrives stamped 0x2E, 0x2F the row of V2IP_OSD_SYNC and 0x30 the row of
+V2IP_PRIVACY."""
 
 MXR_PROTOCOL_VERSION_SLOW_HELLO = 0x2A
 """First protocol version whose devices may hello only every 20-30s."""
@@ -121,6 +122,7 @@ MXR_OPCODE_VERSIONS: dict[int, int] = {
     0x51: 0x2D,  # BAY_CONTENT
     0x52: 0x2E,  # V2IP_SINK_SDP
     0x53: 0x2F,  # V2IP_OSD_SYNC
+    0x54: 0x30,  # V2IP_PRIVACY
 }
 """Per-opcode minimum compatible protocol version, mirroring the firmware's
 own opcode table. Transmitters stamp the

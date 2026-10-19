@@ -81,6 +81,7 @@ BASELINE = {
     'FrameV2IPManualSourceSwitch.FrameV2IPManualSourceSwitch',
     'FrameV2IPMultiviewer.FrameV2IPMultiviewer',
     'FrameV2IPPowerSave.FrameV2IPPowerSave',
+    'FrameV2IPPrivacy.FrameV2IPPrivacy',
     'FrameV2IPSinkSdp.FrameV2IPSinkSdp',
     'FrameV2IPSourceSwitch.FrameV2IPSourceSwitch',
     'FrameV2IPOsdSync.FrameV2IPOsdSync',

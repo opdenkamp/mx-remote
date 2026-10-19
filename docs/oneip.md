@@ -416,6 +416,23 @@ save then takes this content rather than the controller's. Logo images are
 served over HTTP from this client, on `logo_port` or a free port. Content a unit
 would refuse is refused before anything is sent; see `send_osd_sync`.
 
+### Stream encryption
+
+A source unit from protocol 0x30 encrypts its video, audio and ancillary
+streams, and reports what a receiver needs to decrypt them whenever that
+changes and at least once a minute. The key itself never travels: every unit of
+a mesh holds the same one, and this library holds none.
+
+```python
+await source.request_oneip_privacy()    # report now
+await mx.request_all_oneip_privacy()    # every source unit of the mesh
+
+print(source.oneip_privacy)   # None until the unit has reported
+```
+
+A request to a unit that is not a source, or that is below protocol 0x30, is
+refused before it is sent.
+
 ### Every device at once
 
 One broadcast changes settings on every OneIP device of the mesh. Each device

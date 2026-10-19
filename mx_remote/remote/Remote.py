@@ -31,6 +31,7 @@ from ..proto.FramePing import FramePing
 from ..proto.FrameBase import FrameBase
 from ..proto.FrameTime import FrameTime
 from ..proto.FrameTimeZone import FrameTimeZone
+from ..proto.FrameV2IPPrivacy import FrameV2IPPrivacy
 from ..proto.FrameV2IPSettingsAll import FrameV2IPSettingsAll
 from ..proto.FrameV2IPOsdSync import FrameV2IPOsdSync
 from .OsdSync import LogoServer, OsdSender, PASS_GAP, osd_content_refusal
@@ -528,6 +529,12 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             _LOGGER.warning(f"not changing the settings of every OneIP device: {why}")
             return False
         return self._send_to_all(FrameV2IPSettingsAll.construct(mxr=self, settings=settings))
+
+    async def request_all_oneip_privacy(self) -> bool:
+        '''Ask every OneIP source unit of the mesh how its streams are
+        encrypted, as Device.request_oneip_privacy() asks one. A unit below
+        protocol 0x30 ignores it.'''
+        return self._send_to_all(FrameV2IPPrivacy.construct_request(mxr=self, target=None, target_uid=None))
 
     async def set_mesh_time_zone(self, zone:str, rule:str) -> bool:
         '''Set the time zone of every device that hears it.

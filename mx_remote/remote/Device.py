@@ -31,6 +31,7 @@ from ..Interface import (
 	OneIPVlan,
 	OneIPTestcard,
 	OneIPSinkSdp,
+	OneIPPrivacy,
 	OsdSync,
 	OsdSyncReport,
 	OneIPTestSync,
@@ -89,6 +90,7 @@ from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, BayFeaturesMask,
 from ..proto.FrameUnitCommand import FrameUnitCommand
 from ..proto.FrameV2IPAudio import AUDIO_LAYOUT_SINCE, FrameV2IPAudio
 from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
+from ..proto.FrameV2IPPrivacy import FrameV2IPPrivacy
 from ..proto.FrameV2IPSinkSdp import FrameV2IPSinkSdp, SDP_REQUEST, SDP_SCREEN, SDP_STOP
 from ..proto.FrameV2IPTestcard import (FrameV2IPTestcard, TESTCARD_REQUEST, TESTCARD_SET,
                                        TESTCARD_PART_PATTERN, TESTCARD_PART_TONE, TESTCARD_PART_SYNC)
@@ -171,6 +173,7 @@ class Device(DeviceBase):
 		self._unit_status:UnitStatus|None = None
 		self._v2ip_testcard:OneIPTestcard|None = None
 		self._v2ip_sink_sdp:OneIPSinkSdp|None = None
+		self._v2ip_privacy:OneIPPrivacy|None = None
 		self._osd_sync:OsdSync|None = None
 		self._osd_sync_report:OsdSyncReport|None = None
 		self._time_zone:TimeZone|None = None
@@ -1060,6 +1063,10 @@ class Device(DeviceBase):
 			if (self._v2ip_sink_sdp != data):
 				self._v2ip_sink_sdp = data
 				self.call_callbacks()
+		elif isinstance(data, OneIPPrivacy):
+			if (self._v2ip_privacy != data):
+				self._v2ip_privacy = data
+				self.call_callbacks()
 		elif isinstance(data, TimeZone):
 			if (self._time_zone != data):
 				self._time_zone = data
@@ -1743,6 +1750,24 @@ class Device(DeviceBase):
 		rather than at its next report, which comes at least once a minute. As
 		play_oneip_sdp().'''
 		return self._send_sink_sdp_command(SDP_REQUEST, 0)
+
+	@property
+	@override
+	def oneip_privacy(self) -> OneIPPrivacy|None:
+		return self._v2ip_privacy
+
+	async def request_oneip_privacy(self) -> bool:
+		'''Ask this OneIP source unit how its streams are encrypted now, rather
+		than at its next report, which comes at least once a minute and whenever
+		they change. Refused for a device that is not a OneIP source, and for
+		one below protocol 0x30, which predates the report.'''
+		if (self.features is None) or (DeviceFeature.ONEIP_SOURCE not in self.features):
+			_LOGGER.warning(f"not asking {self} how its streams are encrypted: it is not a OneIP source")
+			return False
+		frame = FrameV2IPPrivacy.construct_request(mxr=self.registry, target=self, target_uid=self.remote_id)
+		if (frame is None):
+			return False
+		return self.registry.transmit(frame.frame) == len(frame.frame)
 
 	def _send_sink_sdp_command(self, kind:int, value:int) -> bool:
 		'''The one send behind the session description commands.'''

@@ -2472,6 +2472,59 @@ class OneIPSinkSdp:
                 f"{' audio only' if (OneIPSdpFlag.AUDIO_ONLY in self.flags) else ''}")
 
 @dataclass(frozen=True)
+class OneIPPrivacyStream:
+    """
+    How one of a OneIP source unit's streams is encrypted, as the unit reports
+    it: the values of the stream's ``a=privacy`` and ``a=extmap`` session
+    description attributes.
+
+    A receiver needs these to decrypt the stream. The key itself never travels:
+    every unit of a mesh holds the same one. This library holds no key and
+    decrypts nothing.
+    """
+    group: str = '0.0.0.0'
+    """The stream's destination address."""
+    port: int = 0
+    """The stream's UDP port."""
+    version: int = 0
+    """Steps whenever the parameters change."""
+    on: bool = False
+    """Whether the stream is encrypted. Without it the stream goes out in the
+    clear, and the fields below mean nothing."""
+    full_id: int = 0
+    """The RTP header extension id of the full IV counter."""
+    short_id: int = 0
+    """The RTP header extension id of the short IV counter."""
+    iv: bytes = bytes(8)
+    """The initialisation vector, 8 bytes."""
+    key_generator: bytes = bytes(16)
+    """The key generator, 16 bytes."""
+    key_id: bytes = bytes(8)
+    """Names the mesh's key, 8 bytes. A receiver holding another drops the stream."""
+    key_version: int = 0
+    """The key version."""
+
+    def __str__(self) -> str:
+        if not self.on:
+            return f"{self.group}:{self.port} clear"
+        return f"{self.group}:{self.port} encrypted, key {self.key_id.hex()} v{self.key_version}"
+
+@dataclass(frozen=True)
+class OneIPPrivacy:
+    """
+    How a OneIP source unit's streams are encrypted, as it last reported it. A
+    unit reports this whenever it changes, at least once a minute, and when
+    asked. A unit that is in no mesh sends in the clear.
+    """
+    video: OneIPPrivacyStream
+    audio: OneIPPrivacyStream
+    anc: OneIPPrivacyStream
+    """The ancillary data stream."""
+
+    def __str__(self) -> str:
+        return f"video {self.video}, audio {self.audio}, anc {self.anc}"
+
+@dataclass(frozen=True)
 class OneIPTestTone:
     """A OneIP sink's test tone."""
     mode: OneIPToneMode|int = OneIPToneMode.OFF
@@ -3458,6 +3511,17 @@ class DeviceBase(ABC):
         '''What this OneIP output plays from a session description, as it last
         reported it, None until it has. It reports when that changes and at
         least once a minute.'''
+
+    @property
+    @abstractmethod
+    def oneip_privacy(self) -> OneIPPrivacy|None:
+        '''How this OneIP source unit's streams are encrypted, as it last
+        reported it, None until it has. It reports when that changes and at
+        least once a minute.'''
+
+    @abstractmethod
+    async def request_oneip_privacy(self) -> bool:
+        '''ask this OneIP source unit how its streams are encrypted now'''
 
     @abstractmethod
     async def play_oneip_sdp(self, sdp:str) -> bool:
