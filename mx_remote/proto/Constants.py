@@ -374,9 +374,13 @@ class OneIPDeviceSetting(IntFlag):
 	STREAM_TTL         = (1 << 29)
 	'''The TTL of the device's streams, video, audio and ancillary alike.
 	Reported only by a device with an encoder.'''
+	CLOUD              = (1 << 30)
+	'''Connects to the cloud service. A device that does not report it
+	connects regardless.'''
 
 ONEIP_DEVICE_SETTING_SWITCHES = OneIPDeviceSetting(0xFF) | OneIPDeviceSetting.AES67 \
-	| OneIPDeviceSetting.SAP_LISTEN | OneIPDeviceSetting.SAP_ANNOUNCE | OneIPDeviceSetting.POWER_SAVE_DISABLED
+	| OneIPDeviceSetting.SAP_LISTEN | OneIPDeviceSetting.SAP_ANNOUNCE | OneIPDeviceSetting.POWER_SAVE_DISABLED \
+	| OneIPDeviceSetting.CLOUD
 """The settings that are on or off, as opposed to carrying a value, and that
 can be written."""
 

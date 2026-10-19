@@ -397,6 +397,16 @@ assert struct.unpack('<II', sent[-1][24 + 128:24 + 136]) == (DIS, DIS)
 refused(ptp.set_oneip_setting(S.POWER_SAVE_DISABLED, True), 'a unit that never reported the bit')
 print('ps disabled : a switch, and a level switches it off')
 
+# The cloud connection is a switch too. A unit without the bit connects
+# regardless, and never reports it, so the switch is refused there.
+CLOUD = int(S.CLOUD)
+rx(uid(0x22), 0x3C, cfg_level(uid(0x22), LEVEL | CLOUD, 2, flags=CLOUD))
+assert level.oneip_settings.get(S.CLOUD) is True
+assert call(level.set_oneip_setting(S.CLOUD, False)) is True
+assert struct.unpack('<II', sent[-1][24 + 128:24 + 136]) == (CLOUD, 0)
+refused(ptp.set_oneip_setting(S.CLOUD, True), 'a unit that never reported the cloud bit')
+print('cloud       : a switch, refused where it was never reported')
+
 # ---------------------------------------------------------- PTP message block
 # The values travel behind the PTP state at 216, in a block of their own. Each
 # differs and the intervals are negative, so an unsigned read or a neighbour's

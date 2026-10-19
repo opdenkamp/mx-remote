@@ -247,6 +247,10 @@ that takes a power save level switches it off, so a level write, this client's
 or another sender's, clears it unless the same frame states it. Firmware
 without the bit never reports it, and the switch is refused there.
 
+`OneIPDeviceSetting.CLOUD` is a switch for whether a device connects to the
+cloud service. A device that does not report it connects regardless, and the
+switch is refused there.
+
 ### PTP
 
 A device's PTP mode, domain and grandmaster priority1 are settings like the
