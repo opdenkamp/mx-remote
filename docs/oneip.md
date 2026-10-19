@@ -412,7 +412,10 @@ await mx.clear_osd_sync()          # stop answering for it
 Each unit asks for the settings it lacks and takes only those, so this client
 holds the content and answers until it is replaced or cleared, announcing
 itself meanwhile as the mesh's overlay sync manager: a unit waking from power
-save then takes this content rather than the controller's. Logo images are
+save then takes this content rather than the controller's. The controller
+still answers a unit that asks for settings without naming whose sync they are
+from, as an older overlay module does, with its own sync, which replaces this
+client's on that unit. Logo images are
 served over HTTP from this client, on `logo_port` or a free port. Content a unit
 would refuse is refused before anything is sent; see `send_osd_sync`.
 
