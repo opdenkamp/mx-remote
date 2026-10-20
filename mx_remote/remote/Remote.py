@@ -35,7 +35,7 @@ from ..proto.FrameV2IPPrivacy import FrameV2IPPrivacy
 from ..proto.FrameV2IPSettingsAll import FrameV2IPSettingsAll
 from ..proto.FrameV2IPOsdSync import FrameV2IPOsdSync
 from .OsdSync import LogoServer, OsdSender, PASS_GAP, osd_content_refusal
-from ..proto.Constants import (ONEIP_DEVICE_SETTINGS_REPORTED_ONLY, ONEIP_DSCP_MAX, ONEIP_IR_PROFILE_MAX, ONEIP_PTP_DOMAIN_MAX,
+from ..proto.Constants import (ONEIP_DEVICE_SETTINGS_REPORTED_ONLY, ONEIP_DSCP_MAX, ONEIP_IR_PROFILE_MAX, ONEIP_PTP_DOMAIN_MAX, ONEIP_SINK_ROTATION_MAX,
                                OneIPPowerSaveLevel, OneIPPtpMode,
                                ONEIP_IR_PROFILE_NOT_SET, OneIPDeviceSetting)
 from ..proto.Svd import SvdMap
@@ -486,8 +486,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         and none below protocol 0x2A applies any. A setting only a device
         reports about itself, a profile, PTP mode, PTP domain or power save
         level out of range, a PTP DSCP above ONEIP_DSCP_MAX, a stream TTL outside
-        1 to 255 and a power save time that is not a time of day are refused
-        here, since every device would ignore them.
+        1 to 255, a rotation above ONEIP_SINK_ROTATION_MAX and a power save time
+        that is not a time of day are refused here, since every device would
+        ignore them. Each device takes a rotation only by its own step.
 
         Nothing is cached: each device that applies a change reports its
         settings, and its oneip_settings reads that.
@@ -525,6 +526,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         elif (OneIPDeviceSetting.STREAM_TTL in valid) \
                 and not (1 <= (settings.ptp_messages or OneIPPtpMessages()).stream_ttl <= 0xFF):
             why = 'a stream TTL outside 1 to 255'
+        elif (OneIPDeviceSetting.SINK_ROTATION in valid) \
+                and not (0 <= (settings.ptp_messages or OneIPPtpMessages()).sink_rotation <= ONEIP_SINK_ROTATION_MAX):
+            why = f'a rotation above {ONEIP_SINK_ROTATION_MAX} degrees'
         if (why is not None):
             _LOGGER.warning(f"not changing the settings of every OneIP device: {why}")
             return False

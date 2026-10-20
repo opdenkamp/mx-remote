@@ -180,6 +180,8 @@ state only the device reports.
 
 .. autodata:: mx_remote.proto.Constants.ONEIP_STREAM_TTL_DEFAULT
 
+.. autodata:: mx_remote.proto.Constants.ONEIP_SINK_ROTATION_MAX
+
 .. autodata:: mx_remote.proto.Constants.ONEIP_PTP_DOMAIN_MAX
 ```
 

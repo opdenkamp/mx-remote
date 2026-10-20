@@ -74,6 +74,7 @@ from typing import Any, Callable
 from ..compat import override
 from datetime import datetime
 from enum import Enum
+import dataclasses
 import logging
 import time
 
@@ -1569,13 +1570,15 @@ class Device(DeviceBase):
 			valid=OneIPDeviceSetting.POWER_SAVE_LEVEL, power_save_level=level))
 
 	async def set_oneip_ptp_messages(self, which:OneIPDeviceSetting, messages:OneIPPtpMessages) -> bool:
-		'''Set how this OneIP device paces its PTP messages, its SAP timings and
-		its streams' TTL: the values of messages behind the bits of which, each
-		one of ONEIP_DEVICE_SETTINGS_BLOCK.
+		'''Set how this OneIP device paces its PTP messages, its SAP timings,
+		its streams' TTL and its output's rotation: the values of messages
+		behind the bits of which, each one of ONEIP_DEVICE_SETTINGS_BLOCK.
 
-		A DSCP above ONEIP_DSCP_MAX and a stream TTL outside 1 to 255 are
-		refused, since a device ignores them. The terms of set_oneip_setting()
-		apply.
+		A DSCP above ONEIP_DSCP_MAX, a stream TTL outside 1 to 255 and a
+		rotation that is not 0 or a multiple of the step the device reports are
+		refused, since a device ignores them. The step is the device's own,
+		and messages.sink_rotation_step is not sent. The terms of
+		set_oneip_setting() apply.
 		'''
 		which = OneIPDeviceSetting(which)
 		if (int(which) == 0) or ((which & ~ONEIP_DEVICE_SETTINGS_BLOCK) != 0):
@@ -1587,6 +1590,13 @@ class Device(DeviceBase):
 		if (OneIPDeviceSetting.STREAM_TTL in which) and not (1 <= messages.stream_ttl <= 0xFF):
 			_LOGGER.warning(f"not setting stream TTL {messages.stream_ttl} on {self}: outside 1 to 255")
 			return False
+		if (OneIPDeviceSetting.SINK_ROTATION in which):
+			own = (self._v2ip_settings.ptp_messages if (self._v2ip_settings is not None) else None) or OneIPPtpMessages()
+			if not own.takes_sink_rotation(messages.sink_rotation):
+				_LOGGER.warning(f"not turning the output of {self} by {messages.sink_rotation} degrees: "
+				                f"it turns by steps of {own.sink_rotation_step}")
+				return False
+			messages = dataclasses.replace(messages, sink_rotation_step=own.sink_rotation_step)
 		return self._send_v2ip_settings(OneIPDeviceSettings(valid=which, ptp_messages=messages))
 
 	async def set_oneip_vlan(self, vlan:OneIPVlan) -> bool:

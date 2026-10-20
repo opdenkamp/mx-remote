@@ -288,10 +288,23 @@ same block, behind `SAP_EXPIRE` and `SAP_INTERVAL`, and are set the same way;
 `SAP_LISTEN` and `SAP_ANNOUNCE` are switches like the other on/off settings.
 A device with an encoder reports its streams' TTL there too, behind
 `STREAM_TTL`; a TTL of 0 is refused, as a device changes nothing for one.
+A device with an HDMI output reports the angle its output is turned by,
+clockwise, behind `SINK_ROTATION`, with the step its video processor turns by.
+It takes 0 or a multiple of that step up to `ONEIP_SINK_ROTATION_MAX`, so any
+other angle is refused before it is sent, and the step is never written.
+`set_all_oneip_device_settings` can only check the range; each device judges
+the step.
+
+```python
+m = settings.ptp_messages
+print(m.sink_rotation, m.sink_rotation_step)   # e.g. 0 and 90
+await device.set_oneip_ptp_messages(OneIPDeviceSetting.SINK_ROTATION,
+                                    OneIPPtpMessages(sink_rotation=180))
+```
 
 Only the values behind the bits named are sent. A DSCP above `ONEIP_DSCP_MAX` is
 refused, and not cached from another controller's write. A write carrying one of
-these runs on to 224 bytes, or 232 with the TTL; every other write keeps the 176
+these runs on to 224 bytes, or 232 with the TTL or the rotation; every other write keeps the 176
 every device knows.
 
 What the device's clock is actually doing is its PTP state, which only the

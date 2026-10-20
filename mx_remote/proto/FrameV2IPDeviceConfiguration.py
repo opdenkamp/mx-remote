@@ -133,7 +133,9 @@ SETTINGS_BLOCK_OFFSET = _PTP_STATE_OFFSET + _PTP_STATE_SIZE
 state.'''
 SETTINGS_BLOCK_SIZE = 8
 _STREAM_TTL_AT = 8
-_SETTINGS_BLOCK_TTL_SIZE = 16
+_SINK_ROTATION_AT = 10
+_SINK_ROTATION_STEP_AT = 12
+_SETTINGS_BLOCK_LONG_SIZE = 16
 
 def carries_settings_block(settings:OneIPDeviceSettings) -> bool:
     '''Whether settings carry a value only the block of their own can hold.'''
@@ -141,14 +143,24 @@ def carries_settings_block(settings:OneIPDeviceSettings) -> bool:
 
 def own_settings_block(settings:OneIPDeviceSettings) -> bytes:
     '''The block the settings in ONEIP_DEVICE_SETTINGS_BLOCK travel in: 8
-    bytes, or 16 with the stream TTL at 8 when the settings carry it.'''
+    bytes, or 16 when the settings carry the stream TTL, at 8, or the output's
+    rotation, a u16 at 10. Only a device that has either reads past 8, so a
+    frame without them keeps the length every device knows. The rotation's
+    step at 12 is the device's to report, and is left 0.'''
     m = settings.ptp_messages or OneIPPtpMessages()
     block = struct.pack('<bbbBBBH', m.log_announce_interval, m.log_sync_interval,
                         m.log_delay_req_interval, m.announce_timeout, m.dscp, m.sap_expire_min,
                         m.sap_interval_s)
-    if (OneIPDeviceSetting.STREAM_TTL in settings.valid):
-        block += bytes([m.stream_ttl]).ljust(_SETTINGS_BLOCK_TTL_SIZE - len(block), b'\0')
-    return block
+    ttl = (OneIPDeviceSetting.STREAM_TTL in settings.valid)
+    rotation = (OneIPDeviceSetting.SINK_ROTATION in settings.valid)
+    if not (ttl or rotation):
+        return block
+    tail = bytearray(_SETTINGS_BLOCK_LONG_SIZE - len(block))
+    if ttl:
+        tail[_STREAM_TTL_AT - len(block)] = m.stream_ttl
+    if rotation:
+        struct.pack_into('<H', tail, _SINK_ROTATION_AT - len(block), m.sink_rotation)
+    return block + bytes(tail)
 
 def parse_own_settings_block(block:bytes, valid:OneIPDeviceSetting) -> tuple[OneIPPtpMessages, OneIPDeviceSetting]:
     '''The block the settings in ONEIP_DEVICE_SETTINGS_BLOCK travel in, and
@@ -158,10 +170,16 @@ def parse_own_settings_block(block:bytes, valid:OneIPDeviceSetting) -> tuple[One
     if (len(block) <= _STREAM_TTL_AT):
         valid &= ~OneIPDeviceSetting.STREAM_TTL
     ttl = block[_STREAM_TTL_AT] if (len(block) > _STREAM_TTL_AT) else 0
+    rotation, step = 0, 0
+    if (len(block) >= _SINK_ROTATION_STEP_AT + 2):
+        rotation, step = struct.unpack_from('<HH', block, _SINK_ROTATION_AT)
+    else:
+        valid &= ~OneIPDeviceSetting.SINK_ROTATION
     announce, sync, delay_req, timeout, dscp, expire, interval = struct.unpack_from('<bbbBBBH', block)
     return (OneIPPtpMessages(log_announce_interval=announce, log_sync_interval=sync,
                              log_delay_req_interval=delay_req, announce_timeout=timeout, dscp=dscp,
-                             sap_expire_min=expire, sap_interval_s=interval, stream_ttl=ttl), valid)
+                             sap_expire_min=expire, sap_interval_s=interval, stream_ttl=ttl,
+                             sink_rotation=rotation, sink_rotation_step=step), valid)
 
 def settings_block(settings:OneIPDeviceSettings) -> bytes:
     '''The 48-byte device settings block.
@@ -520,8 +538,7 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         frame = parse_settings_block(self.payload[_SETTINGS_OFFSET:], self.payload[SETTINGS_BLOCK_OFFSET:])
         if self.target_self:
             return frame
-        reported = dev.oneip_settings
-        return frame.as_applied_to(reported.valid if (reported is not None) else OneIPDeviceSetting(0))
+        return frame.as_applied_to(dev.oneip_settings)
 
     @cached_property
     def vlan(self) -> OneIPVlan|None:

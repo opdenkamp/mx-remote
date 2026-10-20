@@ -6,7 +6,7 @@
 ######################################################
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from enum import IntEnum
 import time
@@ -2215,8 +2215,8 @@ def _wire_enum(cls:Any, value:int) -> Any:
 @dataclass(frozen=True)
 class OneIPPtpMessages:
     """
-    How a OneIP device paces its PTP messages, its SAP timings and its streams'
-    TTL, which a frame carries in the same block. Each value is behind its own bit of
+    How a OneIP device paces its PTP messages, its SAP timings, its streams'
+    TTL and its output's rotation, which a frame carries in the same block. Each value is behind its own bit of
     OneIPDeviceSettings.valid, one of ONEIP_DEVICE_SETTINGS_BLOCK.
 
     Intervals are base-2 logarithms of seconds, so -3 is 125 ms and 1 is 2 s.
@@ -2241,6 +2241,19 @@ class OneIPPtpMessages:
     """The TTL of the device's streams, 1 to 255, behind STREAM_TTL. A device
     whose video processor cannot change it keeps the setting and sends
     ONEIP_STREAM_TTL_DEFAULT."""
+    sink_rotation: int = 0
+    """The degrees the device's HDMI output is turned by, clockwise, at most
+    ONEIP_SINK_ROTATION_MAX, behind SINK_ROTATION."""
+    sink_rotation_step: int = 0
+    """The step the output turns by: the device takes only an angle that is a
+    multiple of it, and 0 alone when it is 0. Only the device reports it,
+    behind the same bit."""
+
+    def takes_sink_rotation(self, degrees:int) -> bool:
+        """Whether a device reporting this step takes degrees as its output's
+        rotation."""
+        return (degrees == 0) or ((0 < degrees <= ONEIP_SINK_ROTATION_MAX) and (self.sink_rotation_step != 0)
+                                  and (degrees % self.sink_rotation_step == 0))
 
     def merge(self, other:'OneIPPtpMessages', which:OneIPDeviceSetting) -> 'OneIPPtpMessages':
         """The values behind the bits of which copied from other, the rest kept."""
@@ -2253,7 +2266,9 @@ class OneIPPtpMessages:
             dscp=(other if (S.PTP_DSCP in which) else self).dscp,
             sap_expire_min=(other if (S.SAP_EXPIRE in which) else self).sap_expire_min,
             sap_interval_s=(other if (S.SAP_INTERVAL in which) else self).sap_interval_s,
-            stream_ttl=(other if (S.STREAM_TTL in which) else self).stream_ttl)
+            stream_ttl=(other if (S.STREAM_TTL in which) else self).stream_ttl,
+            sink_rotation=(other if (S.SINK_ROTATION in which) else self).sink_rotation,
+            sink_rotation_step=(other if (S.SINK_ROTATION in which) else self).sink_rotation_step)
 
     def describe(self, valid:OneIPDeviceSetting) -> list[str]:
         """The values behind the bits of valid, one "name=value" each."""
@@ -2266,7 +2281,8 @@ class OneIPPtpMessages:
                     (S.PTP_DSCP, 'ptp_dscp', self.dscp),
                     (S.SAP_EXPIRE, 'sap_expire_min', self.sap_expire_min),
                     (S.SAP_INTERVAL, 'sap_interval_s', self.sap_interval_s),
-                    (S.STREAM_TTL, 'stream_ttl', self.stream_ttl))
+                    (S.STREAM_TTL, 'stream_ttl', self.stream_ttl),
+                    (S.SINK_ROTATION, 'sink_rotation', self.sink_rotation))
                 if (bit in valid)]
 
 @dataclass(frozen=True)
@@ -2767,16 +2783,25 @@ class OneIPDeviceSettings:
                               else previous._power_save_level),
             ptp_messages=previous._ptp_messages.merge(self._ptp_messages, valid))
 
-    def as_applied_to(self, reported:OneIPDeviceSetting) -> 'OneIPDeviceSettings':
+    def as_applied_to(self, reported:'OneIPDeviceSettings|OneIPDeviceSetting|None') -> 'OneIPDeviceSettings':
         """
-        This block limited to what a device takes from a write about it.
+        This block limited to what a device that reported reported takes from a
+        write about it.
 
         A device applies a setting only if it has it, a profile, PTP mode, PTP
         domain, power save level or PTP DSCP only within its range, a stream
-        TTL only when it is not 0, and never what only it can report about
-        itself.
+        TTL only when it is not 0, a rotation only by its own step, and never
+        what only it can report about itself. The step stays the device's.
+
+        reported may be only the bits the device reported, which says nothing
+        of its step, so a rotation other than 0 is then left out.
         """
-        valid = (self._valid & reported) & ~ONEIP_DEVICE_SETTINGS_REPORTED_ONLY
+        if (reported is None):
+            reported = OneIPDeviceSettings()
+        elif not isinstance(reported, OneIPDeviceSettings):
+            reported = OneIPDeviceSettings(valid=OneIPDeviceSetting(reported))
+        own = reported._ptp_messages
+        valid = (self._valid & reported._valid) & ~ONEIP_DEVICE_SETTINGS_REPORTED_ONLY
         if not (0 <= self._ir_profile < ONEIP_IR_PROFILE_MAX):
             valid &= ~OneIPDeviceSetting.IR_PROFILE
         if not (ONEIP_IR_PROFILE_NOT_SET <= self._ir_profile_sink < ONEIP_IR_PROFILE_MAX):
@@ -2791,13 +2816,16 @@ class OneIPDeviceSettings:
             valid &= ~OneIPDeviceSetting.PTP_DSCP
         if (self._ptp_messages.stream_ttl == 0):
             valid &= ~OneIPDeviceSetting.STREAM_TTL
+        if not own.takes_sink_rotation(self._ptp_messages.sink_rotation):
+            valid &= ~OneIPDeviceSetting.SINK_ROTATION
         return OneIPDeviceSettings(valid=valid, flags=self._flags, ir_profiles=self._ir_profiles,
                                   ir_profile=self._ir_profile, ir_profile_sink=self._ir_profile_sink,
                                   auto_power_save=self._auto_power_save, power_save=self._power_save,
                                   ptp_mode=self._ptp_mode, ptp_domain=self._ptp_domain,
                                   ptp_priority1=self._ptp_priority1,
                                   power_save_level=self._power_save_level,
-                                  ptp_messages=self._ptp_messages)
+                                  ptp_messages=replace(self._ptp_messages,
+                                                       sink_rotation_step=own.sink_rotation_step))
 
     def __eq__(self, other:Any) -> bool:
         if not isinstance(other, OneIPDeviceSettings):

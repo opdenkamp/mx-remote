@@ -491,6 +491,55 @@ refused(ttl.set_oneip_ptp_messages(S.STREAM_TTL, mx_remote.OneIPPtpMessages(stre
 refused(ttl8.set_oneip_ptp_messages(S.STREAM_TTL, mx_remote.OneIPPtpMessages(stream_ttl=64)), 'a unit without the TTL')
 print('stream ttl  : at 8 of a 16-byte block, never 0')
 
+# The output's rotation is a u16 at 10 of the same block and its step at 12, so
+# a block ending before the step strips only the rotation. A unit takes 0 or a
+# multiple of its own step up to 359.
+ROT = int(S.SINK_ROTATION | S.STREAM_TTL)
+def rot_block(angle, step):
+    return bytes(BLOCK) + bytes([32, 0xA5]) + struct.pack('<HH', angle, step) + bytes([0xA5, 0xA5])
+rot = hello(uid(0x27), SINK)
+rx(uid(0x27), 0x3C, cfg_msg(uid(0x27), ROT, rot_block(90, 90)))
+m = rot.oneip_settings.ptp_messages
+assert (m.sink_rotation, m.sink_rotation_step, m.stream_ttl) == (90, 90, 32), m
+rot12 = hello(uid(0x28), SINK)
+rx(uid(0x28), 0x3C, cfg_msg(uid(0x28), ROT, rot_block(90, 90)[:12]))
+s = rot12.oneip_settings
+assert (S.SINK_ROTATION not in s.valid) and (S.STREAM_TTL in s.valid), 'a 12-byte block stripped more than the rotation'
+
+# Another sender's write is cached only where the unit would take it, and never
+# moves the unit's step.
+rx(uid(0x04), 0x3C, cfg_msg(uid(0x27), int(S.SINK_ROTATION), rot_block(45, 0)))
+assert rot.oneip_settings.ptp_messages.sink_rotation == 90, "another sender's angle off the step was cached"
+rx(uid(0x04), 0x3C, cfg_msg(uid(0x27), int(S.SINK_ROTATION), rot_block(180, 0)))
+m = rot.oneip_settings.ptp_messages
+assert (m.sink_rotation, m.sink_rotation_step) == (180, 90), m
+
+# A write carries the angle and leaves the step 0, which the unit applies alone.
+assert call(rot.set_oneip_ptp_messages(S.SINK_ROTATION, mx_remote.OneIPPtpMessages(sink_rotation=270))) is True
+p = sent[-1][24:]
+assert len(p) == 232 and p[224:232] == bytes([0, 0]) + struct.pack('<H', 270) + bytes(4), p[216:].hex()
+m = rot.oneip_settings.ptp_messages
+assert (m.sink_rotation, m.sink_rotation_step) == (270, 90), m
+assert call(rot.set_oneip_ptp_messages(S.SINK_ROTATION, mx_remote.OneIPPtpMessages(sink_rotation=0))) is True
+refused(rot.set_oneip_ptp_messages(S.SINK_ROTATION, mx_remote.OneIPPtpMessages(sink_rotation=45)), 'an angle off the step')
+refused(rot.set_oneip_ptp_messages(S.SINK_ROTATION, mx_remote.OneIPPtpMessages(sink_rotation=360)), 'an angle past 359')
+fixed = hello(uid(0x29), SINK)
+rx(uid(0x29), 0x3C, cfg_msg(uid(0x29), ROT, rot_block(0, 0)))
+refused(fixed.set_oneip_ptp_messages(S.SINK_ROTATION, mx_remote.OneIPPtpMessages(sink_rotation=90)), 'a unit with no step')
+
+# A mesh-wide write can only be checked for range; each unit judges the step.
+everyone = lambda angle: mx.set_all_oneip_device_settings(mx_remote.OneIPDeviceSettings(
+    valid=S.SINK_ROTATION, ptp_messages=mx_remote.OneIPPtpMessages(sink_rotation=angle)))
+assert call(everyone(45)) is True
+assert struct.unpack_from('<H', sent[-1], len(sent[-1]) - 6)[0] == 45, sent[-1][-16:].hex()
+refused(everyone(360), 'a mesh-wide angle past 359')
+# as_applied_to still takes only the bits a unit reported, which say nothing of
+# its step, so a rotation other than 0 is left out.
+write = mx_remote.OneIPDeviceSettings(valid=S.STATUS_LED | S.SINK_ROTATION,
+                                      ptp_messages=mx_remote.OneIPPtpMessages(sink_rotation=90))
+assert write.as_applied_to(S.STATUS_LED | S.SINK_ROTATION).valid == S.STATUS_LED
+print('rotation    : a u16 at 10, by the unit\'s own step, which a write leaves 0')
+
 # What the builder writes, the decoder reads back as the same settings.
 assert call(target.set_oneip_ir_profile(7)) is True
 rx(uid(0x10), 0x3C, sent[-1][24:])

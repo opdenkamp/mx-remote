@@ -379,6 +379,9 @@ class OneIPDeviceSetting(IntFlag):
 	CLOUD              = (1 << 30)
 	'''Connects to the cloud service. A device that does not report it
 	connects regardless.'''
+	SINK_ROTATION      = (1 << 31)
+	'''The angle the device's HDMI output is turned by. Reported only by a
+	device with an HDMI output.'''
 
 ONEIP_DEVICE_SETTING_SWITCHES = OneIPDeviceSetting(0xFF) | OneIPDeviceSetting.AES67 \
 	| OneIPDeviceSetting.SAP_LISTEN | OneIPDeviceSetting.SAP_ANNOUNCE | OneIPDeviceSetting.POWER_SAVE_DISABLED \
@@ -398,13 +401,16 @@ ONEIP_DEVICE_SETTINGS_PTP_MESSAGES = OneIPDeviceSetting.PTP_ANNOUNCE | OneIPDevi
 """The PTP message settings."""
 
 ONEIP_DEVICE_SETTINGS_BLOCK = ONEIP_DEVICE_SETTINGS_PTP_MESSAGES | OneIPDeviceSetting.SAP_EXPIRE \
-	| OneIPDeviceSetting.SAP_INTERVAL | OneIPDeviceSetting.STREAM_TTL
+	| OneIPDeviceSetting.SAP_INTERVAL | OneIPDeviceSetting.STREAM_TTL | OneIPDeviceSetting.SINK_ROTATION
 """The settings whose values a frame carries in a block of their own behind the
-rest, OneIPPtpMessages: the PTP message settings, the two SAP values and the
-stream TTL."""
+rest, OneIPPtpMessages: the PTP message settings, the two SAP values, the
+stream TTL and the output's rotation."""
 
 ONEIP_STREAM_TTL_DEFAULT = 64
 """The TTL a OneIP device's streams carry until it is set."""
+
+ONEIP_SINK_ROTATION_MAX = 359
+"""The largest angle a OneIP device's HDMI output is turned by, in degrees."""
 
 class OneIPPtpMode(IntEnum):
 	'''How a OneIP device takes part in PTP.'''
