@@ -17,12 +17,14 @@ sync carries the same seq, which the source numbers on its own.
 from functools import cached_property
 import ipaddress
 import struct
+from typing import Any
 import zlib
 from ..compat import override
 from .Constants import (OSD_SYNC_RECORDS_MAX, OSD_SYNC_SLOTS, DeviceFeature, OsdCaptionAlign,
-                        OsdCaptionFormat, OsdSyncSize, OsdSyncState, OsdSyncWhat)
+                        OsdCaptionFormat, OsdMessageFlag, OsdMessagePriority, OsdSyncSize, OsdSyncState,
+                        OsdSyncWhat)
 from .FrameBase import FrameBase
-from ..Interface import (DeviceRegistry, OsdCaption, OsdLogo, OsdSync, OsdSyncEntry, OsdSyncReport,
+from ..Interface import (DeviceRegistry, OsdCaption, OsdLogo, OsdMessage, OsdSync, OsdSyncEntry, OsdSyncReport,
                          OsdSyncRequest, OsdSyncSetting, OsdSyncSlot, OsdSyncValue, _wire_enum)
 from ..Uid import MxrDeviceUid
 
@@ -39,6 +41,10 @@ from ..Uid import MxrDeviceUid
 #            layers at 26, u16 set at 28, then the body at 30
 #   report   state at 20, u16 written at 22, u16 refused at 24, a 64-byte
 #            reason at 26: 90 bytes
+#   message  flags at 20, logo at 21, priority at 22, a reserved byte, u16 text
+#            length at 24, then the text, unterminated, with a seq of 0: a
+#            request for the message on the unit's output, a write of one, or
+#            the unit's answer to either
 OSD_SYNC_VERSION = 2
 '''The payload version every frame opens with; a unit drops any other.'''
 _HEADER_SIZE = 20
@@ -47,6 +53,9 @@ OSD_KIND_SYNC = 0
 OSD_KIND_REQUEST = 1
 OSD_KIND_SETTING = 2
 OSD_KIND_REPORT = 3
+OSD_KIND_MESSAGE_REQUEST = 4
+OSD_KIND_MESSAGE_SET = 5
+OSD_KIND_MESSAGE_STATE = 6
 
 _SYNC_SIZE = 80
 _SLOTS_AT = 32
@@ -55,6 +64,7 @@ _REQUEST_SIZE = 38
 _REQUEST_SOURCE_AT = 38
 _SETTING_BODY_AT = 30
 _REPORT_SIZE = 90
+_MESSAGE_SIZE = 26
 
 OSD_SETTING_CAPTION = 0
 OSD_SETTING_LOGO = 1
@@ -113,6 +123,15 @@ class FrameV2IPOsdSync(FrameBase):
         else:
             p += struct.pack('<I', value)
         return FrameBase.construct_base(mxr=mxr, opcode=0x53, payload=p, target=to)
+
+    @staticmethod
+    def construct_message(mxr:DeviceRegistry, target:Any, target_uid:MxrDeviceUid, kind:int,
+                          flags:OsdMessageFlag=OsdMessageFlag(0), logo:int=0,
+                          priority:OsdMessagePriority=OsdMessagePriority.LOW, text:bytes=b'') -> FrameBase|None:
+        '''A message frame of kind for the output of target_uid.'''
+        p = (_header(kind, 0, target_uid) + struct.pack('<BbBxH', int(flags), logo, int(priority), len(text))
+             + text)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x53, payload=p)
 
     @cached_property
     def kind(self) -> int|None:
@@ -223,6 +242,20 @@ class FrameV2IPOsdSync(FrameBase):
         return OsdSyncReport(seq=self.seq or 0, state=_wire_enum(OsdSyncState, p[20]), written=written,
                              refused=refused, reason=_cstr(p[26:_REPORT_SIZE]))
 
+    @cached_property
+    def message(self) -> OsdMessage|None:
+        '''The message a unit reports on its own output, None for any other
+        kind, one about another unit, or one short of the text it counts.'''
+        p = self.payload or b''
+        if (self.kind != OSD_KIND_MESSAGE_STATE) or (len(p) < _MESSAGE_SIZE) or (self.target != self.remote_id):
+            return None
+        flags, logo, priority, length = struct.unpack_from('<BbBxH', p, 20)
+        text = p[_MESSAGE_SIZE:]
+        if (len(text) < length):
+            return None
+        return OsdMessage(flags=OsdMessageFlag(flags), logo=logo, priority=_wire_enum(OsdMessagePriority, priority),
+                          text=text[:length].decode('utf-8', errors='replace'))
+
     @override
     def process(self) -> None:
         '''Record a sync and a report against their sender, and hand a request
@@ -235,6 +268,8 @@ class FrameV2IPOsdSync(FrameBase):
             dev.on_mxr_update(sync)
         elif ((report := self.report) is not None):
             dev.on_mxr_update(report)
+        elif ((message := self.message) is not None):
+            dev.on_mxr_update(message)
         elif ((setting := self.setting) is not None):
             dev.callbacks.on_osd_sync_setting(dev, setting)
         elif ((request := self.request) is not None):
@@ -245,7 +280,7 @@ class FrameV2IPOsdSync(FrameBase):
     def __str__(self) -> str:
         if (self.kind is None):
             return "overlay sync <dropped>"
-        for item in (self.sync, self.request, self.setting, self.report):
+        for item in (self.sync, self.request, self.setting, self.report, self.message):
             if (item is not None):
                 return f"overlay sync {item}"
         return f"overlay sync kind {self.kind} seq {self.seq} not taken"

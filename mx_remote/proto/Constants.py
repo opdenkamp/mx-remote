@@ -440,6 +440,31 @@ class OsdSyncWhat(IntFlag):
 	LOGO_SLOTS  = (1 << 3)
 	'''The logo images in the four slots.'''
 
+class OsdMessageFlag(IntFlag):
+	'''What a unit says of the message on its output.'''
+	SET       = (1 << 0)
+	'''A message is set. In a write: show it, rather than take it down.'''
+	SHOWN     = (1 << 1)
+	'''The output shows it, rather than another message ahead of it.'''
+	SUPPORTED = (1 << 2)
+	'''The unit's video processor composes the message layer.'''
+	REFUSED   = (1 << 3)
+	'''The unit did not take the write it answers, and reports the message it
+	kept.'''
+
+class OsdMessagePriority(IntEnum):
+	'''Where a message stands against the unit's own messages: its upgrade,
+	Locate Device and encrypted source messages.'''
+	LOW    = 0
+	'''After them.'''
+	NORMAL = 1
+	'''Between them.'''
+	TOP    = 2
+	'''Before them.'''
+
+OSD_MESSAGE_TEXT_MAX = 255
+"""The longest message text a unit takes, in bytes."""
+
 class OsdSyncState(IntEnum):
 	'''How far a unit has got with taking an overlay sync.'''
 	TAKING   = 0

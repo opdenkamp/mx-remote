@@ -2411,6 +2411,28 @@ class OsdSyncReport:
     """Why it failed or refused any."""
 
 @dataclass(frozen=True)
+class OsdMessage:
+    """
+    The message on a unit's output, as the unit last reported it. The unit
+    holds it until it restarts.
+    """
+    flags: OsdMessageFlag
+    """Whether a message is set and shown, whether the unit can show one, and
+    whether it refused the write it answers. Without SET the other fields are
+    empty."""
+    logo: int
+    """The logo shown with it: 0 the built-in logo, -1 none, 1 to 5 a slot."""
+    priority: OsdMessagePriority|int
+    """Where it stands against the unit's own messages."""
+    text: str
+    """Its markup."""
+
+    def __str__(self) -> str:
+        if (OsdMessageFlag.SET not in self.flags):
+            return f"none{' (refused)' if (OsdMessageFlag.REFUSED in self.flags) else ''}"
+        return f"'{self.text}' logo {self.logo} {self.flags!r}"
+
+@dataclass(frozen=True)
 class OsdSyncEntry:
     """One setting of an overlay sync this client sends."""
     value: OsdSyncValue
@@ -3535,6 +3557,26 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
+    def osd_message(self) -> OsdMessage|None:
+        '''The message on this unit's output, as it last reported it to this
+        client, None until it has. A unit reports it only when asked, or when
+        this client writes it.'''
+
+    @abstractmethod
+    async def request_osd_message(self) -> bool:
+        '''ask this unit for the message on its output'''
+
+    @abstractmethod
+    async def show_osd_message(self, text:str, logo:int=-1,
+                               priority:OsdMessagePriority=OsdMessagePriority.NORMAL) -> bool:
+        '''show a message on this unit's output, in place of any it has'''
+
+    @abstractmethod
+    async def clear_osd_message(self) -> bool:
+        '''take the message down from this unit's output'''
+
+    @property
+    @abstractmethod
     def oneip_sink_sdp(self) -> OneIPSinkSdp|None:
         '''What this OneIP output plays from a session description, as it last
         reported it, None until it has. It reports when that changes and at
@@ -4146,6 +4188,11 @@ class MxrCallbacks:
     def on_osd_sync_report(self, dev:DeviceBase, report:OsdSyncReport) -> None:
         ''' called when unit 'dev' reported on taking an overlay sync '''
         _LOGGER.debug(f"{dev} overlay sync {report.seq}: {report.state!r} {report.reason}")
+        self.on_device_update(dev)
+
+    def on_osd_message_changed(self, dev:DeviceBase, message:OsdMessage) -> None:
+        ''' called when unit 'dev' reported something different about the message on its output '''
+        _LOGGER.debug(f"{dev} overlay message: {message}")
         self.on_device_update(dev)
 
     def on_osd_sync_requested(self, dev:DeviceBase, request:OsdSyncRequest) -> None:

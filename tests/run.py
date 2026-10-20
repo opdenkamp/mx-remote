@@ -61,6 +61,7 @@ SUITES = [
     'privacy',      # how a OneIP source unit encrypts its streams
     'baycontent',   # what the source on an input is showing
     'osdsync',      # overlay sync, watched and sent
+    'osdmessage',   # the message on a unit's output, read and written
     'deprecated',   # the V2IP names 5.11.0 exported still resolve, with a warning
 ]
 

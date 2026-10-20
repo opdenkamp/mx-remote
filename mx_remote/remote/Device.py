@@ -34,6 +34,7 @@ from ..Interface import (
 	OneIPPrivacy,
 	OsdSync,
 	OsdSyncReport,
+	OsdMessage,
 	OneIPTestSync,
 	OneIPTestTone,
 	TimeZone,
@@ -80,7 +81,7 @@ import time
 
 from ..Interface import DeviceBase, BayBase, DeviceRegistry
 from ..proto.FrameBase import FrameBase
-from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, BayFeaturesMask, DeviceFeature, MxrSignalType, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag,
+from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, OSD_MESSAGE_TEXT_MAX, OsdMessageFlag, OsdMessagePriority, BayFeaturesMask, DeviceFeature, MxrSignalType, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag,
                               OneIPTestPattern, OneIPToneMode,
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                               MXR_SCALING_FLAG_OPTIONS_VALID, ONEIP_DEVICE_SETTING_SWITCHES,
@@ -91,6 +92,7 @@ from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, BayFeaturesMask,
 from ..proto.FrameUnitCommand import FrameUnitCommand
 from ..proto.FrameV2IPAudio import AUDIO_LAYOUT_SINCE, FrameV2IPAudio
 from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
+from ..proto.FrameV2IPOsdSync import FrameV2IPOsdSync, OSD_KIND_MESSAGE_REQUEST, OSD_KIND_MESSAGE_SET
 from ..proto.FrameV2IPPrivacy import FrameV2IPPrivacy
 from ..proto.FrameV2IPSinkSdp import FrameV2IPSinkSdp, SDP_REQUEST, SDP_SCREEN, SDP_STOP
 from ..proto.FrameV2IPTestcard import (FrameV2IPTestcard, TESTCARD_REQUEST, TESTCARD_SET,
@@ -177,6 +179,7 @@ class Device(DeviceBase):
 		self._v2ip_privacy:OneIPPrivacy|None = None
 		self._osd_sync:OsdSync|None = None
 		self._osd_sync_report:OsdSyncReport|None = None
+		self._osd_message:OsdMessage|None = None
 		self._time_zone:TimeZone|None = None
 		self._clock:DeviceClock|None = None
 		self._mesh_master_uid:MxrDeviceUid|None = None
@@ -1059,6 +1062,10 @@ class Device(DeviceBase):
 			if (self._osd_sync_report != data):
 				self._osd_sync_report = data
 				self.callbacks.on_osd_sync_report(self, data)
+		elif isinstance(data, OsdMessage):
+			if (self._osd_message != data):
+				self._osd_message = data
+				self.callbacks.on_osd_message_changed(self, data)
 				self.call_callbacks()
 		elif isinstance(data, OneIPSinkSdp):
 			if (self._v2ip_sink_sdp != data):
@@ -1713,6 +1720,62 @@ class Device(DeviceBase):
 	@override
 	def osd_sync_report(self) -> OsdSyncReport|None:
 		return self._osd_sync_report
+
+	@property
+	@override
+	def osd_message(self) -> OsdMessage|None:
+		return self._osd_message
+
+	async def request_osd_message(self) -> bool:
+		'''Ask this unit for the message on its output, which osd_message reads
+		once the unit answers. Refused for a device that is not a OneIP output.'''
+		return self._send_osd_message(OSD_KIND_MESSAGE_REQUEST)
+
+	async def show_osd_message(self, text:str, logo:int=-1,
+	                           priority:OsdMessagePriority=OsdMessagePriority.NORMAL) -> bool:
+		'''Show a message on this unit's output, in place of any it has.
+
+		text is markup of at most OSD_MESSAGE_TEXT_MAX bytes, with no control
+		character; empty, the logo shows alone. logo is shown with it: 0 the
+		built-in logo, -1 none, 1 to 5 a logo slot.
+
+		The unit takes it from management, which this client announces itself
+		as, and holds it until it restarts. It answers with the message it then
+		has, which osd_message reads, flagged OsdMessageFlag.REFUSED when its
+		video processor has no message layer. Refused here for a device that
+		is not a OneIP output, and for a logo, priority or text the unit would
+		refuse.
+		'''
+		data = text.encode('utf-8')
+		why = None
+		if not (-1 <= logo <= 5):
+			why = 'a logo of -1 to 5'
+		elif not (OsdMessagePriority.LOW <= priority <= OsdMessagePriority.TOP):
+			why = 'no such message priority'
+		elif (len(data) > OSD_MESSAGE_TEXT_MAX):
+			why = f'a message of at most {OSD_MESSAGE_TEXT_MAX} bytes'
+		elif any((b < 0x20) for b in data):
+			why = 'a control character in a message'
+		if (why is not None):
+			_LOGGER.warning(f"not showing a message on {self}: {why}")
+			return False
+		return self._send_osd_message(OSD_KIND_MESSAGE_SET, OsdMessageFlag.SET, logo, priority, data)
+
+	async def clear_osd_message(self) -> bool:
+		'''Take the message down from this unit's output. As show_osd_message().'''
+		return self._send_osd_message(OSD_KIND_MESSAGE_SET)
+
+	def _send_osd_message(self, kind:int, flags:OsdMessageFlag=OsdMessageFlag(0), logo:int=0,
+	                      priority:OsdMessagePriority=OsdMessagePriority.LOW, text:bytes=b'') -> bool:
+		'''The one send behind the message commands, to a OneIP output.'''
+		if not self.is_oneip_sink:
+			_LOGGER.warning(f"not sending an overlay message command to {self}: it is not a OneIP output")
+			return False
+		frame = FrameV2IPOsdSync.construct_message(mxr=self.registry, target=self, target_uid=self.remote_id,
+		                                           kind=kind, flags=flags, logo=logo, priority=priority, text=text)
+		if (frame is None):
+			return False
+		return self.registry.transmit(frame.frame) == len(frame.frame)
 
 	@property
 	@override

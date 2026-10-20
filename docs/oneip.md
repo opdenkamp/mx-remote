@@ -432,6 +432,30 @@ client's on that unit. Logo images are
 served over HTTP from this client, on `logo_port` or a free port. Content a unit
 would refuse is refused before anything is sent; see `send_osd_sync`.
 
+### Overlay messages
+
+A unit shows a message on its output, over the picture, until it restarts. The
+text is markup of at most `OSD_MESSAGE_TEXT_MAX` bytes with no control
+character, shown with a logo: 0 the built-in one, -1 none, 1 to 5 a slot. Its
+priority places it against the unit's own messages, such as Locate Device.
+
+```python
+from mx_remote.proto.Constants import OsdMessagePriority
+
+await sink.show_osd_message('Back at <b>3</b>', logo=-1, priority=OsdMessagePriority.TOP)
+await sink.request_osd_message()   # the unit answers with what it shows
+await sink.clear_osd_message()
+
+print(sink.osd_message)   # None until the unit has answered
+```
+
+A unit takes a message only from management, which this client announces
+itself as, and answers every write and request with the message it then has;
+`on_osd_message_changed` reports a change. The answer carries
+`OsdMessageFlag.REFUSED` when the unit did not take the write, as when its
+video processor has no message layer. A text, logo or priority a unit would
+refuse is refused before it is sent, as is a device that is not a OneIP output.
+
 ### Stream encryption
 
 A source unit from protocol 0x30 encrypts its video, audio and ancillary

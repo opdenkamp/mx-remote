@@ -85,6 +85,23 @@ place, backgrounds and logo images.
 .. autodata:: mx_remote.proto.Constants.OSD_SYNC_PERCENT_MAX
 ```
 
+## Overlay messages
+
+The message on a unit's output, which the overlay sync opcode carries too.
+
+```{eval-rst}
+.. autoclass:: mx_remote.OsdMessage
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OsdMessageFlag
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OsdMessagePriority
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.OSD_MESSAGE_TEXT_MAX
+```
+
 ## Device identity
 
 ```{eval-rst}
