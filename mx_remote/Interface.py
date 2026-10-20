@@ -2333,8 +2333,7 @@ class OsdSyncRequest:
     missing: bytes
     """The settings it lacks, bit i standing for setting i, 16 bytes."""
     source: MxrDeviceUid
-    """Who sent the sync it asks about. Empty when it asks for a new sync, and
-    from a unit whose module does not name the source."""
+    """Who sent the sync it asks about. Empty when it asks for a new sync."""
 
     def is_missing(self, index:int) -> bool:
         """Whether the unit lacks setting index."""

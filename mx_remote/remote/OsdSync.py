@@ -104,8 +104,6 @@ class OsdSender:
         # unit drops a sync repeating the last one's within two seconds.
         self._next_seq = max(int(time.time() * 1000) & 0xFFFF, 1)
         self._held:_Held|None = None
-        self._issued:deque[int] = deque(maxlen=SEQS_KEPT)
-        '''The syncs this client sent, of whatever it held, oldest first.'''
         self._queue:deque[_Pending] = deque()
 
     @property
@@ -143,7 +141,6 @@ class OsdSender:
             return None
         seq = self._next_seq
         self._next_seq = max((seq + 1) & 0xFFFF, 1)
-        self._issued.append(seq)
         held.seqs.append(seq)
         return (seq, held.what if (what is None) else what, held.http_port, len(held.entries), held.slots)
 
@@ -155,14 +152,7 @@ class OsdSender:
         request this client leaves alone.'''
         if ((held := self._held) is None):
             return None
-        current = (request.seq != 0) and (request.seq in held.seqs)
-        # A request naming no source, as an older overlay module sends, is this
-        # client's to answer only for a sync it sent; any other is the
-        # controller's.
-        ours = current or (request.seq in self._issued)
-        if (request.seq != 0) and request.source.empty and not ours:
-            return None
-        if current:
+        if (request.seq != 0) and (request.seq in held.seqs):
             self._queue = deque(p for p in self._queue if (p.unit != request.target))
             for index in range(len(held.entries)):
                 if request.is_missing(index):

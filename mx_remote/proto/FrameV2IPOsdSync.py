@@ -34,9 +34,8 @@ from ..Uid import MxrDeviceUid
 #   sync     what at 20, u16 HTTP port at 22, the source's IPv4 address at 24,
 #            u16 records at 28, then four 12-byte logo slots from 32 (u32
 #            bytes, u32 CRC-32, u8 percent): 80 bytes
-#   request  what at 20, the 16-byte missing-settings bitmap at 22, then from
-#            54 the sync's source, which units on an older overlay module do
-#            not send: 38 or 54 bytes
+#   request  what at 20, the 16-byte missing-settings bitmap at 22, then the
+#            sync's source at 38: 54 bytes
 #   setting  u16 index at 20, u16 records at 22, kind at 24, size at 25, u16
 #            layers at 26, u16 set at 28, then the body at 30
 #   report   state at 20, u16 written at 22, u16 refused at 24, a 64-byte
@@ -60,7 +59,7 @@ OSD_KIND_MESSAGE_STATE = 6
 _SYNC_SIZE = 80
 _SLOTS_AT = 32
 _SLOT_SIZE = 12
-_REQUEST_SIZE = 38
+_REQUEST_SIZE = 54
 _REQUEST_SOURCE_AT = 38
 _SETTING_BODY_AT = 30
 _REPORT_SIZE = 90
@@ -187,15 +186,14 @@ class FrameV2IPOsdSync(FrameBase):
     def request(self) -> OsdSyncRequest|None:
         '''The request, None for any other kind or one no unit takes. A unit
         asks about itself; management may also ask for a new sync for another
-        unit. A request carries the sync's source from 54 bytes; a 38-byte one,
-        as units on an older module send, reads its source as empty.'''
+        unit.'''
         p = self.payload or b''
         if (self.kind != OSD_KIND_REQUEST) or (len(p) < _REQUEST_SIZE):
             return None
         target, seq = self.target, self.seq or 0
         if (target != self.remote_id) and not ((seq == 0) and self.from_management):
             return None
-        source = MxrDeviceUid(p[_REQUEST_SOURCE_AT:_REQUEST_SOURCE_AT + 16].ljust(16, b'\0'))
+        source = MxrDeviceUid(p[_REQUEST_SOURCE_AT:_REQUEST_SOURCE_AT + 16])
         return OsdSyncRequest(target=target, seq=seq, what=OsdSyncWhat(p[20]), missing=bytes(p[22:38]),
                               source=source)
 
@@ -261,7 +259,7 @@ class FrameV2IPOsdSync(FrameBase):
         '''Record a sync and a report against their sender, and hand a request
         and a setting to the callbacks. A request this client may answer goes
         to the registry: one asking for a new sync, or one naming this client
-        as the source, or, from an older overlay module, naming none.'''
+        as the source.'''
         if ((dev := self.remote_device) is None):
             return
         if ((sync := self.sync) is not None):
@@ -274,7 +272,7 @@ class FrameV2IPOsdSync(FrameBase):
             dev.callbacks.on_osd_sync_setting(dev, setting)
         elif ((request := self.request) is not None):
             dev.callbacks.on_osd_sync_requested(dev, request)
-            if (request.seq == 0) or request.source.empty or (request.source == self.mxr.uid):
+            if (request.seq == 0) or (request.source == self.mxr.uid):
                 self.mxr.on_mxr_update(request)
 
     def __str__(self) -> str:

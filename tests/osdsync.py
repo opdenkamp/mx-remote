@@ -70,9 +70,8 @@ def sync_frame(seq, target, what, records, slots=()):
     assert len(p) == 80
     return p
 
-def request(target, seq, what, missing=b'', source=None):
-    p = header(1, seq, target) + bytes([int(what), 0xA5]) + missing.ljust(16, b'\0')
-    return p + (source if (source is not None) else b'')
+def request(target, seq, what, missing=b'', source=bytes(16)):
+    return header(1, seq, target) + bytes([int(what), 0xA5]) + missing.ljust(16, b'\0') + source
 
 def opcode(frame):
     return int.from_bytes(frame[20:22], 'little')
@@ -122,15 +121,17 @@ rx(mx, CTRL, 0x53, sync_frame(7, bytes(16), W.LOGO, 1))
 assert ctrl.osd_sync.seq == 7
 print('management  : MANAGER, the followed controller, or MESH_MASTER while none is followed')
 
-# A request is about its sender, unless management asks for a new sync; it
-# carries the sync's source from 54 bytes.
+# A request is about its sender, unless management asks for a new sync, and
+# names the sync's source in its last 16 of 54 bytes.
 rx(mx, UNIT, 0x53, request(UNIT, 0xA1B3, W.CAPTIONS, b'\x05', uid(0x40)))
 dev, req = seen.requests[-1]
 assert (dev, req.target, req.seq, req.what) == (unit, MxrDeviceUid(UNIT), 0xA1B3, W.CAPTIONS)
 assert req.is_missing(0) and not req.is_missing(1) and req.is_missing(2) and req.source == MxrDeviceUid(MGR)
-rx(mx, UNIT, 0x53, request(UNIT, 0xA1B3, W.CAPTIONS, b'\x01'))
-assert seen.requests[-1][1].source.empty, 'a 38-byte request names no source'
 n = len(seen.requests)
+rx(mx, UNIT, 0x53, request(UNIT, 0xA1B3, W.CAPTIONS, b'\x01', b''))
+assert len(seen.requests) == n, 'a 38-byte request, naming no source, was read'
+rx(mx, UNIT, 0x53, request(UNIT, 0xA1B3, W.CAPTIONS, b'\x01', MGR[:15]))
+assert len(seen.requests) == n, 'a request short of its source was read'
 rx(mx, uid(0x11), 0x53, request(UNIT, 0xA1B3, W.CAPTIONS, b'\x01'))
 assert len(seen.requests) == n, 'a peer asked for another unit'
 rx(mx, MGR, 0x53, request(UNIT, 0, W.CAPTIONS))
@@ -204,15 +205,13 @@ assert u16(sent[0], 22) == 3 and u16(sent[0], 2) == seq
 assert mx._osd_pass() == 0
 print('settings    : only what the unit lacks, to that unit')
 
-# A request for another source is left to it; one naming no source is answered
-# only for a sync this client sent.
+# A request for settings of another source's sync is left to it, and one
+# naming no source is no unit's.
 sent.clear()
 rx(mx, UNIT, 0x53, request(UNIT, seq, W.CAPTIONS, b'\x01', uid(0x40)))
-rx(mx, UNIT, 0x53, request(UNIT, 0x1234, W.CAPTIONS, b'\x01'))
-assert mx._osd_pass() == 0 and sent == [], 'a request for another source was answered'
 rx(mx, UNIT, 0x53, request(UNIT, seq, W.CAPTIONS, b'\x02'))
-assert mx._osd_pass() == 1, 'a request naming no source for this client\'s sync went unanswered'
-print('sources     : another source\'s request left to it, a sourceless one answered for our sync')
+assert mx._osd_pass() == 0 and sent == [], 'a request this client does not source was answered'
+print('sources     : only a request naming this client as the source is answered')
 
 # A new ask replaces what was still queued for the unit; the units take turns.
 rx(mx, UNIT, 0x53, request(UNIT, seq, W.CAPTIONS, b'\x07', OURS))
