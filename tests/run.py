@@ -62,6 +62,7 @@ SUITES = [
     'baycontent',   # what the source on an input is showing
     'osdsync',      # overlay sync, watched and sent
     'osdmessage',   # the message on a unit's output, read and written
+    'downmix',      # how a OneIP output mixes down to stereo, read and written
     'uid',          # a device uid's text, and what it equals
     'deprecated',   # the V2IP names 5.11.0 exported still resolve, with a warning
 ]

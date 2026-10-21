@@ -318,6 +318,31 @@ if ptp is not None:
     print(ptp.grandmaster)    # its clock identity, None while there is none
 ```
 
+### Stereo downmix
+
+A device whose output can mix 5.1 and 7.1 PCM down to stereo reports how,
+once its video processor has answered for it: a mode, a level and the percent
+the LFE channel is mixed in at, which a controller writes, and the state and
+channel count, which only the device reports. A device that reports none has
+no downmix to set, so a write to one is refused, as is a mode, level or LFE
+percent out of range. The write sends the mode, level and LFE together; the
+state and channels are never sent.
+
+```python
+from mx_remote import OneIPDownmix
+from mx_remote.proto.Constants import OneIPDownmixMode, OneIPDownmixLevel
+
+downmix = device.oneip_downmix    # None: no report yet, or no downmix
+if downmix is not None:
+    print(downmix.mode, downmix.level, downmix.lfe)   # LFE up to ONEIP_DOWNMIX_LFE_MAX
+    print(downmix.state, downmix.channels)            # the device's own
+    await device.set_oneip_downmix(OneIPDownmix(mode=OneIPDownmixMode.AUTO,
+                                                level=OneIPDownmixLevel.NORMALISED, lfe=50))
+```
+
+The downmix ends the settings block, behind a second valid word, so the write
+runs on to 248 bytes and carries no other setting.
+
 ### VLAN
 
 A device that announces `DeviceFeature.VLAN` tags its uplink by a VLAN

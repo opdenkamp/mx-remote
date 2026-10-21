@@ -2136,6 +2136,46 @@ class OneIPPtpState:
                 f"{' followed' if self.followed else ''} clock {self.clock_identity.hex(':')} grandmaster {gm}")
 
 @dataclass(frozen=True)
+class OneIPDownmix:
+    """
+    How a OneIP output mixes 5.1 and 7.1 PCM down to stereo, and whether it
+    does now.
+
+    A device reports it once its video processor has answered for it, so never
+    one whose output cannot mix down.
+    """
+    mode: OneIPDownmixMode|int = OneIPDownmixMode.OFF
+    """When the output mixes down; a raw int for a mode this library does not
+    name."""
+    level: OneIPDownmixLevel|int = OneIPDownmixLevel.NORMALISED
+    """How loud the mix is; a raw int for a level this library does not name."""
+    lfe: int = 0
+    """The percent the LFE channel is mixed in at, at most
+    ONEIP_DOWNMIX_LFE_MAX; 0 leaves it out."""
+    state: int = 0
+    """Why the stream is or is not mixed down, as the device's own code. Only
+    the device reports it."""
+    channels: int = 0
+    """The stream's channels while it is mixed down, else 0. Only the device
+    reports it."""
+
+    def is_valid(self) -> bool:
+        """Whether the settings a write carries are in range."""
+        return ((OneIPDownmixMode.OFF <= self.mode <= OneIPDownmixMode.ALWAYS)
+                and (OneIPDownmixLevel.NORMALISED <= self.level <= OneIPDownmixLevel.UNSCALED)
+                and (0 <= self.lfe <= ONEIP_DOWNMIX_LFE_MAX))
+
+    def written(self, write:'OneIPDownmix') -> 'OneIPDownmix':
+        """The settings of write applied to this report, which keeps what only
+        the device reports."""
+        return replace(self, mode=write.mode, level=write.level, lfe=write.lfe)
+
+    def __str__(self) -> str:
+        mode = self.mode.name.lower() if isinstance(self.mode, OneIPDownmixMode) else self.mode
+        level = self.level.name.lower() if isinstance(self.level, OneIPDownmixLevel) else self.level
+        return f"{mode} {level} lfe {self.lfe}% state {self.state} channels {self.channels}"
+
+@dataclass(frozen=True)
 class OneIPVlan:
     """
     VLAN tagging on a OneIP device's uplink.
@@ -3241,6 +3281,14 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
+    def oneip_downmix(self) -> OneIPDownmix|None:
+        '''How this OneIP device's output mixes down to stereo, as it last
+        reported, None while it reports no downmix: until its video processor
+        has answered for it, and always for one whose output cannot mix
+        down.'''
+
+    @property
+    @abstractmethod
     def oneip_ptp(self) -> OneIPPtpState|None:
         '''The PTP state this OneIP device last reported about itself, None
         until it has reported one, and while it has no PTP to report: none on
@@ -3531,6 +3579,10 @@ class DeviceBase(ABC):
     @abstractmethod
     async def set_oneip_ptp_messages(self, which:OneIPDeviceSetting, messages:OneIPPtpMessages) -> bool:
         '''set how the device paces its PTP messages, its SAP timings and its streams' TTL: the values of messages behind the bits of which'''
+
+    @abstractmethod
+    async def set_oneip_downmix(self, downmix:OneIPDownmix) -> bool:
+        '''set how the device's output mixes down to stereo'''
 
     @abstractmethod
     async def set_oneip_vlan(self, vlan:OneIPVlan) -> bool:

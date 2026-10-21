@@ -609,6 +609,25 @@ class OneIPPowerSaveLevel(IntEnum):
 	OFF     = 3
 	'''Everything but the network powers down.'''
 
+class OneIPDownmixMode(IntEnum):
+	'''When a OneIP output mixes 5.1 and 7.1 PCM down to stereo.'''
+	OFF    = 0
+	'''Never.'''
+	AUTO   = 1
+	'''When the display's EDID lists two PCM channels or fewer.'''
+	ALWAYS = 2
+	'''Always.'''
+
+class OneIPDownmixLevel(IntEnum):
+	'''How loud a OneIP output's stereo downmix is.'''
+	NORMALISED = 0
+	'''Scaled so the mix never clips.'''
+	UNSCALED   = 1
+	'''Unscaled, with dialogue at the level it has in stereo.'''
+
+ONEIP_DOWNMIX_LFE_MAX = 100
+"""The largest percent a OneIP output mixes its LFE channel in at."""
+
 class UnitPowerSave(IntFlag):
 	'''What a unit offers at one power save level.'''
 	SUPPORTED   = (1 << 0)

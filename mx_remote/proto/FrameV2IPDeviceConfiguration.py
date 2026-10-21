@@ -14,9 +14,9 @@ from .FrameHeader import FrameHeader
 from ..Uid import MxrDeviceUid
 from ..Interface import (DeviceBase, DeviceRegistry, DeviceOneIPDetails, DeviceOneIPScalingSettings,
                          DeviceOneIPSink, OneIPAudioFormat, OneIPDeviceSettings, OneIPDscpConfig,
-                         OneIPPowerSaveSchedule, OneIPPtpMessages, OneIPPtpState, OneIPStreamSource,
-                         OneIPVlan, _wire_enum)
-from .Constants import (ONEIP_DEVICE_SETTINGS_BLOCK, ONEIP_DEVICE_SETTINGS_PTP, OneIPPtpFlag, OneIPPtpLock, OneIPPtpMode, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag, MXR_SCALING_FLAG_AUTO_SCALING,
+                         OneIPDownmix, OneIPPowerSaveSchedule, OneIPPtpMessages, OneIPPtpState,
+                         OneIPStreamSource, OneIPVlan, _wire_enum)
+from .Constants import (ONEIP_DEVICE_SETTINGS_BLOCK, ONEIP_DEVICE_SETTINGS_PTP, OneIPDownmixLevel, OneIPDownmixMode, OneIPPtpFlag, OneIPPtpLock, OneIPPtpMode, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag, MXR_SCALING_FLAG_AUTO_SCALING,
                         MXR_SCALING_FLAG_MODE_VALID,
                         MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_OPTIONS2_VALID,
                         MXR_SCALING_OPTIONS2_SETTINGS, MxrSignalType, oneip_dscp_value,
@@ -48,13 +48,19 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #   216..224  the settings' own block: the PTP announce, sync and delay
 #             request intervals as i8, u8 announce timeout, u8 PTP DSCP,
 #             u8 SAP expiry in minutes, u16 SAP interval in seconds, and
-#             from a device with the stream TTL, u8 TTL and 7 reserved
+#             from a device with the stream TTL, u8 TTL, a reserved byte,
+#             u16 output rotation and u16 rotation step at 224..230, 2
+#             reserved
+#   232..248  from a device with the downmix: u32 second valid word, then
+#             the downmix's u8 mode, level, LFE percent, state and channels
+#             at 236..241, 7 reserved
 #
 # That block is the last of its frame, so it is read by its length: shorter
 # than 8 carries none of its values, and 8, which every device without the TTL
 # sends, carries all but the TTL. A write grows it to 16 only when it carries
-# the TTL, so the frames other writes send are unchanged for units that
-# predate it.
+# the TTL or the rotation, and to 32 only for the downmix, so the frames other
+# writes send are unchanged for units that predate them. A block too short to
+# hold the downmix's channels carries no bit of the second valid word.
 #
 # Each of those blocks was appended behind what came before it, leaving every
 # offset ahead of it where it was, so the length is what says whether one is
@@ -136,6 +142,14 @@ _STREAM_TTL_AT = 8
 _SINK_ROTATION_AT = 10
 _SINK_ROTATION_STEP_AT = 12
 _SETTINGS_BLOCK_LONG_SIZE = 16
+_VALID_EXT_OFFSET = SETTINGS_BLOCK_OFFSET + _SETTINGS_BLOCK_LONG_SIZE
+'''The second valid word of the settings, behind the block of their own.'''
+_DOWNMIX_OFFSET = _VALID_EXT_OFFSET + 4
+_DOWNMIX_SIZE = 5
+_WITH_DOWNMIX_SIZE = SETTINGS_BLOCK_OFFSET + 32
+'''The frame a downmix write sends: the settings block run on to 32 bytes.'''
+_SETTING_EXT_DOWNMIX = 1 << 0
+'''The bit of the second valid word that carries the downmix.'''
 
 def carries_settings_block(settings:OneIPDeviceSettings) -> bool:
     '''Whether settings carry a value only the block of their own can hold.'''
@@ -425,6 +439,28 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         return FrameBase.construct_base(target=target, mxr=mxr, opcode=_OPCODE, payload=bytes(payload))
 
     @staticmethod
+    def construct_downmix(mxr:DeviceRegistry, target:Any, target_uid:MxrDeviceUid,
+                          downmix:OneIPDownmix) -> FrameBase|None:
+        '''Build the 0x3C write that changes how a device's output mixes down to
+        stereo and nothing else.
+
+        248 bytes: the frame construct_settings() builds, with a settings block
+        that carries no setting, zeroed to 232, then the second valid word
+        carrying the downmix and its mode, level and LFE percent at 236..239.
+        The state and channels at 239 and 240 are the device's to report, and
+        are left 0.
+        '''
+        frame = FrameV2IPDeviceConfiguration.construct_settings(
+            mxr=mxr, target=target, target_uid=target_uid, settings=OneIPDeviceSettings())
+        if (frame is None):
+            return None
+        payload = bytearray(frame.payload or b"")
+        payload += bytes(_WITH_DOWNMIX_SIZE - len(payload))
+        struct.pack_into('<IBBB', payload, _VALID_EXT_OFFSET, _SETTING_EXT_DOWNMIX,
+                         int(downmix.mode), int(downmix.level), downmix.lfe)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=_OPCODE, payload=bytes(payload))
+
+    @staticmethod
     def construct_vlan(mxr:DeviceRegistry, target:Any, target_uid:MxrDeviceUid,
                        vlan:OneIPVlan) -> FrameBase|None:
         '''Build the 0x3C write that changes a device's VLAN configuration and
@@ -580,6 +616,28 @@ class FrameV2IPDeviceConfiguration(FrameBase):
                              port_state=port_state, lock=_wire_enum(OneIPPtpLock, lock),
                              clock_identity=clock, grandmaster_identity=grandmaster)
 
+    @property
+    def carries_downmix(self) -> bool:
+        '''Whether the frame is long enough to say whether it carries a downmix.'''
+        return (self.payload is not None) and (len(self.payload) >= (_DOWNMIX_OFFSET + _DOWNMIX_SIZE))
+
+    @cached_property
+    def downmix(self) -> OneIPDownmix|None:
+        '''The downmix the frame carries, None when it carries none: in a frame
+        too short to hold it, or without its bit of the second valid word.
+
+        From the subject itself, None reports that it has no downmix; from
+        another sender it is a write, of which only the mode, level and LFE
+        percent count.'''
+        if not self.carries_downmix:
+            return None
+        p = self.payload or b""
+        valid_ext, mode, level, lfe, state, channels = struct.unpack_from('<IBBBBB', p, _VALID_EXT_OFFSET)
+        if not (valid_ext & _SETTING_EXT_DOWNMIX):
+            return None
+        return OneIPDownmix(mode=_wire_enum(OneIPDownmixMode, mode), level=_wire_enum(OneIPDownmixLevel, level),
+                            lfe=lfe, state=state, channels=channels)
+
     def process(self) -> None:
         '''Update the cache of the device this configuration names, not of its sender.'''
         if ((dev := self.subject_device) is None):
@@ -595,6 +653,8 @@ class FrameV2IPDeviceConfiguration(FrameBase):
             dev.on_mxr_update(vlan)
         if ((ptp := self.ptp) is not None):
             dev.on_mxr_update(ptp)
+        if self.carries_downmix:
+            dev.on_mxr_update(self)
 
     def __str__(self) -> str:
         sink_str = f" sink=[{self.sink}]" if (self.sink is not None) else ""

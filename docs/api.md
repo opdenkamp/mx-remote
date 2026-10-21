@@ -168,6 +168,23 @@ bit, and the range of the infrared profiles.
 .. autodata:: mx_remote.proto.Constants.ONEIP_VLAN_ID_MAX
 ```
 
+## OneIP stereo downmix
+
+How a device's output mixes 5.1 and 7.1 PCM down to stereo.
+
+```{eval-rst}
+.. autoclass:: mx_remote.OneIPDownmix
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OneIPDownmixMode
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.OneIPDownmixLevel
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.ONEIP_DOWNMIX_LFE_MAX
+```
+
 ## OneIP PTP
 
 A device's PTP settings, which it reports and a controller writes, and the PTP

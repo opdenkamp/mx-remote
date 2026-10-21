@@ -12,6 +12,7 @@ from ..Interface import (
 	OneIPStreamSources,
 	OneIPPtpMessages,
 	OneIPPtpState,
+	OneIPDownmix,
 	UnitNetConfig,
 	UnitStatus,
 	AmpDolbySettings,
@@ -81,7 +82,7 @@ import time
 
 from ..Interface import DeviceBase, BayBase, DeviceRegistry
 from ..proto.FrameBase import FrameBase
-from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, OSD_MESSAGE_TEXT_MAX, OsdMessageFlag, OsdMessagePriority, BayFeaturesMask, DeviceFeature, MxrSignalType, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag,
+from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, ONEIP_DOWNMIX_LFE_MAX, OSD_MESSAGE_TEXT_MAX, OsdMessageFlag, OsdMessagePriority, BayFeaturesMask, DeviceFeature, MxrSignalType, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag,
                               OneIPTestPattern, OneIPToneMode,
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                               MXR_SCALING_FLAG_OPTIONS_VALID, ONEIP_DEVICE_SETTING_SWITCHES,
@@ -173,6 +174,7 @@ class Device(DeviceBase):
 		self._v2ip_settings:OneIPDeviceSettings|None = None
 		self._v2ip_vlan:OneIPVlan|None = None
 		self._v2ip_ptp:OneIPPtpState|None = None
+		self._v2ip_downmix:OneIPDownmix|None = None
 		self._unit_status:UnitStatus|None = None
 		self._v2ip_testcard:OneIPTestcard|None = None
 		self._v2ip_sink_sdp:OneIPSinkSdp|None = None
@@ -452,6 +454,11 @@ class Device(DeviceBase):
 	@override
 	def oneip_ptp(self) -> OneIPPtpState|None:
 		return self._v2ip_ptp
+
+	@property
+	@override
+	def oneip_downmix(self) -> OneIPDownmix|None:
+		return self._v2ip_downmix
 
 	@property
 	@override
@@ -1050,6 +1057,8 @@ class Device(DeviceBase):
 			if (self._v2ip_ptp != ptp):
 				self._v2ip_ptp = ptp
 				self.call_callbacks()
+		elif isinstance(data, FrameV2IPDeviceConfiguration):
+			self._on_oneip_downmix(data.downmix, reported=data.target_self)
 		elif isinstance(data, OneIPTestcard):
 			if (self._v2ip_testcard != data):
 				self._v2ip_testcard = data
@@ -1605,6 +1614,47 @@ class Device(DeviceBase):
 				return False
 			messages = dataclasses.replace(messages, sink_rotation_step=own.sink_rotation_step)
 		return self._send_v2ip_settings(OneIPDeviceSettings(valid=which, ptp_messages=messages))
+
+	def _on_oneip_downmix(self, downmix:OneIPDownmix|None, reported:bool) -> None:
+		'''Take the downmix a configuration carries as the device takes it: a
+		report replaces the one held, None included, and another sender's write
+		is applied only to a device that reports a downmix, and never to what
+		only the device reports.'''
+		if not reported:
+			if (downmix is None) or (self._v2ip_downmix is None):
+				return
+			downmix = self._v2ip_downmix.written(downmix)
+		if (self._v2ip_downmix != downmix):
+			self._v2ip_downmix = downmix
+			self.call_callbacks()
+
+	async def set_oneip_downmix(self, downmix:OneIPDownmix) -> bool:
+		'''Set how this OneIP device's output mixes 5.1 and 7.1 PCM down to
+		stereo: the mode, level and LFE percent of downmix, which the device
+		applies together. Its state and channels are the device's to report,
+		and are not sent.
+
+		Refused before anything is sent for a mode, level or LFE percent out of
+		range, and unless the device reports a downmix, which one whose output
+		cannot mix down never does. The new downmix is cached once the frame is
+		sent, and the device's next report replaces it.
+		'''
+		why = None
+		if not downmix.is_valid():
+			why = f'no such mode or level, or an LFE above {ONEIP_DOWNMIX_LFE_MAX} percent'
+		elif (self._v2ip_settings is None):
+			why = 'it has not reported its settings'
+		elif ((reported := self._v2ip_downmix) is None):
+			why = 'its output does not mix down'
+		if (why is not None):
+			_LOGGER.warning(f"not changing the downmix of {self}: {why}")
+			return False
+		frame = FrameV2IPDeviceConfiguration.construct_downmix(
+			mxr=self.registry, target=self, target_uid=self.remote_id, downmix=downmix)
+		if (frame is None) or (self.registry.transmit(frame.frame) != len(frame.frame)):
+			return False
+		self._on_oneip_downmix(reported.written(downmix), reported=True)
+		return True
 
 	async def set_oneip_vlan(self, vlan:OneIPVlan) -> bool:
 		'''Change this OneIP device's VLAN configuration.
