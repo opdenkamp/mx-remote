@@ -107,6 +107,70 @@ hello(mx, uid(0x28), ROUTING)
 assert discovers(sent) == [uid(0x28)], 'not asked once the window had passed'
 print('covered     : but not one heard after')
 
+# ---- asked again: a device still owing part of its description, by the probe
+# loop. Each discover costs every unit a full resend, so a device is asked at
+# most once a minute and three times, and every device at most once a minute.
+from mx_remote.const import MXR_CONFIG_TIMEOUT
+
+def earlier(mx, seconds):
+    '''Move every time the probe loop measures from back by seconds.'''
+    mx._discover_timeout -= seconds
+    mx._reasked = {k: (n, t - seconds) for k, (n, t) in mx._reasked.items()}
+
+mx, sent = client()
+mx.tx_discover()
+owing = uid(0x30)
+hello(mx, owing, ROUTING)               # a hello describes no bays
+dev = mx.get_by_uid(mx_remote.MxrDeviceUid(owing))
+sent.clear()
+mx._probe_once()
+assert discovers(sent) == [], 'asked inside the window it has to answer in'
+dev._hello_received -= (MXR_CONFIG_TIMEOUT + 1)
+mx._probe_once()
+assert discovers(sent) == [], 'asked while a discover to every device covers it'
+asked = []
+for _ in range(5):
+    earlier(mx, 61)
+    mx._probe_once()
+    mx._probe_once()
+    asked.append(len(discovers(sent)))
+assert discovers(sent) == [owing, owing, owing], [d.hex() for d in discovers(sent)]
+assert asked == [1, 2, 3, 3, 3], f'asked by minute: {asked}'
+print('asked again : by name, once a minute, three times')
+
+# Every device is discovered once a minute only while none has answered.
+alone, alone_sent = client()
+alone._probe_once()
+earlier(alone, 30)
+alone._probe_once()
+earlier(alone, 31)
+alone._probe_once()
+assert discovers(alone_sent) == [b'', b''], discovers(alone_sent)
+print('asked again : every device, once a minute, until one answers')
+
+# Describing itself ends it, and a device that owes again is asked afresh.
+rx = lambda op, pl: mx.on_datagram_received(create_mxr_frame(owing, op, pl), ADDR)
+rx(0x02, bytes([0, 0, 0, 0, 0]) + name('In 1') + name('In 1') + name('1080p') + struct.pack('<II', 0, 1 << 1))
+rx(0x03, b'')
+assert dev.configuration_complete
+sent.clear()
+earlier(mx, 61)
+mx._probe_once()
+assert discovers(sent) == [], 'a described device was asked'
+dev._await_config()
+earlier(mx, 61)
+mx._probe_once()
+assert discovers(sent) == [owing], 'a device owing again was not asked'
+print('asked again : until it describes itself, and afresh once it owes again')
+
+# Not a device that has gone quiet: nothing would answer.
+silence(mx, owing)
+sent.clear()
+earlier(mx, 61)
+mx._probe_once()
+assert discovers(sent) == [], 'an offline device was asked'
+print('asked again : not a device counted offline')
+
 # ---- replay: processing a capture asks nothing, there is no one to ask
 mx = mx_remote.Remote(open_connection=False)
 mx._uid = OURS

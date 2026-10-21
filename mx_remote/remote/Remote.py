@@ -63,6 +63,13 @@ a unit drops.'''
 # already on its way.
 _DISCOVER_COVERS = 60
 
+# How often a device that still owes part of its description is asked again,
+# and how many times. Every unit resends everything every five minutes, so
+# giving up costs at most that wait, where asking on would cost every unit a
+# full resend each time.
+_REASK_INTERVAL = 60
+_REASK_TRIES = 3
+
 # What this client had heard of a device before a frame from it: whether it had
 # gone offline, and its reboot toggle as last announced.
 _Heard = tuple[bool, bool]
@@ -131,6 +138,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._target_ip = target_ip
         self._port = port
         self._discover_timeout = 0
+        # Per device still owing part of its description: how often it was
+        # asked again, and when last.
+        self._reasked:dict[MxrDeviceUid, tuple[int, float]] = {}
         self._state_request:MxrDeviceUid|None = None
         self._addr_filter = addr_filter
         self._svd = SvdMap()
@@ -322,23 +332,37 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                     _LOGGER.debug(f"probe still failing ({self._probe_failures}): {e!r}")
 
     def _probe_once(self) -> None:
-        '''One pass of the probe loop: announce if due, then discover if needed.'''
+        '''One pass of the probe loop: announce if due, ask a device again for
+        what it still owes, and discover every device while none has answered.
+
+        A discover to every device costs every unit a full resend, so it goes
+        out at most once a minute, and only until a device answers: every unit
+        heard that discover, and one still owing something is asked by name.'''
         if (time.time() >= self._hello_due):
             self.tx_hello()
-        tx_discover = False
-        if (not self.has_completed_devices()):
-            tx_discover = True
         # Every registered device, whatever any of them has finished. A device
         # stops pinging whether or not it ever described itself, and this is the
         # only thing that notices: nothing arrives to mark a device gone, so a
         # pass skipped is a device that stays online in the registry for as long
         # as the client runs.
-        for _, device in self.remotes.items():
+        for uid, device in self.remotes.items():
             device.check_online()
-            if not device.check_configuration_complete_timeout():
-                tx_discover = True
-        if tx_discover and ((time.time() - self._discover_timeout) >= 5):
+            if device.check_configuration_complete_timeout():
+                if device.configuration_complete:
+                    self._reasked.pop(uid, None)
+            elif device.online:
+                self._reask(uid)
+        if (len(self.remotes) == 0) and ((time.time() - self._discover_timeout) >= _DISCOVER_COVERS):
             self.tx_discover()
+
+    def _reask(self, device:MxrDeviceUid) -> None:
+        '''Ask a device again for its state, at most once a minute and
+        _REASK_TRIES times until it has described itself.'''
+        tries, last = self._reasked.get(device, (0, 0.0))
+        if (tries >= _REASK_TRIES) or ((time.time() - last) < _REASK_INTERVAL):
+            return
+        if self._request_state(device):
+            self._reasked[device] = (tries + 1, time.time())
 
     async def start_async(self) -> None:
         '''Start the server that listens for mx_remote frames from other devices.'''
@@ -457,8 +481,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         _LOGGER.debug("discovering devices")
         return self.transmit(pkt.frame)
 
-    def _request_state(self, device:MxrDeviceUid) -> None:
+    def _request_state(self, device:MxrDeviceUid) -> bool:
         '''Ask one device for everything it holds, with a discover naming it.
+        True when it was asked.
 
         Skipped while a discover to every device is recent enough to have
         covered it. A receiver that predates the named form answers it as a
@@ -466,11 +491,13 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         on such a network.
         '''
         if ((time.time() - self._discover_timeout) < _DISCOVER_COVERS):
-            return
+            return False
         pkt = FrameDiscover.construct(mxr=self, target=device)
-        if (pkt is not None):
-            _LOGGER.debug(f"asking {self.uid_to_user_string(device)} for its state")
-            self.transmit(pkt.frame)
+        if (pkt is None):
+            return False
+        _LOGGER.debug(f"asking {self.uid_to_user_string(device)} for its state")
+        self.transmit(pkt.frame)
+        return True
 
     def _send_to_all(self, frame:FrameBase|None) -> bool:
         '''Send a frame to every device, True when all of it was written.'''
