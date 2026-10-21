@@ -26,9 +26,10 @@ class FrameV2IPSources(FrameBase):
         that list was when the frame was built. None when the payload is neither
         form this opcode carries.
 
-        A list that fits one frame is sent as bare records from the first byte.
-        A longer one is split into pages, each behind a header. That header is
-        not a whole record, so the remainder separates the two forms - and a
+        A list that fits one frame is sent as bare records from the first byte,
+        and a unit that knows no source sends it with none. A longer one is
+        split into pages, each behind a header. That header is not a whole
+        record, so the remainder separates the two forms - and a
         payload that is neither is refused rather than read from byte zero,
         which would shift every record by the header's width and report a full
         set of plausible addresses belonging to no bay.
@@ -37,9 +38,7 @@ class FrameV2IPSources(FrameBase):
         rather than a promise about the set, so it says whether this frame is
         the whole list and nothing more.
         '''
-        pl = self.payload
-        if (pl is None):
-            return None
+        pl = self.payload or b''
         rest = (len(pl) % _RECORD_SIZE)
         if (rest == 0):
             return (0, int(len(pl) / _RECORD_SIZE))

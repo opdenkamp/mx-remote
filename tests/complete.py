@@ -214,6 +214,18 @@ assert vl.configuration_complete and vl.check_configuration_complete_timeout()
 assert completed == [dev, tz, amp, late, vl], completed
 print('complete    : nor does it stand in for a V2IP source list')
 
+# A unit that knows no source sends its list with none, which is the whole list.
+EMPTYV2IP = bytes(range(97, 113))
+ve = hello(EMPTYV2IP, 'OneIP-3', 'P9SN66662906', ONEIP_SINK)
+rx(EMPTYV2IP, 0x02, bay(16, 1, 0, 'Output 1'))
+rx(EMPTYV2IP, 0x03, b'')
+assert not ve.configuration_complete
+rx(EMPTYV2IP, 0x26, b'')
+assert ve.oneip_sources is not None and len(ve.oneip_sources) == 0, ve.oneip_sources
+assert ve.configuration_complete and ve.check_configuration_complete_timeout(), 'an empty source list was not taken'
+assert ve in completed
+print('complete    : an empty V2IP source list is a list')
+
 # Announced by the expiry alone, driven the way the runtime drives it. No frame
 # arrives when a window closes, so the probe loop is the only thing that can
 # notice, and the call it makes there is the whole of the announcement path.
