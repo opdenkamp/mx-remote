@@ -393,9 +393,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         '''Get the cached device matching the given unique id, or None.'''
         if (remote_id is None):
             return None
-        uid = MxrDeviceUid(remote_id)
-        if uid in self.remotes.keys():
-            return self.remotes[uid]
+        uid = remote_id if isinstance(remote_id, MxrDeviceUid) else MxrDeviceUid(remote_id)
+        if ((dev := self.remotes.get(uid)) is not None):
+            return dev
         if isinstance(remote_id, str):
             return self.get_by_serial(serial=remote_id)
         return None

@@ -14,6 +14,7 @@ class MxrDeviceUid:
 
     def __init__(self, value: object) -> None:
         self._value:bytes
+        self._str:str|None = None
 
         if value is None:
             self._value = bytes([ 0 for _ in range(16)])
@@ -44,11 +45,11 @@ class MxrDeviceUid:
 
     @property
     def value(self) -> str:
-        ''' value as human readble string '''
-        return ''.join('%02x'%i for i in reversed(self._value[0:4])) + '.' + \
-            ''.join('%02x'%i for i in reversed(self._value[4:8])) + '.' + \
-            ''.join('%02x'%i for i in reversed(self._value[8:12])) + '.' + \
-            ''.join('%02x'%i for i in reversed(self._value[12:16]))
+        ''' value as human readable string, formatted once, as every hash and
+        comparison reads it '''
+        if (self._str is None):
+            self._str = '.'.join(self._value[i:i + 4][::-1].hex() for i in (0, 4, 8, 12))
+        return self._str
 
     @property
     def empty(self) -> bool:
@@ -70,12 +71,14 @@ class MxrDeviceUid:
         return str(self)
 
     def __eq__(self, value: object) -> bool:
-        if isinstance(value, str) or isinstance(value, MxrDeviceUid):
-            return str(self) == str(value)
+        if isinstance(value, MxrDeviceUid):
+            return self.value == value.value
+        if isinstance(value, str):
+            return self.value == value
         return False
 
     def __hash__(self) -> int:
-        return hash(str(self))
+        return hash(self.value)
 
 class MxrBayUidOld:
     '''Legacy bay identifier using serial number and port name.'''

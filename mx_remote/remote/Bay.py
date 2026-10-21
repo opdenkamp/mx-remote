@@ -175,9 +175,10 @@ class Bay(BayBase):
         device = self.device
         if (getattr(device, 'local_bay')(self.is_input) is not self):
             return []
+        owner = device.remote_id
         return [bay for dev in device.registry.remotes.values() if (dev is not device)
                 for bay in dev.bays.values()
-                if isinstance(bay, Bay) and (bay.mesh_owner is self)]
+                if isinstance(bay, Bay) and (bay._v2ip_uid == owner) and (bay.mesh_owner is self)]
 
     def register_callback(self, callback:Callable[[BayBase],None]) -> None:
          '''register a callback, called when the device state changed'''
