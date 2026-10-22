@@ -561,6 +561,12 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             return False
         return self._send_to_all(FrameV2IPSettingsAll.construct(mxr=self, settings=settings))
 
+    async def set_all_oneip_power_save(self, enabled:bool) -> bool:
+        '''Switch power save on or off on every OneIP device of the mesh with
+        one frame, written as Device.set_oneip_power_save() writes it.
+        Otherwise as set_all_oneip_device_settings().'''
+        return await self.set_all_oneip_device_settings(OneIPDeviceSettings.power_save_switch(enabled))
+
     async def request_all_oneip_privacy(self) -> bool:
         '''Ask every OneIP source unit of the mesh how its streams are
         encrypted, as Device.request_oneip_privacy() asks one. A unit below

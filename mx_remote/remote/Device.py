@@ -76,7 +76,6 @@ from typing import Any, Callable
 from ..compat import override
 from datetime import datetime
 from enum import Enum
-import dataclasses
 import logging
 import time
 
@@ -1572,12 +1571,28 @@ class Device(DeviceBase):
 		return self._send_v2ip_settings(OneIPDeviceSettings(
 			valid=OneIPDeviceSetting.PTP_PRIORITY1, ptp_priority1=priority1))
 
-	async def set_oneip_power_save_level(self, level:OneIPPowerSaveLevel) -> bool:
-		'''Set the level this OneIP device powers down to in power save.
+	async def set_oneip_power_save(self, enabled:bool) -> bool:
+		'''Switch this OneIP device's power save on, so it powers down by itself
+		to the level it picks, or off, so it powers down only when asked.
 
-		A level this library does not name is refused, since a device ignores it.
-		One the unit does not offer is one its unit_status reports without
-		UnitPowerSave.SUPPORTED. The terms of set_oneip_setting() apply.
+		On is written as a mesh controller writes it: both POWER_SAVE_DISABLED,
+		clear, and POWER_SAVE_LEVEL, at 0, so a device whose firmware takes the
+		level as its setting returns to its own default. The terms of
+		set_oneip_setting() apply.
+		'''
+		return self._send_v2ip_settings(OneIPDeviceSettings.power_save_switch(enabled))
+
+	async def set_oneip_power_save_level(self, level:OneIPPowerSaveLevel) -> bool:
+		'''Write the level this OneIP device powers down to in power save, which
+		switches power save on.
+
+		A device picks its level itself and ignores the one written, except one
+		whose firmware predates picking it, which takes the level as its
+		setting. A level that unit does not offer is one its unit_status
+		reports without UnitPowerSave.SUPPORTED. A level this library does not
+		name is refused. The level is not cached: oneip_settings reads what the
+		device reports. set_oneip_power_save() switches power save on or off
+		without naming a level. The terms of set_oneip_setting() apply.
 		'''
 		if not (OneIPPowerSaveLevel.NONE <= level <= OneIPPowerSaveLevel.OFF):
 			_LOGGER.warning(f"not setting power save level {level} on {self}: no such level")
@@ -1612,7 +1627,6 @@ class Device(DeviceBase):
 				_LOGGER.warning(f"not turning the output of {self} by {messages.sink_rotation} degrees: "
 				                f"it turns by steps of {own.sink_rotation_step}")
 				return False
-			messages = dataclasses.replace(messages, sink_rotation_step=own.sink_rotation_step)
 		return self._send_v2ip_settings(OneIPDeviceSettings(valid=which, ptp_messages=messages))
 
 	def _on_oneip_downmix(self, downmix:OneIPDownmix|None, reported:bool) -> None:
@@ -1932,7 +1946,7 @@ class Device(DeviceBase):
 			return False
 		if self.registry.transmit(frame.frame) != len(frame.frame):
 			return False
-		self._merge_v2ip_settings(settings)
+		self._merge_v2ip_settings(settings.as_applied_to(reported))
 		return True
 
 	@property

@@ -225,27 +225,36 @@ goes out at 176 bytes: a receiver with the schedule ignores the settings of a
 shorter frame, and one whose settings end at the idle minutes takes it all the
 same.
 
-How far a device powers down is its power save level: reduced, low or off, each
-powering more down than the one before. Its unit status says which levels it
-supports and what wakes it at each.
+Power save is switched on or off. Switched on, a device powers down by itself
+to its power save level: reduced, low or off, each powering more down than the
+one before. The device picks the level itself, the one that saves the most
+while its input and display can still wake it, and reports it. Its unit status
+says which levels it supports and what wakes it at each.
 
 ```python
 from mx_remote import OneIPPowerSaveLevel, UnitPowerSave
 
-print(settings.power_save_level)
+print(settings.get(OneIPDeviceSetting.POWER_SAVE_DISABLED))         # False: switched on
+print(settings.power_save_level)                                    # the level it picked
 print(device.unit_status.power_save_level(OneIPPowerSaveLevel.LOW))  # e.g. SUPPORTED|INPUT_WAKE
 
-await device.set_oneip_power_save_level(OneIPPowerSaveLevel.LOW)
+await device.set_oneip_power_save(True)
+await mx.set_all_oneip_power_save(False)   # every OneIP device of the mesh
 ```
 
-A level this library does not name is refused before it is sent, and not cached
-from another controller's write.
+Switched off, `OneIPDeviceSetting.POWER_SAVE_DISABLED` is on: the device does
+not power down by itself, and a power save request still powers it down.
+Switching on is written as a mesh controller writes it, with that switch clear
+and the power save level at 0, so a device whose firmware still takes the level
+as its setting returns to its own default.
 
-`OneIPDeviceSetting.POWER_SAVE_DISABLED` is a switch that keeps a device from
-powering down by itself; a power save request still powers it down. A device
-that takes a power save level switches it off, so a level write, this client's
-or another sender's, clears it unless the same frame states it. Firmware
-without the bit never reports it, and the switch is refused there.
+`set_oneip_power_save_level()` writes a level, which switches power save on. A
+current device ignores the level; one whose firmware predates picking it takes
+it. A written level is never cached, from this client or another controller:
+`power_save_level` is what the device reports. A level write without the switch
+only clears `POWER_SAVE_DISABLED` on a device that reports it. A level this
+library does not name is refused before it is sent. Firmware without the switch
+never reports it, and switching is refused there.
 
 `OneIPDeviceSetting.CLOUD` is a switch for whether a device connects to the
 cloud service. A device that does not report it connects regardless, and the

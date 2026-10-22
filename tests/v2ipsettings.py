@@ -373,7 +373,8 @@ assert call(level.set_oneip_power_save_level(mx_remote.OneIPPowerSaveLevel.OFF))
 block = sent[-1][24 + 128:]
 assert struct.unpack('<I', block[:4])[0] == int(S.POWER_SAVE_LEVEL)
 assert block[44:48] == bytes([0, 0, 0, 3]), block[44:48].hex()
-assert level.oneip_settings.power_save_level is mx_remote.OneIPPowerSaveLevel.OFF
+assert level.oneip_settings.power_save_level is mx_remote.OneIPPowerSaveLevel.LOW, 'a written level was cached'
+assert level.oneip_settings.get(S.POWER_SAVE_DISABLED) is None, 'a switch the device does not have'
 assert call(level.set_oneip_setting(S.AES67, False)) is True, 'AES67 is not switched'
 assert level.oneip_settings.get(S.AES67) is False
 refused(level.set_oneip_power_save_level(4), 'a power save level with no name')
@@ -396,6 +397,35 @@ assert call(level.set_oneip_setting(S.POWER_SAVE_DISABLED, True)) is True
 assert struct.unpack('<II', sent[-1][24 + 128:24 + 136]) == (DIS, DIS)
 refused(ptp.set_oneip_setting(S.POWER_SAVE_DISABLED, True), 'a unit that never reported the bit')
 print('ps disabled : a switch, and a level switches it off')
+
+# Power save is switched on as a mesh controller switches it, with both bits
+# and a level of 0, and off with the switch alone. A device picks its level
+# itself, so a written level, ours or another sender's, is never cached, and
+# only switches power save on.
+BOTH = int(S.POWER_SAVE_LEVEL) | DIS
+rx(uid(0x22), 0x3C, cfg_level(uid(0x22), LEVEL | DIS, 2, flags=DIS))
+cached = lambda: (level.oneip_settings.get(S.POWER_SAVE_DISABLED), level.oneip_settings.power_save_level)
+LOW = mx_remote.OneIPPowerSaveLevel.LOW
+assert call(level.set_oneip_power_save(True)) is True
+block = sent[-1][24 + 128:]
+assert struct.unpack('<II', block[:8]) == (BOTH, 0), block[:8].hex()
+assert block[47] == 0, 'the level'
+assert cached() == (False, LOW), cached()
+assert call(level.set_oneip_power_save(False)) is True
+block = sent[-1][24 + 128:]
+assert struct.unpack('<II', block[:8]) == (DIS, DIS), block[:8].hex()
+assert cached() == (True, LOW), cached()
+assert call(level.set_oneip_power_save_level(mx_remote.OneIPPowerSaveLevel.OFF)) is True
+assert cached() == (False, LOW), "our level"
+# Another sender's level: a flag outside valid says nothing, and one behind its
+# own bit decides.
+assert call(level.set_oneip_power_save(False)) is True
+rx(uid(0x04), 0x3C, cfg_level(uid(0x22), int(S.POWER_SAVE_LEVEL), 3, flags=DIS))
+assert cached() == (False, LOW), "another sender's level"
+rx(uid(0x04), 0x3C, cfg_level(uid(0x22), BOTH, 3, flags=DIS))
+assert cached() == (True, LOW), 'and its switch'
+refused(ptp.set_oneip_power_save(True), 'a unit that never reported the bits')
+print('ps switch   : both bits and level 0 on, the switch alone off; the level is the device\'s')
 
 # The cloud connection is a switch too. A unit without the bit connects
 # regardless, and never reports it, so the switch is refused there.
@@ -539,6 +569,16 @@ write = mx_remote.OneIPDeviceSettings(valid=S.STATUS_LED | S.SINK_ROTATION,
                                       ptp_messages=mx_remote.OneIPPtpMessages(sink_rotation=90))
 assert write.as_applied_to(S.STATUS_LED | S.SINK_ROTATION).valid == S.STATUS_LED
 print('rotation    : a u16 at 10, by the unit\'s own step, which a write leaves 0')
+
+# The mesh-wide power save switch writes what the per-device one does, in the
+# frame every unit of the mesh applies.
+for enabled, valid, flags in ((True, BOTH, 0), (False, DIS, DIS)):
+    assert call(mx.set_all_oneip_power_save(enabled)) is True, enabled
+    p = sent[-1][24:]
+    assert len(p) == 48, (enabled, len(p))
+    assert struct.unpack('<II', p[:8]) == (valid, flags), (enabled, p[:8].hex())
+    assert p[47] == 0, enabled
+print('ps all      : the mesh-wide switch is the per-device one')
 
 # What the builder writes, the decoder reads back as the same settings.
 assert call(target.set_oneip_ir_profile(7)) is True

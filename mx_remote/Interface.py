@@ -2712,6 +2712,16 @@ class OneIPDeviceSettings:
         self._power_save_level = int(power_save_level)
         self._ptp_messages = ptp_messages if (ptp_messages is not None) else OneIPPtpMessages()
 
+    @classmethod
+    def power_save_switch(cls, enabled:bool) -> 'OneIPDeviceSettings':
+        """The settings that switch a device's power save on or off. On is both
+        POWER_SAVE_DISABLED, clear, and POWER_SAVE_LEVEL, at 0."""
+        disabled = OneIPDeviceSetting.POWER_SAVE_DISABLED
+        if enabled:
+            return cls(valid=(disabled | OneIPDeviceSetting.POWER_SAVE_LEVEL),
+                       power_save_level=OneIPPowerSaveLevel.NONE)
+        return cls(valid=disabled, flags=disabled)
+
     @property
     def valid(self) -> OneIPDeviceSetting:
         """The settings reported so far."""
@@ -2791,8 +2801,9 @@ class OneIPDeviceSettings:
 
     @property
     def power_save_level(self) -> OneIPPowerSaveLevel|int|None:
-        """The level the device powers down to in power save, a raw int for one
-        this library does not name, None while it is not reported."""
+        """The level the device powers down to in power save, which it picks
+        itself, a raw int for one this library does not name, None while it is
+        not reported."""
         if (OneIPDeviceSetting.POWER_SAVE_LEVEL not in self._valid):
             return None
         return _wire_enum(OneIPPowerSaveLevel, self._power_save_level)
@@ -2812,18 +2823,14 @@ class OneIPDeviceSettings:
 
         Each bit in this block's ``valid`` replaces its own setting and leaves
         the others alone, so a write about one setting does not clear what was
-        known about the rest. The exception is POWER_SAVE_DISABLED: a device
-        takes a power save level as switching it off.
+        known about the rest.
         """
         if (previous is None):
             previous = OneIPDeviceSettings()
         valid = self._valid
-        flags = (previous._flags & ~valid) | (self._flags & valid)
-        if (OneIPDeviceSetting.POWER_SAVE_LEVEL in valid) and (OneIPDeviceSetting.POWER_SAVE_DISABLED not in valid):
-            flags &= ~OneIPDeviceSetting.POWER_SAVE_DISABLED
         return OneIPDeviceSettings(
             valid=(previous._valid | valid),
-            flags=flags,
+            flags=((previous._flags & ~valid) | (self._flags & valid)),
             ir_profiles=(self._ir_profiles if (OneIPDeviceSetting.IR_PROFILES in valid)
                          else previous._ir_profiles),
             ir_profile=(self._ir_profile if (OneIPDeviceSetting.IR_PROFILE in valid)
@@ -2850,9 +2857,11 @@ class OneIPDeviceSettings:
         write about it.
 
         A device applies a setting only if it has it, a profile, PTP mode, PTP
-        domain, power save level or PTP DSCP only within its range, a stream
-        TTL only when it is not 0, a rotation only by its own step, and never
-        what only it can report about itself. The step stays the device's.
+        domain or PTP DSCP only within its range, a stream TTL only when it is
+        not 0, a rotation only by its own step, and never what only it can
+        report about itself. The step stays the device's. It picks its power
+        save level itself, and takes a level it is written, without
+        POWER_SAVE_DISABLED, as switching power save on.
 
         reported may be only the bits the device reported, which says nothing
         of its step, so a rotation other than 0 is then left out.
@@ -2871,15 +2880,20 @@ class OneIPDeviceSettings:
             valid &= ~OneIPDeviceSetting.PTP_MODE
         if (self._ptp_domain > ONEIP_PTP_DOMAIN_MAX):
             valid &= ~OneIPDeviceSetting.PTP_DOMAIN
-        if (self._power_save_level > OneIPPowerSaveLevel.OFF):
-            valid &= ~OneIPDeviceSetting.POWER_SAVE_LEVEL
         if (self._ptp_messages.dscp > ONEIP_DSCP_MAX):
             valid &= ~OneIPDeviceSetting.PTP_DSCP
         if (self._ptp_messages.stream_ttl == 0):
             valid &= ~OneIPDeviceSetting.STREAM_TTL
         if not own.takes_sink_rotation(self._ptp_messages.sink_rotation):
             valid &= ~OneIPDeviceSetting.SINK_ROTATION
-        return OneIPDeviceSettings(valid=valid, flags=self._flags, ir_profiles=self._ir_profiles,
+        flags = self._flags
+        if (OneIPDeviceSetting.POWER_SAVE_LEVEL in valid):
+            valid &= ~OneIPDeviceSetting.POWER_SAVE_LEVEL
+            if (OneIPDeviceSetting.POWER_SAVE_DISABLED not in valid) \
+                    and (OneIPDeviceSetting.POWER_SAVE_DISABLED in reported._valid):
+                valid |= OneIPDeviceSetting.POWER_SAVE_DISABLED
+                flags &= ~OneIPDeviceSetting.POWER_SAVE_DISABLED
+        return OneIPDeviceSettings(valid=valid, flags=flags, ir_profiles=self._ir_profiles,
                                   ir_profile=self._ir_profile, ir_profile_sink=self._ir_profile_sink,
                                   auto_power_save=self._auto_power_save, power_save=self._power_save,
                                   ptp_mode=self._ptp_mode, ptp_domain=self._ptp_domain,
@@ -3573,8 +3587,12 @@ class DeviceBase(ABC):
         '''set the priority1 the device announces as a PTP grandmaster'''
 
     @abstractmethod
+    async def set_oneip_power_save(self, enabled:bool) -> bool:
+        '''switch power save on, so the device powers down by itself to the level it picks, or off'''
+
+    @abstractmethod
     async def set_oneip_power_save_level(self, level:OneIPPowerSaveLevel) -> bool:
-        '''set the level the device powers down to in power save'''
+        '''write the level the device powers down to in power save, which switches power save on'''
 
     @abstractmethod
     async def set_oneip_ptp_messages(self, which:OneIPDeviceSetting, messages:OneIPPtpMessages) -> bool:
