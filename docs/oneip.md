@@ -432,6 +432,14 @@ application, which this client announces itself as, and only from protocol
 after its last page, so one is refused before it is sent. Nothing acknowledges
 the pages; `oneip_sink_sdp` reads what the output reports next.
 
+From protocol 0x31 an output also reports the description it plays, when it
+starts a stream other than by its mesh controller's command and when asked:
+
+```python
+await sink.request_oneip_sink_description()   # False below protocol 0x31
+print(sink.oneip_sink_description)   # None until reported, and once it plays none
+```
+
 ### Overlay sync
 
 A management unit can have the other units copy its overlay captions, logo
@@ -553,7 +561,13 @@ await device.set_unit_network(UnitNetConfig(
     ip='10.1.2.3', netmask='255.255.255.0', gateway='10.1.2.254', dns1='10.1.2.254'))
 await device.confirm_unit_network()    # keep it, once the unit reports it
 await device.set_unit_dhcp()
+await device.locate_unit(timed=True)   # flash its LED for 30 s; timed=False until stopped
+await device.stop_locating_unit()
 ```
+
+A unit is located only once its status carries `UnitFlag.LOCATE_SUPPORTED`. Its
+board-ID LED flashes and an output shows "Locate Device"; `UnitFlag.LOCATE` in
+the cached status says so from the moment the command is sent.
 
 A changed IP configuration applies at once and reverts unless the mesh
 controller confirms it in time; `status.network_pending` says whether it still

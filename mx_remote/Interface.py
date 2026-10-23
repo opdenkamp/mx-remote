@@ -3355,6 +3355,15 @@ class DeviceBase(ABC):
     async def confirm_unit_network(self) -> bool:
         '''keep the unit's pending IP configuration'''
 
+    @abstractmethod
+    async def locate_unit(self, timed:bool=False) -> bool:
+        '''flash the unit's board-ID LED and show "Locate Device" on its output,
+        for 30 s when timed is set, until stop_locating_unit() otherwise'''
+
+    @abstractmethod
+    async def stop_locating_unit(self) -> bool:
+        '''stop locating the unit'''
+
     @property
     @abstractmethod
     def oneip_downmix(self) -> OneIPDownmix|None:
@@ -3739,6 +3748,18 @@ class DeviceBase(ABC):
     @abstractmethod
     async def request_oneip_sink_sdp(self) -> bool:
         '''ask this OneIP output what it plays from a session description now'''
+
+    @property
+    @abstractmethod
+    def oneip_sink_description(self) -> str|None:
+        '''The session description this OneIP output last reported playing, None
+        until it has and once it reports playing none. An output reports one
+        when it starts a stream other than by its mesh controller's command,
+        and when asked with request_oneip_sink_description().'''
+
+    @abstractmethod
+    async def request_oneip_sink_description(self) -> bool:
+        '''ask this OneIP output for the session description it plays'''
 
     @abstractmethod
     async def set_oneip_test_pattern(self, pattern:OneIPTestPattern, colour:int=0) -> bool:

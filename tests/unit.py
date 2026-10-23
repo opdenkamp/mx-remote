@@ -180,6 +180,36 @@ for bad in (UnitNetConfig('0.0.0.0', '255.255.255.0'), UnitNetConfig('239.1.2.3'
     refused(unit.set_unit_network(bad), f'network [{bad}]')
 print('refusals    : old units, non-units and networks a unit cannot hold')
 
+# A unit says it can be located in bit 16 of its status flags, and that it is
+# being located in bit 17.
+def report_flags(flags):
+    return struct.pack('<I', flags) + report()[4:]
+found = hello(uid(0x23), 0x2C, UNIT)
+rx(uid(0x23), 0x4F, report_flags(1 << 16))
+assert found.unit_status.flags == UnitFlag.LOCATE_SUPPORTED, found.unit_status.flags
+rx(uid(0x23), 0x4F, report_flags(1 << 17))
+assert found.unit_status.flags == UnitFlag.LOCATE, found.unit_status.flags
+
+# A unit is located for 30 s or until stopped, only once it has reported that it
+# can be, and the cached status says so at once.
+located = hello(uid(0x24), 0x2C, UNIT)
+refused(located.locate_unit(timed=True), 'a unit that has not reported its status')
+rx(uid(0x24), 0x4F, report_flags(int(UnitFlag.FAN_SPEED)))
+refused(located.locate_unit(timed=True), 'a unit that cannot be located')
+refused(located.stop_locating_unit(), 'a unit that cannot be located')
+rx(uid(0x24), 0x4F, report_flags(int(UnitFlag.LOCATE_SUPPORTED | UnitFlag.FAN_SPEED) | (1 << 30)))
+assert call(located.locate_unit(timed=True)) is True
+p = command()
+assert p[:16] == uid(0x24) and p[16:18] == bytes([4, 0x08]), p.hex()
+assert UnitFlag.LOCATE in located.unit_status.flags, 'the cached status was not marked located'
+assert call(located.locate_unit()) is True
+assert command()[16:18] == bytes([4, 0x04]), 'until stopped'
+assert call(located.stop_locating_unit()) is True
+assert command()[16:18] == bytes([4, 0x00]), 'stop'
+assert located.unit_status.flags == UnitFlag(int(UnitFlag.LOCATE_SUPPORTED | UnitFlag.FAN_SPEED) | (1 << 30)), \
+    f'a stop clears the flag and nothing else: {located.unit_status.flags!r}'
+print('locate      : timed, until stopped and stop, once the unit says it can be')
+
 # -------------------------------------------------- a command seen on the wire
 
 # Decoded for the log; a command too short to hold its fields carries none.

@@ -7,6 +7,7 @@
 '''Protocol frame for V2IP_SINK_SDP (opcode 0x52): what a OneIP output plays
 from a session description, and the commands that hand it one.'''
 
+from dataclasses import dataclass
 from functools import cached_property
 import ipaddress
 import struct
@@ -30,9 +31,11 @@ from ..Uid import MxrDeviceUid
 #
 # A page follows the header with the description's length, the page's offset
 # into it and the page's length, all u16, two reserved bytes, and at most
-# SDP_PAGE_LEN bytes of the description.
+# SDP_PAGE_LEN bytes of the description. An output reports the description it
+# plays in pages of the same shape.
 SDP_HEADER_SIZE = 20
 _STATUS_SIZE = 80
+_PAGE_HEADER_SIZE = 8
 
 SDP_STATUS = 0
 '''The output's report.'''
@@ -44,9 +47,34 @@ SDP_SCREEN = 3
 '''What the output shows while it plays audio alone, in the value byte.'''
 SDP_REQUEST = 4
 '''Report now.'''
+SDP_DESCRIPTION = 5
+'''A page of the description an output reports playing.'''
+
+SDP_REQUEST_DESCRIPTION = (1 << 0)
+'''The bit of a request's value that asks for the description too.'''
+
+SDP_DESCRIPTION_PROTOCOL = 0x31
+'''The first protocol version whose outputs report the description they play.
+Not the stamp: that is the opcode's, and an output between the two answers a
+request for the description with its status alone.'''
+
+SDP_PAGE_TIMEOUT = 5
+'''How long an output may take between two pages of one description, in
+seconds, before the pages it sent are dropped.'''
 
 SDP_PAGE_LEN = 1024
 '''The most bytes of a session description one page carries.'''
+
+@dataclass(frozen=True)
+class SdpDescriptionPage:
+    '''A page of the description an output reports playing.'''
+    total: int
+    '''The length of the whole description.'''
+    offset: int
+    '''Where this page's text starts in it.'''
+    text: bytes
+    timestamp: float
+    '''When the page arrived.'''
 
 def _cstr(data:bytes) -> str:
     return data.split(b'\0', 1)[0].decode('ascii', errors='replace')
@@ -109,14 +137,38 @@ class FrameV2IPSinkSdp(FrameBase):
             # that fills its field stops one byte short of it.
             name=_cstr(s[24:71]), layout=_cstr(s[72:79]))
 
+    @cached_property
+    def description_page(self) -> SdpDescriptionPage|None:
+        '''A page of the description the output reports playing, None for
+        another type, for a page whose header names a device other than its
+        sender, which only the output itself reports, and for a frame too short
+        for the text its page header declares.'''
+        p = self.payload or b''
+        if (self.kind != SDP_DESCRIPTION) or (self.target_uid != self.remote_id) \
+                or (len(p) < SDP_HEADER_SIZE + _PAGE_HEADER_SIZE):
+            return None
+        total, offset, length = struct.unpack_from('<HHH', p, SDP_HEADER_SIZE)
+        start = SDP_HEADER_SIZE + _PAGE_HEADER_SIZE
+        if (len(p) < start + length):
+            return None
+        return SdpDescriptionPage(total=total, offset=offset, text=bytes(p[start:start + length]),
+                                  timestamp=self.timestamp)
+
     @override
     def process(self) -> None:
-        '''Record an output's report against the output that sent it. The other
-        types are commands for an output, which only that output acts on.'''
-        if ((status := self.status) is not None) and ((dev := self.remote_device) is not None):
+        '''Record an output's report and the pages of its description against
+        the output that sent them. The other types are commands for an output,
+        which only that output acts on.'''
+        if ((dev := self.remote_device) is None):
+            return
+        if ((status := self.status) is not None):
             dev.on_mxr_update(status)
+        elif ((page := self.description_page) is not None):
+            dev.on_mxr_update(page)
 
     def __str__(self) -> str:
         if (self.status is not None):
             return f"OneIP sink SDP: {self.status}"
+        if ((page := self.description_page) is not None):
+            return f"OneIP sink SDP description: bytes {page.offset} to {page.offset + len(page.text)} of {page.total}"
         return f"OneIP sink SDP command {self.kind} for {self.uid_to_user_string(self.target_uid)}"

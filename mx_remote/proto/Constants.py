@@ -684,6 +684,11 @@ class UnitFlag(IntFlag):
 	'''The boot count is reported.'''
 	FAN_SPEED                  = (1 << 15)
 	'''The fan speed is reported.'''
+	LOCATE_SUPPORTED           = (1 << 16)
+	'''The unit takes UnitCommandKind.LOCATE.'''
+	LOCATE                     = (1 << 17)
+	'''The unit is being located: its board-ID LED flashes, and an output shows
+	"Locate Device".'''
 
 class UnitCommandKind(IntEnum):
 	'''What a unit command asks of its unit.'''
@@ -695,6 +700,8 @@ class UnitCommandKind(IntEnum):
 	'''Change the IP configuration.'''
 	NET_CONFIRM             = 3
 	'''Keep a pending IP configuration.'''
+	LOCATE                  = 4
+	'''Start or stop locating the unit.'''
 
 class UnitCommandFlag(IntFlag):
 	'''The flags of a unit command.'''
@@ -703,6 +710,11 @@ class UnitCommandFlag(IntFlag):
 	already.'''
 	DHCP  = (1 << 1)
 	'''With NET_CONFIG: use DHCP, ignoring the addresses.'''
+	LOCATE_ON    = (1 << 2)
+	'''With LOCATE: locate it until stopped. Neither this nor LOCATE_TIMED
+	stops it.'''
+	LOCATE_TIMED = (1 << 3)
+	'''With LOCATE: locate it for 30 s.'''
 
 UNIT_MAX_TEMPERATURES = 6
 """The most temperature sensors a unit reports."""

@@ -74,6 +74,7 @@ from ..const import MXR_CONFIG_TIMEOUT
 from ..Uid import MxrDeviceUid
 from typing import Any, Callable
 from ..compat import override
+from dataclasses import replace
 from datetime import datetime
 from enum import Enum
 import logging
@@ -88,13 +89,14 @@ from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, ONEIP_DOWNMIX_LF
                               ONEIP_IR_PROFILE_MAX, ONEIP_IR_PROFILE_NOT_SET, ONEIP_VLAN_PORT_SFP,
                               ONEIP_DEVICE_SETTINGS_BLOCK, ONEIP_DSCP_MAX,
                               ONEIP_PTP_DOMAIN_MAX, ONEIP_SDP_MAX, OneIPPowerSaveLevel, OneIPPtpFlag, OneIPPtpMode, UnitCommandFlag,
-                              UnitCommandKind)
+                              UnitCommandKind, UnitFlag)
 from ..proto.FrameUnitCommand import FrameUnitCommand
 from ..proto.FrameV2IPAudio import AUDIO_LAYOUT_SINCE, FrameV2IPAudio
 from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
 from ..proto.FrameV2IPOsdSync import FrameV2IPOsdSync, OSD_KIND_MESSAGE_REQUEST, OSD_KIND_MESSAGE_SET
 from ..proto.FrameV2IPPrivacy import FrameV2IPPrivacy
-from ..proto.FrameV2IPSinkSdp import FrameV2IPSinkSdp, SDP_REQUEST, SDP_SCREEN, SDP_STOP
+from ..proto.FrameV2IPSinkSdp import (FrameV2IPSinkSdp, SdpDescriptionPage, SDP_DESCRIPTION_PROTOCOL, SDP_PAGE_TIMEOUT,
+                                      SDP_REQUEST, SDP_REQUEST_DESCRIPTION, SDP_SCREEN, SDP_STOP)
 from ..proto.FrameV2IPTestcard import (FrameV2IPTestcard, TESTCARD_REQUEST, TESTCARD_SET,
                                        TESTCARD_PART_PATTERN, TESTCARD_PART_TONE, TESTCARD_PART_SYNC)
 
@@ -177,6 +179,11 @@ class Device(DeviceBase):
 		self._unit_status:UnitStatus|None = None
 		self._v2ip_testcard:OneIPTestcard|None = None
 		self._v2ip_sink_sdp:OneIPSinkSdp|None = None
+		self._v2ip_sink_description:str|None = None
+		# The pages of a description the output is still sending: its whole
+		# length, the bytes received so far from offset 0, and when the last
+		# page arrived.
+		self._v2ip_sink_description_pages:tuple[int, bytes, float]|None = None
 		self._v2ip_privacy:OneIPPrivacy|None = None
 		self._osd_sync:OsdSync|None = None
 		self._osd_sync_report:OsdSyncReport|None = None
@@ -1076,9 +1083,18 @@ class Device(DeviceBase):
 				self.callbacks.on_osd_message_changed(self, data)
 				self.call_callbacks()
 		elif isinstance(data, OneIPSinkSdp):
-			if (self._v2ip_sink_sdp != data):
-				self._v2ip_sink_sdp = data
+			changed = (self._v2ip_sink_sdp != data)
+			self._v2ip_sink_sdp = data
+			if not data.active:
+				# A description is reported when a stream starts, so one that
+				# has stopped leaves none behind it.
+				self._v2ip_sink_description_pages = None
+				changed |= (self._v2ip_sink_description is not None)
+				self._v2ip_sink_description = None
+			if changed:
 				self.call_callbacks()
+		elif isinstance(data, SdpDescriptionPage):
+			self._on_sink_description_page(data)
 		elif isinstance(data, OneIPPrivacy):
 			if (self._v2ip_privacy != data):
 				self._v2ip_privacy = data
@@ -1274,6 +1290,39 @@ class Device(DeviceBase):
 		when it hears the unit at its new address. The terms of
 		upgrade_unit_video_processor() apply.'''
 		return self._unit_command(UnitCommandKind.NET_CONFIRM)
+
+	async def locate_unit(self, timed:bool=False) -> bool:
+		'''Locate this unit: its board-ID LED flashes, and an output shows
+		"Locate Device" on its display. For 30 s when timed is set, until
+		stop_locating_unit() otherwise.
+
+		Refused until the unit has reported its status, and for one whose report
+		lacks UnitFlag.LOCATE_SUPPORTED. The cached status takes UnitFlag.LOCATE
+		at once, as the mesh controller's copy does; the unit reports its own
+		within 2 s, and again when a timed locate ends. Otherwise as
+		upgrade_unit_video_processor().
+		'''
+		return self._locate(UnitCommandFlag.LOCATE_TIMED if timed else UnitCommandFlag.LOCATE_ON)
+
+	async def stop_locating_unit(self) -> bool:
+		'''Stop locating this unit. As locate_unit().'''
+		return self._locate(UnitCommandFlag(0))
+
+	def _locate(self, flags:UnitCommandFlag) -> bool:
+		'''The one send behind the locate methods.'''
+		if ((status := self._unit_status) is None):
+			_LOGGER.warning(f"not locating {self}: it has not reported its status")
+			return False
+		if (UnitFlag.LOCATE_SUPPORTED not in status.flags):
+			_LOGGER.warning(f"not locating {self}: it cannot be located")
+			return False
+		if not self._unit_command(UnitCommandKind.LOCATE, flags):
+			return False
+		located = int(status.flags) & ~int(UnitFlag.LOCATE)
+		if flags:
+			located |= int(UnitFlag.LOCATE)
+		self.on_mxr_update(replace(status, flags=UnitFlag(located)))
+		return True
 
 	def _unit_command(self, command:UnitCommandKind, flags:UnitCommandFlag=UnitCommandFlag(0),
 	                  network:UnitNetConfig|None=None) -> bool:
@@ -1887,6 +1936,55 @@ class Device(DeviceBase):
 		rather than at its next report, which comes at least once a minute. As
 		play_oneip_sdp().'''
 		return self._send_sink_sdp_command(SDP_REQUEST, 0)
+
+	@property
+	@override
+	def oneip_sink_description(self) -> str|None:
+		return self._v2ip_sink_description
+
+	async def request_oneip_sink_description(self) -> bool:
+		'''Ask this OneIP output what it plays from a session description and for
+		the description itself, which oneip_sink_description then reads. An
+		output that plays none sends its status alone.
+
+		Refused below protocol 0x31, where an output ignores the ask for the
+		description. Otherwise as play_oneip_sdp().'''
+		if (self.protocol != 0) and (self.protocol < SDP_DESCRIPTION_PROTOCOL):
+			_LOGGER.warning(f"not asking {self} for its session description: protocol {self.protocol:#04x} "
+			                f"predates it")
+			return False
+		return self._send_sink_sdp_command(SDP_REQUEST, SDP_REQUEST_DESCRIPTION)
+
+	def _on_sink_description_page(self, page:SdpDescriptionPage) -> None:
+		'''Put together the description this output reports playing, one page
+		at a time, as a unit puts together the pages it is sent.
+
+		A page at offset 0 starts a description of 1 to ONEIP_SDP_MAX bytes.
+		Every later page has to continue it: at the offset received so far, for
+		the same length, within SDP_PAGE_TIMEOUT of the page before. Anything
+		else drops the pages received, and the description is kept once its
+		last byte is in.'''
+		pending = self._v2ip_sink_description_pages
+		self._v2ip_sink_description_pages = None
+		if (page.offset == 0):
+			if not (1 <= page.total <= ONEIP_SDP_MAX):
+				return
+			data = b''
+		elif (pending is not None) and (pending[0] == page.total) and (len(pending[1]) == page.offset) \
+				and (page.timestamp - pending[2] <= SDP_PAGE_TIMEOUT):
+			data = pending[1]
+		else:
+			return
+		if (len(data) + len(page.text) > page.total):
+			return
+		data += page.text
+		if (len(data) < page.total):
+			self._v2ip_sink_description_pages = (page.total, data, page.timestamp)
+			return
+		description = data.decode('utf-8', errors='replace')
+		if (self._v2ip_sink_description != description):
+			self._v2ip_sink_description = description
+			self.call_callbacks()
 
 	@property
 	@override

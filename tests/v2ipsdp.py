@@ -37,10 +37,10 @@ def name(s, sz=16):
     b = s.encode('ascii')[:sz]
     return b + bytes(sz - len(b))
 
-def rx(sender, opcode, payload=b'', protocol=0x2E):
+def rx(sender, opcode, payload=b'', protocol=0x2E, when=0.0):
     frame = bytearray(create_mxr_frame(sender, opcode, payload))
     frame[2] = protocol
-    mx.process_frame(0.0, bytes(frame), ADDR)
+    mx.process_frame(when, bytes(frame), ADDR)
 
 def hello(sender, protocol, features):
     rx(sender, 0x00, struct.pack('<H', protocol) + name('ONEIP') + name('P8SN%08d' % sender[0])
@@ -113,5 +113,83 @@ refused(old.play_oneip_sdp('v=0'), 'an output below 0x2E')
 refused(old.request_oneip_sink_sdp(), 'an output below 0x2E')
 refused(out.set_oneip_sdp_screen(256), 'a screen past the field')
 print('refusals    : nothing an output ignores is sent')
+
+# ------------------------------------------------------------------- description
+def page(header_uid, total, offset, text):
+    '''One page of the description an output reports playing, its reserved
+    bytes set.'''
+    return (header_uid + bytes([5, 0xA5, 0x5A, 0xC3]) + struct.pack('<HHH', total, offset, len(text))
+            + bytes([0x96, 0x69]) + text)
+
+# Put together from its pages and kept once its last byte is in, and a status
+# playing nothing clears it.
+desc = hello(uid(0x20), 0x31, DeviceFeature.ONEIP_SINK)
+sdp = bytes(ord('a') + i % 26 for i in range(1500))
+rx(uid(0x20), 0x52, page(uid(0x20), 1500, 0, sdp[:1024]))
+assert desc.oneip_sink_description is None, 'kept early'
+rx(uid(0x20), 0x52, page(uid(0x20), 1500, 1024, sdp[1024:]))
+assert desc.oneip_sink_description == sdp.decode(), desc.oneip_sink_description
+playing = bytearray(report(uid(0x20)))
+rx(uid(0x20), 0x52, bytes(playing))
+assert desc.oneip_sink_description == sdp.decode(), 'a status playing something cleared it'
+playing[20] &= ~int(OneIPSdpFlag.ACTIVE)
+rx(uid(0x20), 0x52, bytes(playing))
+assert desc.oneip_sink_description is None, 'a status playing nothing left it'
+# A status playing nothing also drops the pages of one still arriving.
+rx(uid(0x20), 0x52, page(uid(0x20), 4, 0, b'ab'))
+rx(uid(0x20), 0x52, bytes(playing))
+rx(uid(0x20), 0x52, page(uid(0x20), 4, 2, b'cd'))
+assert desc.oneip_sink_description is None, 'pages from before a stop were kept'
+print('description : put together from its pages, and cleared by a status playing nothing')
+
+# A page that does not continue the description drops the pages received, and a
+# description is started only at offset 0, by the output itself, for 1 to
+# ONEIP_SDP_MAX bytes. Each case would complete a description if the rule it
+# breaks were not checked, so none passes on the back of another's drop.
+desc = hello(uid(0x21), 0x31, DeviceFeature.ONEIP_SINK)
+me = uid(0x21)
+short = page(me, 1, 0, b'ab')[:-1]
+for frames in ((page(me, 6, 0, b'ab'), page(me, 6, 4, b'cdef'), page(me, 6, 2, b'cdef')),  # out of order
+               (page(me, 6, 0, b'ab'), page(me, 4, 2, b'cd')),                            # another length
+               (page(me, 4, 0, b'ab'), page(me, 4, 2, b'cde')),                           # past the end
+               (page(me, 1, 1, b'b'),),                                                   # not at 0
+               (short,),                                                                  # text cut short
+               (page(me, ONEIP_SDP_MAX + 1, 0, b'ab'),),                                  # too long
+               (page(me, 0, 0, b''),),                                                    # empty
+               (page(uid(0x77), 2, 0, b'ab'),),                                           # someone else's
+               (page(me, 2, 0, b'ab')[:25],),                                             # page header cut short
+               (me + bytes([1]) + page(me, 2, 0, b'ab')[17:],)):                          # a page handed to it
+    for f in frames:
+        rx(me, 0x52, f)
+    assert desc.oneip_sink_description is None, frames
+# Restarting at 0 starts afresh.
+for f in (page(me, 4, 0, b'xx'), page(me, 4, 0, b'ab'), page(me, 4, 2, b'cd')):
+    rx(me, 0x52, f)
+assert desc.oneip_sink_description == 'abcd', desc.oneip_sink_description
+longest = hello(uid(0x22), 0x31, DeviceFeature.ONEIP_SINK)
+rx(uid(0x22), 0x52, page(uid(0x22), ONEIP_SDP_MAX, 0, b'z' * 1024))
+rx(uid(0x22), 0x52, page(uid(0x22), ONEIP_SDP_MAX, 1024, b'z' * 1024))
+assert longest.oneip_sink_description == 'z' * ONEIP_SDP_MAX
+print('pages       : only pages that continue a description from offset 0 are kept')
+
+# Pages more than 5 s apart are dropped.
+slow = hello(uid(0x23), 0x31, DeviceFeature.ONEIP_SINK)
+rx(uid(0x23), 0x52, page(uid(0x23), 4, 0, b'ab'), when=100.0)
+rx(uid(0x23), 0x52, page(uid(0x23), 4, 2, b'cd'), when=105.001)
+assert slow.oneip_sink_description is None, 'a page after 5 s was kept'
+rx(uid(0x23), 0x52, page(uid(0x23), 4, 0, b'ab'), when=100.0)
+rx(uid(0x23), 0x52, page(uid(0x23), 4, 2, b'cd'), when=105.0)
+assert slow.oneip_sink_description == 'abcd', slow.oneip_sink_description
+print('timeout     : pages at most 5 s apart')
+
+# Asking for it sets bit 0 of the request's value, at the opcode's stamp, and is
+# refused below 0x31, where an output ignores the bit.
+sent.clear()
+assert call(desc.request_oneip_sink_description()) is True
+assert int.from_bytes(sent[-1][20:22], 'little') == 0x52 and sent[-1][2] == 0x2E, sent[-1][:24].hex()
+assert sent[-1][24:] == uid(0x21) + bytes([4, 1, 0, 0]), sent[-1][24:].hex()
+refused(hello(uid(0x24), 0x30, DeviceFeature.ONEIP_SINK).request_oneip_sink_description(), 'an output below 0x31')
+refused(src.request_oneip_sink_description(), 'a device that is not a OneIP output')
+print('request     : bit 0 of the value, refused below 0x31')
 
 print('ALL OK')
