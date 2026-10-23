@@ -22,12 +22,13 @@ from datetime import datetime, timezone
 from .ConnectionAsync import ConnectionAsync
 from ..const import MXR_HELLO_INTERVAL_MIN, MXR_HELLO_INTERVAL_RAND, __version__
 from .Device import Device
-from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, mxr_broadcast_address, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest
-from ..proto.Constants import MXR_PROTOCOL_VERSION, DeviceFeature, OsdSyncWhat
+from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, mxr_broadcast_address, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor
+from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, OsdSyncWhat
 from ..proto.FrameDiscover import FrameDiscover, constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
 from ..proto.FrameHello import FrameHello, constructFrameHello
 from ..proto.FramePing import FramePing
+from ..proto.FrameThirdParty import FrameThirdParty
 from ..proto.FrameBase import FrameBase
 from ..proto.FrameTime import FrameTime
 from ..proto.FrameTimeZone import FrameTimeZone
@@ -572,6 +573,23 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         encrypted, as Device.request_oneip_privacy() asks one. A unit below
         protocol 0x30 ignores it.'''
         return self._send_to_all(FrameV2IPPrivacy.construct_request(mxr=self, target=None, target_uid=None))
+
+    async def send_third_party(self, vendor:ThirdPartyVendor, payload:bytes) -> bool:
+        '''Send an application's own message to every device, under vendor.
+        True when all of it was written.
+
+        Every other client of this library that has heard this one announce
+        itself receives it at MxrCallbacks.on_third_party_message(); this client
+        does not, and neither does one sharing its uid. No unit is meant to read
+        it. Nothing acknowledges it, so an application that needs to know it
+        arrived has to have its peers answer.
+
+        A payload over THIRD_PARTY_PAYLOAD_MAX bytes is refused.'''
+        if (len(payload) > THIRD_PARTY_PAYLOAD_MAX):
+            _LOGGER.warning(f"not sending a third-party message: {len(payload)} bytes, "
+                            f"the most is {THIRD_PARTY_PAYLOAD_MAX}")
+            return False
+        return self._send_to_all(FrameThirdParty.construct(mxr=self, vendor=vendor, payload=payload))
 
     async def set_mesh_time_zone(self, zone:str, rule:str) -> bool:
         '''Set the time zone of every device that hears it.

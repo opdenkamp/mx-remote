@@ -123,6 +123,9 @@ MXR_OPCODE_VERSIONS: dict[int, int] = {
     0x52: 0x2E,  # V2IP_SINK_SDP
     0x53: 0x2F,  # V2IP_OSD_SYNC
     0x54: 0x30,  # V2IP_PRIVACY
+    # The lowest stamp, so that every receiver's ceiling passes it. No device
+    # decodes the payload, so there is no layout for a stamp to announce.
+    0x55: 0x01,  # THIRD_PARTY
 }
 """Per-opcode minimum compatible protocol version, mirroring the firmware's
 own opcode table. Transmitters stamp the
@@ -821,6 +824,21 @@ ONEIP_VLAN_PORT_SFP = 0
 
 ONEIP_VLAN_ID_MAX = 4094
 """The highest VLAN id: 0 means untagged, and 4095 is reserved by IEEE 802.1Q."""
+
+class ThirdPartyVendorFlag(IntFlag):
+	'''The first byte of a third-party vendor id, ahead of its three
+	identifying bytes. Bits without a name are kept as they arrived.'''
+	NOT_OUI = (1 << 0)
+	'''The three bytes are an identifier the vendor chose, rather than its
+	IEEE OUI.'''
+
+THIRD_PARTY_PAYLOAD_MAX = 1444
+"""The largest payload a third-party message carries.
+
+A frame this size fills one 1500-byte Ethernet frame exactly: 20 bytes of IPv4
+header, 8 of UDP, the 24-byte frame header and the 4-byte vendor id leave 1444.
+A larger send is refused rather than fragmented, because a lost fragment loses
+the whole datagram and nothing on these paths retries."""
 
 BAY_FEATURE_DOLBY_IN_POS = 24
 

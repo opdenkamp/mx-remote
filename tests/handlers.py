@@ -63,6 +63,7 @@ BASELINE = {
     'FrameSystemStatus.FrameSystemStatus',
     'FrameTXRCAction.FrameTXRCAction',
     'FrameTXRCKey.FrameTXRCKey',
+    'FrameThirdParty.FrameThirdParty',
     'FrameTime.FrameTime',
     'FrameTimeZone.FrameTimeZone',
     'FrameTopology.FrameTopology',

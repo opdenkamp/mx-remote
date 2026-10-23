@@ -67,6 +67,7 @@ Available callback methods:
 | `on_rc_type_changed` | remote control type changed |
 | `on_amp_zone_settings_changed` | amplifier zone settings changed |
 | `on_amp_dolby_settings_changed` | amplifier Dolby settings changed |
+| `on_third_party_message` | another application sent a message under its vendor id |
 
 You can also register per-device and per-bay callbacks:
 
@@ -84,6 +85,30 @@ bay.register_callback(on_bay_changed)
 device.unregister_callback(on_device_changed)
 bay.unregister_callback(on_bay_changed)
 ```
+
+## Application messages
+
+Applications built on this library can message each other over the mesh. A
+message carries a vendor id, then up to `THIRD_PARTY_PAYLOAD_MAX` (1444) bytes
+that only the application reads. The vendor id is the vendor's IEEE OUI, or an
+identifier it chose, such as three letters:
+
+```python
+from mx_remote import ThirdPartyVendor
+
+ODK = ThirdPartyVendor.private(b'ODK')
+
+await mx.send_third_party(ODK, b'hello')    # False when over 1444 bytes
+
+class MyCallbacks(mx_remote.MxrCallbacks):
+    def on_third_party_message(self, dev, message):
+        if message.vendor.same_vendor(ODK):
+            print(f"{dev} says {message.payload!r}")
+```
+
+Every other client that has heard this one announce itself receives the
+message; this client does not. No unit reads it, and nothing acknowledges it,
+so an application that needs to know a message arrived has its peers answer.
 
 ---
 

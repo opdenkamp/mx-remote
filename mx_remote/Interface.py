@@ -2602,6 +2602,68 @@ class OneIPPrivacy:
         return f"video {self.video}, audio {self.audio}, anc {self.anc}"
 
 @dataclass(frozen=True)
+class ThirdPartyVendor:
+    """
+    Whose message a third-party message is: a flag byte, then three bytes
+    naming the vendor.
+
+    The three bytes are the vendor's IEEE OUI, in the order it is written, or
+    with ThirdPartyVendorFlag.NOT_OUI set an identifier of the vendor's own
+    choosing, such as three ASCII letters. The flag keeps the two spaces apart,
+    so a chosen identifier never collides with a registered OUI.
+    """
+    flags: ThirdPartyVendorFlag
+    """The flag byte, at offset 0."""
+    id: bytes
+    """The vendor's three identifying bytes, at offsets 1 to 3."""
+
+    def __post_init__(self) -> None:
+        if (len(self.id) != 3):
+            raise ValueError(f"a vendor id is 3 bytes, not {len(self.id)}")
+
+    @classmethod
+    def oui(cls, oui:bytes) -> 'ThirdPartyVendor':
+        """A vendor named by its IEEE OUI."""
+        return cls(flags=ThirdPartyVendorFlag(0), id=bytes(oui))
+
+    @classmethod
+    def private(cls, id:bytes) -> 'ThirdPartyVendor':
+        """A vendor named by an identifier it chose, rather than an OUI."""
+        return cls(flags=ThirdPartyVendorFlag.NOT_OUI, id=bytes(id))
+
+    def same_vendor(self, other:'ThirdPartyVendor') -> bool:
+        """Whether other names the same vendor.
+
+        Only ThirdPartyVendorFlag.NOT_OUI and the three identifying bytes say
+        who the vendor is, so the other flag bits are left out."""
+        return ((ThirdPartyVendorFlag.NOT_OUI in self.flags) == (ThirdPartyVendorFlag.NOT_OUI in other.flags)) \
+            and (self.id == other.id)
+
+    def __str__(self) -> str:
+        if (ThirdPartyVendorFlag.NOT_OUI in self.flags):
+            return f"vendor {self.id!r}"
+        return f"vendor OUI {self.id.hex(':')}"
+
+@dataclass(frozen=True)
+class ThirdPartyMessage:
+    """
+    A message an application sent to every device, under its own vendor id.
+
+    The library reads only the vendor id. What follows is the application's,
+    and arrives exactly as it was sent.
+    """
+    vendor: ThirdPartyVendor
+    """Which application's message this is. The library checks none: each
+    application ignores every message whose vendor is not its own."""
+    payload: bytes
+    """The application's bytes, at most THIRD_PARTY_PAYLOAD_MAX."""
+    address: str|None
+    """Where the datagram came from."""
+
+    def __str__(self) -> str:
+        return f"{self.vendor}: {len(self.payload)} bytes"
+
+@dataclass(frozen=True)
 class OneIPTestTone:
     """A OneIP sink's test tone."""
     mode: OneIPToneMode|int = OneIPToneMode.OFF
@@ -4369,6 +4431,13 @@ class MxrCallbacks:
         ''' called when amp dolby settings were changed '''
         _LOGGER.debug(f"{device} dolby settings changed")
         self.on_device_update(device)
+
+    def on_third_party_message(self, dev:DeviceBase, message:ThirdPartyMessage) -> None:
+        ''' called when the application on 'dev' sent a message under its own
+        vendor id. A message from a sender this client has not yet heard
+        announce itself is dropped, as every frame is, and this client never
+        receives its own. '''
+        pass
 
 # The V2IP spelling of a name here, from before the rename to OneIP.
 from .deprecated import alias_members as _alias_members, module_getattr as _module_getattr

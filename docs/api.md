@@ -288,6 +288,23 @@ How a source unit encrypts its streams, as it reports it.
    :members:
 ```
 
+## Application messages
+
+Messages applications exchange over the mesh under their own vendor id.
+
+```{eval-rst}
+.. autoclass:: mx_remote.ThirdPartyMessage
+   :members:
+
+.. autoclass:: mx_remote.ThirdPartyVendor
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.ThirdPartyVendorFlag
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.THIRD_PARTY_PAYLOAD_MAX
+```
+
 ## OneIP test card
 
 A sink's test pattern, tone and lip-sync flash, and the ranges it accepts.
