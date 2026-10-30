@@ -3282,6 +3282,18 @@ class NetworkPortStatus(ABC):
     def link_full_duplex(self) -> bool:
         ''' full duplex or half duplex '''
 
+    @property
+    def uplink(self) -> bool:
+        '''Whether the device reports this port as its uplink. A report from
+        before protocol 0x22 is read as not marking it.'''
+        return False
+
+    @property
+    def video_link(self) -> bool:
+        '''Whether the link carries video. A report from before protocol 0x22
+        is read as not marking it.'''
+        return False
+
     @cached_property
     @abstractmethod
     def name(self) -> str:

@@ -9,6 +9,7 @@
 from functools import cached_property
 from .FrameBase import FrameBase
 from .Constants import decode_enum
+from ..compat import override
 from ..Interface import NetworkPortStatus, UtpLinkErrorStatus, UtpLinkSpeed, UtpCableStatus
 import socket
 import struct
@@ -260,6 +261,17 @@ class NetworkPortStatusImpl(NetworkPortStatus):
     @cached_property
     def link_full_duplex(self) -> bool:
         return ((self.data[38] & (1 << 3)) != 0)
+
+    @property
+    @override
+    def uplink(self) -> bool:
+        return self.features_status.port_uplink
+
+    @property
+    @override
+    def video_link(self) -> bool:
+        # the status word's third byte, next to the speed and duplex
+        return ((self.data[38] & (1 << 4)) != 0)
 
     @cached_property
     def cable_status(self) -> list[UtpCableStatus]|None:

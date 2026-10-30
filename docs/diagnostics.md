@@ -14,7 +14,14 @@ for port_id, port_status in device.network_status.items():
         print(f"  IP: {port_status.ip}")
     if port_status.mac_address:
         print(f"  MAC: {port_status.mac_address}")
+    if port_status.uplink:
+        print("  the device's uplink")
+    if port_status.video_link:
+        print("  carries video")
 ```
+
+`uplink` and `video_link` are read from protocol 0x22; an older report marks
+neither.
 
 ## CLI Application
 

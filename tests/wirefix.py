@@ -420,6 +420,7 @@ print('0x48 tx ir  : needs a timing past the struct, refuses an inflated count, 
 # 0x12 and 0x22 are both 144 bytes. Devices still send the older forms, because
 # a unit stamps from its own table, and current firmware ignores everything
 # below 0x22 - so these paths serve units that no device on the mesh answers.
+from mx_remote.proto.Constants import UtpLinkSpeed
 from mx_remote.proto.FrameNetworkStatus import (NetworkPortStatusImplPre12,
                                                 NetworkPortStatusImplPre22,
                                                 NetworkPortStatusImpl)
@@ -481,6 +482,26 @@ seen = bytearray(net_0x22())
 seen[32:36] = bytes([192, 0, 2, 1])
 assert stamped(0x29, bytes(seen), 0x22).status.querier == '192.0.2.1'
 print('0x29 net    : a querier of 0.0.0.0 is none')
+
+# The feature word marks the uplink at bit 6, and the status word's third byte
+# marks a link carrying video at bit 4, next to the speed and duplex.
+up = bytearray(net_0x22(feat=(1 << 6)))
+up[38] = 4 | (1 << 3) | (1 << 4)
+st = stamped(0x29, bytes(up), 0x22).status
+assert st.uplink, 'the uplink bit'
+assert st.video_link, 'the video link bit'
+assert st.link_speed == UtpLinkSpeed.L_1G and st.link_full_duplex, (st.link_speed, st.link_full_duplex)
+inner = bytearray(net_0x22(feat=(1 << 4)))
+inner[38] = 4 | (1 << 3) | (1 << 5)
+st = stamped(0x29, bytes(inner), 0x22).status
+assert not st.uplink, 'an internal port'
+assert not st.video_link, 'a neighbouring bit'
+# Before 0x22 neither is marked, whatever the bytes at those offsets hold.
+old = bytearray(net_0x12())
+old[2] = old[3] = old[38] = 0xFF
+st = stamped(0x29, bytes(old), 0x21).status
+assert (st.uplink, st.video_link) == (False, False), (st.uplink, st.video_link)
+print('0x29 net    : the uplink and video link bits, from 0x22')
 
 # ------------------------------------------------------------ 0x35 setup status
 # Sent as 0 or 1, and read as a unit reads it: anything but 0 is completed.
