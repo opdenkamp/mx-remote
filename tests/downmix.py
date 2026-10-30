@@ -16,7 +16,7 @@ import asyncio, os, struct, sys, logging
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logging.disable(logging.CRITICAL)
 import mx_remote
-from mx_remote import DeviceFeature, MxrDeviceUid, OneIPDownmix, OneIPDeviceSetting as S
+from mx_remote import DeviceFeature, MxrDeviceUid, OneIPDownmix, OneIPDownmixStatus, OneIPDeviceSetting as S
 from mx_remote.proto.Constants import ONEIP_DOWNMIX_LFE_MAX, OneIPDownmixLevel as L, OneIPDownmixMode as M
 from mx_remote.proto.Factory import create_mxr_frame
 
@@ -62,7 +62,7 @@ out = hello(uid(0x10))
 rx(uid(0x10), 0x3C, cfg(uid(0x10), ext=0))
 assert out.oneip_settings is not None and out.oneip_downmix is None, 'a downmix without its bit'
 rx(uid(0x10), 0x3C, cfg(uid(0x10), ext=1))
-dm = OneIPDownmix(mode=M.ALWAYS, level=L.UNSCALED, lfe=77, state=9, channels=6)
+dm = OneIPDownmix(mode=M.ALWAYS, level=L.UNSCALED, lfe=77, status=OneIPDownmixStatus(state=9, channels=6))
 assert out.oneip_downmix == dm, out.oneip_downmix
 assert isinstance(out.oneip_downmix.mode, M) and isinstance(out.oneip_downmix.level, L)
 print('decode      :', out.oneip_downmix)
@@ -83,7 +83,9 @@ print('length      : only a frame that holds it says whether there is one')
 rx(uid(0x10), 0x3C, cfg(uid(0x10), ext=1))
 hello(uid(0x11), DeviceFeature.MANAGER)       # a unit takes a write from a manager
 rx(uid(0x11), 0x3C, cfg(uid(0x10), ext=1, mode=1, level=0, lfe=33, state=4, channels=8))
-assert out.oneip_downmix == OneIPDownmix(mode=M.AUTO, level=L.NORMALISED, lfe=33, state=9, channels=6), out.oneip_downmix
+assert out.oneip_downmix == OneIPDownmix(mode=M.AUTO, level=L.NORMALISED, lfe=33,
+                                         status=OneIPDownmixStatus(state=9, channels=6)), \
+    'a write changed what only the device reports'
 rx(uid(0x11), 0x3C, cfg(uid(0x10), ext=0, mode=0))
 assert out.oneip_downmix.mode == M.AUTO, 'a write without the bit was applied'
 none = hello(uid(0x12))
@@ -96,16 +98,32 @@ print('writes      : applied as the device applies them')
 rx(uid(0x10), 0x3C, cfg(uid(0x10), ext=1))
 sent.clear()
 assert call(out.set_oneip_downmix(OneIPDownmix(mode=M.AUTO, level=L.NORMALISED, lfe=ONEIP_DOWNMIX_LFE_MAX,
-                                               state=0xEE, channels=0xEE))) is True
+                                               status=OneIPDownmixStatus(state=0xEE, channels=0xEE)))) is True
 f = sent[-1]
 assert int.from_bytes(f[20:22], 'little') == 0x3C, f[:24].hex()
 p = f[24:]
 assert len(p) == 248, len(p)
 assert p[:16] == uid(0x10) and p[40] == 0xFF and p[128:132] == bytes(4), p[:132].hex()
 assert p[232:] == struct.pack('<IBBB', 1, 1, 0, 100) + bytes(9), p[232:].hex()
-assert out.oneip_downmix == OneIPDownmix(mode=M.AUTO, level=L.NORMALISED, lfe=100, state=9, channels=6), \
-    out.oneip_downmix
-print('write       : mode, level and LFE behind the bit, the cache keeping the state')
+assert out.oneip_downmix == OneIPDownmix(mode=M.AUTO, level=L.NORMALISED, lfe=100), \
+    "the cache claimed a status the device hasn't reported for the new settings"
+# Another sender's write leaves the status unknown, and the device's next
+# report says how it mixes.
+rx(uid(0x11), 0x3C, cfg(uid(0x10), ext=1, mode=1, level=0, lfe=100, state=4, channels=8))
+assert out.oneip_downmix.status is None, "another sender's write gave a status"
+rx(uid(0x10), 0x3C, cfg(uid(0x10), ext=1, mode=1, level=0, lfe=100))
+assert out.oneip_downmix == OneIPDownmix(mode=M.AUTO, level=L.NORMALISED, lfe=100,
+                                         status=OneIPDownmixStatus(state=9, channels=6)), out.oneip_downmix
+print('write       : mode, level and LFE behind the bit, no status until reported')
+
+# state and channels moved into status, and still read from where they were.
+import warnings
+with warnings.catch_warnings(record=True) as w:
+    warnings.simplefilter('always')
+    assert (out.oneip_downmix.state, out.oneip_downmix.channels) == (9, 6)
+    assert OneIPDownmix().state is None and OneIPDownmix().channels is None
+assert len(w) == 4 and all(issubclass(x.category, DeprecationWarning) for x in w), w
+print('deprecated  : state and channels read from status, with a warning')
 
 def refused(coro, why):
     n = len(sent)

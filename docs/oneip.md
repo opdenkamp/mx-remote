@@ -354,7 +354,10 @@ the LFE channel is mixed in at, which a controller writes, and the state and
 channel count, which only the device reports. A device that reports none has
 no downmix to set, so a write to one is refused, as is a mode, level or LFE
 percent out of range. The write sends the mode, level and LFE together; the
-state and channels are never sent.
+status, whether the stream is mixed down now, is the device's own and never
+sent. After this client's write it is None until the device reports how it
+mixes the new settings; another controller's write keeps the status the device
+reported.
 
 ```python
 from mx_remote import OneIPDownmix
@@ -363,7 +366,8 @@ from mx_remote.proto.Constants import OneIPDownmixMode, OneIPDownmixLevel
 downmix = device.oneip_downmix    # None: no report yet, or no downmix
 if downmix is not None:
     print(downmix.mode, downmix.level, downmix.lfe)   # LFE up to ONEIP_DOWNMIX_LFE_MAX
-    print(downmix.state, downmix.channels)            # the device's own
+    if downmix.status is not None:                    # the device's own
+        print(downmix.status.state, downmix.status.channels)
     await device.set_oneip_downmix(OneIPDownmix(mode=OneIPDownmixMode.AUTO,
                                                 level=OneIPDownmixLevel.NORMALISED, lfe=50))
 ```

@@ -14,7 +14,7 @@ from .FrameHeader import FrameHeader
 from ..Uid import MxrDeviceUid
 from ..Interface import (DeviceBase, DeviceRegistry, DeviceOneIPDetails, DeviceOneIPScalingSettings,
                          DeviceOneIPSink, OneIPAudioFormat, OneIPDeviceSettings, OneIPDscpConfig,
-                         OneIPDownmix, OneIPPowerSaveSchedule, OneIPPtpMessages, OneIPPtpState,
+                         OneIPDownmix, OneIPDownmixStatus, OneIPPowerSaveSchedule, OneIPPtpMessages, OneIPPtpState,
                          OneIPStreamSource, OneIPVlan, _wire_enum)
 from .Constants import (ONEIP_DEVICE_SETTINGS_BLOCK, ONEIP_DEVICE_SETTINGS_PTP, OneIPDownmixLevel, OneIPDownmixMode, OneIPPtpFlag, OneIPPtpLock, OneIPPtpMode, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag, MXR_SCALING_FLAG_AUTO_SCALING,
                         MXR_SCALING_FLAG_MODE_VALID,
@@ -685,7 +685,7 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         if not (valid_ext & _SETTING_EXT_DOWNMIX):
             return None
         return OneIPDownmix(mode=_wire_enum(OneIPDownmixMode, mode), level=_wire_enum(OneIPDownmixLevel, level),
-                            lfe=lfe, state=state, channels=channels)
+                            lfe=lfe, status=OneIPDownmixStatus(state=state, channels=channels))
 
     @property
     def carries_locale(self) -> bool:

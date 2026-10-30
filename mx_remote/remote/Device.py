@@ -2237,13 +2237,13 @@ class Device(DeviceBase):
 	async def set_oneip_downmix(self, downmix:OneIPDownmix) -> bool:
 		'''Set how this OneIP device's output mixes 5.1 and 7.1 PCM down to
 		stereo: the mode, level and LFE percent of downmix, which the device
-		applies together. Its state and channels are the device's to report,
-		and are not sent.
+		applies together. Its status is the device's to report, and is not
+		sent.
 
 		Refused before anything is sent for a mode, level or LFE percent out of
 		range, and unless the device reports a downmix, which one whose output
 		cannot mix down never does. The new downmix is cached once the frame is
-		sent, and the device's next report replaces it.
+		sent, with no status until the device's next report says how it mixes.
 		'''
 		why = None
 		if not downmix.is_valid():
@@ -2259,7 +2259,8 @@ class Device(DeviceBase):
 			mxr=self.registry, target=self, target_uid=self.remote_id, downmix=downmix)
 		if (frame is None) or (self.registry.transmit(frame.frame) != len(frame.frame)):
 			return False
-		self._on_oneip_downmix(reported.written(downmix), reported=True)
+		# The device hasn't said how it mixes the new settings yet.
+		self._on_oneip_downmix(replace(reported.written(downmix), status=None), reported=True)
 		return True
 
 	async def set_oneip_vlan(self, vlan:OneIPVlan) -> bool:

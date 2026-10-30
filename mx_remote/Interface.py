@@ -2261,6 +2261,16 @@ class OneIPPtpState:
                 f"{' followed' if self.followed else ''} clock {self.clock_identity.hex(':')} grandmaster {gm}")
 
 @dataclass(frozen=True)
+class OneIPDownmixStatus:
+    """
+    Whether a OneIP output mixes its stream down now, as the device reports it.
+    """
+    state: int = 0
+    """Why the stream is or is not mixed down, as the device's own code."""
+    channels: int = 0
+    """The stream's channels while it is mixed down, else 0."""
+
+@dataclass(frozen=True)
 class OneIPDownmix:
     """
     How a OneIP output mixes 5.1 and 7.1 PCM down to stereo, and whether it
@@ -2277,12 +2287,22 @@ class OneIPDownmix:
     lfe: int = 0
     """The percent the LFE channel is mixed in at, at most
     ONEIP_DOWNMIX_LFE_MAX; 0 leaves it out."""
-    state: int = 0
-    """Why the stream is or is not mixed down, as the device's own code. Only
-    the device reports it."""
-    channels: int = 0
-    """The stream's channels while it is mixed down, else 0. Only the device
-    reports it."""
+    status: OneIPDownmixStatus|None = None
+    """Whether the stream is mixed down now. Only the device reports it: it is
+    None from this client's own write until the device's next report, and a
+    write ignores it."""
+
+    @property
+    def state(self) -> int|None:
+        """Deprecated: use status.state. None while the status is unknown."""
+        warnings.warn("OneIPDownmix.state is deprecated, use status.state", DeprecationWarning, stacklevel=2)
+        return self.status.state if (self.status is not None) else None
+
+    @property
+    def channels(self) -> int|None:
+        """Deprecated: use status.channels. None while the status is unknown."""
+        warnings.warn("OneIPDownmix.channels is deprecated, use status.channels", DeprecationWarning, stacklevel=2)
+        return self.status.channels if (self.status is not None) else None
 
     def is_valid(self) -> bool:
         """Whether the settings a write carries are in range."""
@@ -2298,7 +2318,9 @@ class OneIPDownmix:
     def __str__(self) -> str:
         mode = self.mode.name.lower() if isinstance(self.mode, OneIPDownmixMode) else self.mode
         level = self.level.name.lower() if isinstance(self.level, OneIPDownmixLevel) else self.level
-        return f"{mode} {level} lfe {self.lfe}% state {self.state} channels {self.channels}"
+        status = (f"state {self.status.state} channels {self.status.channels}"
+                  if (self.status is not None) else "status unknown")
+        return f"{mode} {level} lfe {self.lfe}% {status}"
 
 @dataclass(frozen=True)
 class OneIPVlan:
