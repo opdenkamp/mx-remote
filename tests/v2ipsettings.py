@@ -53,7 +53,7 @@ def hello(sender, features, model='ONEIP'):
 
 SINK = int(DeviceFeature.ONEIP_SINK) | int(DeviceFeature.VIDEO_ROUTING)
 ALL = 0x7FF
-FPGA = int(OneIPVideoProcessorFeature.SOURCE_DSCP | OneIPVideoProcessorFeature.SINK_STATE)
+FPGA = int(OneIPVideoProcessorFeature.RTOS) | (1 << 4)
 
 def cfg(subject, valid, flags=0, profiles=0, profile=0, profile_sink=0, fpga=0):
     '''A whole configuration, the settings block at 128 and two poisoned

@@ -291,25 +291,14 @@ class OneIPVideoProcessorFeature(IntFlag):
 	describing itself, and leaves it zero on one it sends to configure another
 	device. There is no write path.
 
-	Bits are assigned by the video processor and only ever appended, so a bit
-	this library has no name for is a later capability rather than an error. A
-	device reports no features at all until its processor answers, and an older
-	processor answers with none of the optional commands, so an empty mask is
-	never a capability set.'''
-	SOURCE_DSCP        = (1 << 0)
-	'''Applies a DSCP marking to the streams it sources.'''
-	SINK_AUDIO_FORMAT  = (1 << 1)
-	'''Reports the audio format arriving at its sink.'''
-	SINK_TILING_WINDOW = (1 << 2)
-	'''Places a tiling window on its sink.'''
-	SINK_OVERLAY_STATE = (1 << 3)
-	'''Reports the state of its sink's overlay.'''
-	SINK_STATE         = (1 << 4)
-	'''Reports its sink's state.'''
-	SINK_STREAM_INFO   = (1 << 5)
-	'''Reports information about the stream its sink receives.'''
-	SINK_TEST_PATTERN  = (1 << 8)
-	'''Draws a test pattern, tone and lip-sync flash on its sink's output.'''
+	Bit 0 marks the RTOS image on the p8 bitstream, which has every command;
+	later bits are appended from bit 1. An image a device does not drive reports
+	none, and a capability is tested as its bit alone, so a bit this library has
+	no name for is a later capability rather than an error. A device reports no
+	features at all until its processor answers, so an empty mask is never a
+	capability set.'''
+	RTOS = (1 << 0)
+	'''The RTOS image on the p8 bitstream, which has every command.'''
 
 class OneIPDeviceSetting(IntFlag):
 	'''The device settings a OneIP configuration can carry, each on its own bit.

@@ -384,7 +384,7 @@ frame it already understood.
 
 ### Test pattern, tone and lip-sync
 
-A sink whose video processor reports `OneIPVideoProcessorFeature.SINK_TEST_PATTERN` draws a
+A sink whose video processor reports `OneIPVideoProcessorFeature.RTOS` draws a
 test card on its output: a pattern, a test tone, and a lip-sync flash that marks
 a frame and beeps a set number of sample periods after it.
 

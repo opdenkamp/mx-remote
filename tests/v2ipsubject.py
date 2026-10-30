@@ -158,19 +158,18 @@ def cfg_fpga(subject, mask):
     assert len(out) == 128, len(out)
     return out
 
-# Bit 9 has no name here. The mask only ever gains bits, so one this library
-# cannot name is a later capability rather than a frame to refuse.
-MASK = int(OneIPVideoProcessorFeature.SOURCE_DSCP | OneIPVideoProcessorFeature.SINK_STATE) | (1 << 9)
+# Bits 4 and 9 have no name here. Bits are appended from bit 1, so one this
+# library cannot name is a later capability rather than a frame to refuse.
+MASK = (1 << 0) | (1 << 4) | (1 << 9)     # bit 0 is the RTOS image
 fpga = hello(uid(0x0B), SINK)
 rx(uid(0x0B), 0x3C, cfg_fpga(uid(0x0B), MASK))
 assert fpga.oneip_features is not None, 'a device did not report its own processor'
 assert int(fpga.oneip_features) == MASK, int(fpga.oneip_features)
-assert OneIPVideoProcessorFeature.SINK_STATE in fpga.oneip_features
+assert OneIPVideoProcessorFeature.RTOS in fpga.oneip_features
 print('processor   :', fpga.oneip_features)
 
 # An empty mask is nothing known rather than a device that supports nothing: the
-# word is zero until the processor answers after boot, and an older processor
-# answers with none of the optional commands.
+# word is zero until the processor answers after boot.
 booting = hello(uid(0x0C), SINK)
 rx(uid(0x0C), 0x3C, cfg_fpga(uid(0x0C), 0))
 assert booting.oneip_features is None, 'an empty mask was cached as a capability set'

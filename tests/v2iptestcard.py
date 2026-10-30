@@ -21,7 +21,6 @@ logging.disable(logging.CRITICAL)
 import mx_remote
 from mx_remote import (DeviceFeature, MxrDeviceUid, OneIPTestcard, OneIPTestSync, OneIPTestTone,
                        OneIPTestPattern as P, OneIPToneMode as T, OneIPTestcardFlag as F)
-from mx_remote.proto.Constants import OneIPVideoProcessorFeature
 from mx_remote.proto.Factory import create_mxr_frame, process_mxr_frame
 
 ADDR = ('192.0.2.9', 8812)
@@ -39,6 +38,9 @@ def rx(sender, opcode, payload=b'', protocol=0x2B):
     frame = bytearray(create_mxr_frame(sender, opcode, payload))
     frame[2] = protocol
     mx.process_frame(0.0, bytes(frame), ADDR)
+
+RTOS = 1 << 0
+'''The video processor's bit for the RTOS image, which draws the test card.'''
 
 def sink(n, fpga, protocol=0x2B):
     '''A sink on protocol whose video processor reports fpga, 0 for nothing yet.'''
@@ -74,7 +76,7 @@ def testcard_frame(target, kind):
 
 # Answered to the device that asked, but heard by everyone, and recorded against
 # the sink the frame names.
-s = sink(0x10, OneIPVideoProcessorFeature.SINK_TEST_PATTERN)
+s = sink(0x10, RTOS)
 rx(uid(0x10), 0x4E, testcard_frame(uid(0x10), 2))
 tc = s.oneip_testcard
 assert tc == OneIPTestcard(
@@ -87,7 +89,7 @@ print('decode      :', tc)
 
 # A request or a change addressed to a sink is not its report, and a frame
 # shorter than the whole struct is nothing.
-s = sink(0x11, OneIPVideoProcessorFeature.SINK_TEST_PATTERN)
+s = sink(0x11, RTOS)
 rx(uid(0x10), 0x4E, testcard_frame(uid(0x11), 0))
 rx(uid(0x10), 0x4E, testcard_frame(uid(0x11), 1))
 rx(uid(0x11), 0x4E, testcard_frame(uid(0x11), 2)[:55])
@@ -99,7 +101,7 @@ rx(uid(0x11), 0x4E, testcard_frame(uid(0x11), 2))
 assert s.oneip_testcard is not None, 'a whole report'
 # A unit takes a report only from the sink it describes, and only with a
 # pattern and tone mode it knows.
-s = sink(0x13, OneIPVideoProcessorFeature.SINK_TEST_PATTERN)
+s = sink(0x13, RTOS)
 rx(uid(0x10), 0x4E, testcard_frame(uid(0x13), 2))
 assert s.oneip_testcard is None, 'a report about another sink was taken'
 for at, value in ((18, int(P.CARD) + 1), (19, int(T.BEEP) + 1)):
@@ -135,7 +137,7 @@ def payload(target):
 
 # Each write puts its part at its own offsets behind its own bit, and leaves
 # every other byte zero.
-s = sink(0x12, OneIPVideoProcessorFeature.SINK_TEST_PATTERN)
+s = sink(0x12, RTOS)
 assert call(s.request_oneip_testcard()) is True
 assert payload(uid(0x12))[16:] == bytes(40), 'a request carries only the uid'
 
@@ -160,9 +162,11 @@ print('write       : each part behind its own bit, the rest zero')
 
 # A write the sink could not take, and a sink that cannot draw a test card, are
 # refused before anything is sent.
-without = sink(0x13, OneIPVideoProcessorFeature.SINK_STATE)
+# Bit 8 drew the test card before the feature mask was reset; it is a later
+# capability now, and only the RTOS image draws one.
+without = sink(0x13, (1 << 8) | (1 << 4))
 unreported = sink(0x14, 0)
-old = sink(0x15, OneIPVideoProcessorFeature.SINK_TEST_PATTERN, protocol=0x2A)
+old = sink(0x15, RTOS, protocol=0x2A)
 refused(s.set_oneip_test_pattern(7, 0), 'a pattern this library does not name')
 refused(s.set_oneip_test_pattern(P.FLAT, 0x1000000), 'a colour wider than 24 bits')
 tone = OneIPTestTone(mode=T.LINEUP, freq=1000, level=0, channels=2, rate=48000)

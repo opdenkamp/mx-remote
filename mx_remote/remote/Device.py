@@ -2158,8 +2158,8 @@ class Device(DeviceBase):
 		into oneip_testcard.
 
 		Refused unless the sink's video processor has reported
-		OneIPVideoProcessorFeature.SINK_TEST_PATTERN. A sink with that feature but without
-		the module that draws the test card does not answer.
+		OneIPVideoProcessorFeature.RTOS. A sink with it but without the module
+		that draws the test card does not answer.
 		'''
 		return self._send_v2ip_testcard(TESTCARD_REQUEST, 0, OneIPTestcard())
 
@@ -2400,7 +2400,7 @@ class Device(DeviceBase):
 		if ((features := self._v2ip_features) is None):
 			_LOGGER.warning(f"not sending a test card frame to {self}: its video processor has reported no features")
 			return False
-		if (OneIPVideoProcessorFeature.SINK_TEST_PATTERN not in features):
+		if (OneIPVideoProcessorFeature.RTOS not in features):
 			_LOGGER.warning(f"not sending a test card frame to {self}: it cannot draw a test card")
 			return False
 		frame = FrameV2IPTestcard.construct(mxr=self.registry, target=self, target_uid=self.remote_id,
