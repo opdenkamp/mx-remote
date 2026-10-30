@@ -3654,6 +3654,14 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
+    def oneip_preview(self) -> str|None:
+        '''The multicast group this OneIP device sends its live preview to, on
+        ONEIP_PREVIEW_PORT as RFC 2435 RTP/JPEG, as the device last reported it
+        about itself; None while it reports none, and always for one whose
+        firmware sends no preview.'''
+
+    @property
+    @abstractmethod
     def oneip_ptp(self) -> OneIPPtpState|None:
         '''The PTP state this OneIP device last reported about itself, None
         until it has reported one, and while it has no PTP to report: none on

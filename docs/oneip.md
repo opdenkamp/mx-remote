@@ -389,6 +389,22 @@ cached once sent until the device's next report. Refused before sending:
 arrived without a locale, as its firmware has none. Another controller's write
 reaches only a device that reports a locale.
 
+### Live preview
+
+A device whose firmware sends a live preview names the multicast group it sends
+it to at the end of its settings block. The preview is RFC 2435 RTP/JPEG on
+UDP port `ONEIP_PREVIEW_PORT` (5880).
+
+```python
+from mx_remote.proto.Constants import ONEIP_PREVIEW_PORT
+
+print(device.oneip_preview)       # '239.7.8.9', or None: no report, or no preview
+```
+
+Only the device's own report names it; another sender's configuration about the
+device leaves it alone. A group of 0, or a block too short to hold one, is
+firmware that sends no preview.
+
 ### VLAN
 
 A device that announces `DeviceFeature.VLAN` tags its uplink by a VLAN

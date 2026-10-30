@@ -641,6 +641,10 @@ ONEIP_LOCALE_UNKNOWN = 255
 know. Every other value numbers a locale, and keeps its meaning across firmware
 versions."""
 
+ONEIP_PREVIEW_PORT = 5880
+"""The UDP port a OneIP unit sends its live preview to, as RFC 2435 RTP/JPEG,
+on the group it reports as Device.oneip_preview."""
+
 class UnitPowerSave(IntFlag):
 	'''What a unit offers at one power save level.'''
 	SUPPORTED   = (1 << 0)

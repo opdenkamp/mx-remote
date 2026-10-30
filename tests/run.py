@@ -71,6 +71,7 @@ SUITES = [
     'osdmessage',   # the message on a unit's output, read and written
     'downmix',      # how a OneIP output mixes down to stereo, read and written
     'controllerset', # what a mesh controller sets on a OneIP unit
+    'preview',      # the group a OneIP device sends its live preview to
     'uid',          # a device uid's text, and what it equals
     'deprecated',   # the V2IP names 5.11.0 exported still resolve, with a warning
 ]

@@ -214,6 +214,7 @@ class Device(DeviceBase):
 		self._v2ip_ptp:OneIPPtpState|None = None
 		self._v2ip_downmix:OneIPDownmix|None = None
 		self._v2ip_locale:int|None = None
+		self._v2ip_preview:str|None = None
 		self._unit_status:UnitStatus|None = None
 		self._v2ip_testcard:OneIPTestcard|None = None
 		self._v2ip_sink_sdp:OneIPSinkSdp|None = None
@@ -615,6 +616,11 @@ class Device(DeviceBase):
 	@override
 	def oneip_locale(self) -> int|None:
 		return self._v2ip_locale
+
+	@property
+	@override
+	def oneip_preview(self) -> str|None:
+		return self._v2ip_preview
 
 	@property
 	@override
@@ -1299,6 +1305,10 @@ class Device(DeviceBase):
 			self._on_oneip_downmix(data.downmix, reported=data.target_self)
 			if data.carries_locale:
 				self._on_oneip_locale(data.locale, reported=data.target_self)
+			# Only the device reports where it sends its preview.
+			if data.target_self and (self._v2ip_preview != data.preview):
+				self._v2ip_preview = data.preview
+				self.call_callbacks()
 		elif isinstance(data, OneIPTestcard):
 			if (self._v2ip_testcard != data):
 				self._v2ip_testcard = data

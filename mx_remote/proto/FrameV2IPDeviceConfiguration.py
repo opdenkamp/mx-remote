@@ -8,7 +8,7 @@
 
 from functools import cached_property
 from typing import Any
-import struct
+import ipaddress, struct
 from .FrameBase import FrameBase
 from .FrameHeader import FrameHeader
 from ..Uid import MxrDeviceUid
@@ -54,15 +54,17 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #   232..248  from a device with the downmix: u32 second valid word, then
 #             the downmix's u8 mode, level, LFE percent, state and channels
 #             at 236..241, then from a device with locales the u8 locale at
-#             241, 6 reserved
+#             241, 2 reserved, and from a device with a live preview its
+#             group at 244..248, an address in network order
 #
 # That block is the last of its frame, so it is read by its length: shorter
 # than 8 carries none of its values, and 8, which every device without the TTL
 # sends, carries all but the TTL. A write grows it to 16 only when it carries
 # the TTL or the rotation, and to 32 only for the downmix, so the frames other
 # writes send are unchanged for units that predate them. A block too short to
-# hold the downmix's channels carries no bit of the second valid word, and one
-# too short to hold the locale says nothing about it.
+# hold the downmix's channels carries no bit of the second valid word, one too
+# short to hold the locale says nothing about it, and one too short to hold the
+# preview group, like a group of 0, is firmware that sends no preview.
 #
 # Each of those blocks was appended behind what came before it, leaving every
 # offset ahead of it where it was, so the length is what says whether one is
@@ -150,6 +152,9 @@ _DOWNMIX_OFFSET = _VALID_EXT_OFFSET + 4
 _DOWNMIX_SIZE = 5
 _LOCALE_AT = _DOWNMIX_OFFSET + _DOWNMIX_SIZE
 '''The locale's number, behind the downmix.'''
+_PREVIEW_AT = _LOCALE_AT + 3
+'''The live preview's group, behind the locale and two reserved bytes.'''
+_PREVIEW_SIZE = 4
 _WITH_DOWNMIX_SIZE = SETTINGS_BLOCK_OFFSET + 32
 '''The frame a downmix or locale write sends: the settings block run on to 32
 bytes.'''
@@ -703,6 +708,20 @@ class FrameV2IPDeviceConfiguration(FrameBase):
             return None
         return p[_LOCALE_AT]
 
+    @cached_property
+    def preview(self) -> str|None:
+        '''The group the subject sends its live preview to, on
+        ONEIP_PREVIEW_PORT; None in a frame too short to hold it and for a group
+        of 0, both of which are firmware that sends no preview.
+
+        Only the subject's own report names it: from another sender the bytes
+        say nothing about the subject.'''
+        p = self.payload or b""
+        if len(p) < _PREVIEW_AT + _PREVIEW_SIZE:
+            return None
+        group = ipaddress.IPv4Address(p[_PREVIEW_AT:_PREVIEW_AT + _PREVIEW_SIZE])
+        return None if group.is_unspecified else str(group)
+
     def process(self) -> None:
         '''Update the cache of the device this configuration names, not of its sender.'''
         if ((dev := self.subject_device) is None):
@@ -729,4 +748,5 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         ptp_str = "" if (self.ptp is None) else \
             f" ptp=[{self.ptp}]" if (OneIPPtpFlag.VALID in self.ptp.flags) else " ptp=none"
         locale_str = f" locale={self.locale}" if (self.locale is not None) else ""
-        return f"OneIP device configuration self={self.target_self} {self.video} {self.audio} {self.anc} {self.arc} options={self.options}{sink_str}{fpga_str}{settings_str}{vlan_str}{ptp_str}{locale_str}"
+        preview_str = f" preview={self.preview}" if (self.target_self and (self.preview is not None)) else ""
+        return f"OneIP device configuration self={self.target_self} {self.video} {self.audio} {self.anc} {self.arc} options={self.options}{sink_str}{fpga_str}{settings_str}{vlan_str}{ptp_str}{locale_str}{preview_str}"
