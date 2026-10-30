@@ -31,6 +31,10 @@ AUDIO_LAYOUT_SINCE = 0x27
 '''The protocol of the earliest firmware known to carry the current audio module
 layout; a unit below it that has not reported its endpoints is taken to carry
 the older one.'''
+AUDIO_REPORT_GUARD = 0.5
+'''How long after a command to a unit, in seconds, its features and links
+reports are ignored, so one it sent before taking the command cannot undo the
+state held for it.'''
 _AUDIO_LINKS_HEADER_SIZE = 4
 _AUDIO_LINK_SIZE = 20
 
@@ -361,6 +365,11 @@ class AudioLinksImpl(AudioLinks):
         one that does not.'''
         return len(self.data.payload or b'') >= (self._idx + _AUDIO_LINKS_HEADER_SIZE + self.nb_links * _AUDIO_LINK_SIZE)
 
+    @property
+    @override
+    def received(self) -> float|None:
+        return self.data.timestamp
+
     @cached_property
     def entries(self) -> list[AudioLink]:
         rv = []
@@ -414,7 +423,8 @@ class AudioConfig:
     @cached_property
     def endpoints(self) -> AudioEndpoints:
         rv = AudioEndpoints(legacy_layout=((self._stride == _AUDIO_ENTRY_SIZE_LEGACY)
-                                           if (self.nb_endpoints > 0) else None))
+                                           if (self.nb_endpoints > 0) else None),
+                            address=self.control_address, received=self.data.timestamp)
         eps:dict[int,AudioEndpointImpl] = {}
 
         for entry in self.entries:
@@ -749,19 +759,19 @@ class FrameV2IPAudio(FrameBase):
     def _frame(self) -> 'FrameV2IPAudio':
         '''Resolve to the appropriate sub-type frame based on the audio command opcode.'''
         if (self.opcode == AudioCommandOpcode.FEATURES):
-            return FrameV2IPAudioConfig(header=self.header)
+            return FrameV2IPAudioConfig(header=self.header, timestamp=self.timestamp)
         elif (self.opcode == AudioCommandOpcode.MUTE):
-            return FrameV2IPAudioMute(header=self.header)
+            return FrameV2IPAudioMute(header=self.header, timestamp=self.timestamp)
         elif (self.opcode == AudioCommandOpcode.TRIGGER):
-            return FrameV2IPAudioTrigger(header=self.header)
+            return FrameV2IPAudioTrigger(header=self.header, timestamp=self.timestamp)
         elif (self.opcode == AudioCommandOpcode.SELECT_INPUT):
-            return FrameV2IPAudioChangeSource(header=self.header)
+            return FrameV2IPAudioChangeSource(header=self.header, timestamp=self.timestamp)
         elif (self.opcode == AudioCommandOpcode.LINKS):
-            return FrameV2IPAudioLinks(header=self.header)
+            return FrameV2IPAudioLinks(header=self.header, timestamp=self.timestamp)
         elif (self.opcode == AudioCommandOpcode.VOLUME):
-            return FrameV2IPAudioVolume(header=self.header)
+            return FrameV2IPAudioVolume(header=self.header, timestamp=self.timestamp)
         elif (self.opcode == AudioCommandOpcode.LOCK):
-            return FrameV2IPAudioLock(header=self.header)
+            return FrameV2IPAudioLock(header=self.header, timestamp=self.timestamp)
         raise Exception(f"unhandled audio opcode {self.opcode}")
 
     @cached_property
@@ -788,12 +798,14 @@ class FrameV2IPAudio(FrameBase):
             _LOGGER.warning(e)
 
     @staticmethod
-    def construct_select_input(mxr:DeviceRegistry, sink:MxrDeviceUid, sink_ep:AudioEndpoint, source:MxrDeviceUid, source_ep:AudioEndpoint,
-                               legacy:bool=False) -> FrameBase|None:
+    def construct_select_input(mxr:DeviceRegistry, sink:MxrDeviceUid, sink_ep:AudioEndpoint|int, source:MxrDeviceUid,
+                               source_ep:AudioEndpoint|int, legacy:bool=False,
+                               addressee:MxrDeviceUid|None=None) -> FrameBase|None:
         '''Build an audio input selection frame for transmission, in the layout
-        of released firmware up to 4.4.2 when legacy is set.'''
+        of released firmware up to 4.4.2 when legacy is set, for addressee to
+        act on: the sink unless given.'''
         return FrameV2IPAudioChangeSource.construct(mxr=mxr, sink=sink, sink_ep=sink_ep, source=source,
-                                                    source_ep=source_ep, legacy=legacy)
+                                                    source_ep=source_ep, legacy=legacy, addressee=addressee)
 
     @staticmethod
     def construct_features(
@@ -849,8 +861,8 @@ class FrameV2IPAudio(FrameBase):
             return str(e)
 class FrameV2IPAudioConfig(FrameV2IPAudio):
     '''Audio endpoint configuration and features report.'''
-    def __init__(self, header: FrameHeader):
-        super().__init__(header)
+    def __init__(self, header: FrameHeader, timestamp:float|None=None):
+        super().__init__(header, timestamp)
         if (self.opcode != AudioCommandOpcode.FEATURES):
             raise Exception(f"invalid opcode {self.opcode}")
 
@@ -912,8 +924,8 @@ class FrameV2IPAudioConfig(FrameV2IPAudio):
 
 class FrameV2IPAudioChangeSource(FrameV2IPAudio):
     '''Audio input source change notification or command.'''
-    def __init__(self, header: FrameHeader):
-        super().__init__(header)
+    def __init__(self, header: FrameHeader, timestamp:float|None=None):
+        super().__init__(header, timestamp)
         if (self.opcode != AudioCommandOpcode.SELECT_INPUT):
             raise Exception(f"invalid opcode {self.opcode}")
 
@@ -931,25 +943,33 @@ class FrameV2IPAudioChangeSource(FrameV2IPAudio):
         target.on_mxr_update(data=self.select_input)
 
     @staticmethod
-    def construct(mxr:DeviceRegistry, sink:MxrDeviceUid, sink_ep:AudioEndpoint, source:MxrDeviceUid, source_ep:AudioEndpoint,
-                  legacy:bool=False) -> FrameBase|None:
+    def construct(mxr:DeviceRegistry, sink:MxrDeviceUid, sink_ep:AudioEndpoint|int, source:MxrDeviceUid,
+                  source_ep:AudioEndpoint|int, legacy:bool=False, addressee:MxrDeviceUid|None=None) -> FrameBase|None:
         '''Build an audio source change frame for transmission.
 
+        The body names the route end to end and the header names addressee,
+        the unit that must act on this frame: a route through several units
+        goes to each of them with the same body.
+
         legacy builds the 8-byte body the audio module on released firmware up
-        to 4.4.2 reads, which names two of the sink unit's own endpoints, so it
-        is refused for a source on another unit. Neither layout checks the
-        length, so each unit is sent only its own.'''
+        to 4.4.2 reads, which names two of the addressee's own endpoints, so it
+        is refused for a route reaching it from another unit. Neither layout
+        checks the length, so each unit is sent only its own.'''
+        if (addressee is None):
+            addressee = sink
+        sink_id = sink_ep if isinstance(sink_ep, int) else sink_ep.id
+        source_id = source_ep if isinstance(source_ep, int) else source_ep.id
         if legacy:
-            if (source != sink):
+            if (source != addressee) or (sink != addressee):
                 return None
             return FrameBase.construct_base(mxr=mxr, opcode=0x43, payload=(
-                _audio_cmd_header(AudioCommandOpcode.SELECT_INPUT, sink) + _pack_audio_param(sink_ep.id, source_ep.id)))
+                _audio_cmd_header(AudioCommandOpcode.SELECT_INPUT, addressee) + _pack_audio_param(sink_id, source_id)))
         payload = AudioCommandOpcode.SELECT_INPUT.value.to_bytes(2, 'little') + bytes(2) \
-            + sink.byte_value \
+            + addressee.byte_value \
             + sink.byte_value \
             + source.byte_value \
-            + sink_ep.id.to_bytes(2, 'little') \
-            + source_ep.id.to_bytes(2, 'little')
+            + sink_id.to_bytes(2, 'little') \
+            + source_id.to_bytes(2, 'little')
         return FrameBase.construct_base(mxr=mxr, opcode=0x43, payload=payload)
 
     def __str__(self) -> str:
@@ -957,8 +977,8 @@ class FrameV2IPAudioChangeSource(FrameV2IPAudio):
 
 class FrameV2IPAudioLinks(FrameV2IPAudio):
     '''Audio link configuration between endpoints on different devices.'''
-    def __init__(self, header: FrameHeader):
-        super().__init__(header)
+    def __init__(self, header: FrameHeader, timestamp:float|None=None):
+        super().__init__(header, timestamp)
         if (self.opcode != AudioCommandOpcode.LINKS):
             raise Exception(f"invalid opcode {self.opcode}")
 
@@ -979,8 +999,8 @@ class FrameV2IPAudioLinks(FrameV2IPAudio):
 
 class FrameV2IPAudioMute(FrameV2IPAudio):
     '''Audio endpoint mute state notification.'''
-    def __init__(self, header: FrameHeader):
-        super().__init__(header)
+    def __init__(self, header: FrameHeader, timestamp:float|None=None):
+        super().__init__(header, timestamp)
         if (self.opcode != AudioCommandOpcode.MUTE):
             raise Exception(f"invalid opcode {self.opcode}")
 
@@ -998,8 +1018,8 @@ class FrameV2IPAudioMute(FrameV2IPAudio):
 
 class FrameV2IPAudioTrigger(FrameV2IPAudio):
     '''Audio endpoint trigger state notification.'''
-    def __init__(self, header: FrameHeader):
-        super().__init__(header)
+    def __init__(self, header: FrameHeader, timestamp:float|None=None):
+        super().__init__(header, timestamp)
         if (self.opcode != AudioCommandOpcode.TRIGGER):
             raise Exception(f"invalid opcode {self.opcode}")
 
@@ -1017,8 +1037,8 @@ class FrameV2IPAudioTrigger(FrameV2IPAudio):
 
 class FrameV2IPAudioVolume(FrameV2IPAudio):
     '''Audio endpoint volume level notification.'''
-    def __init__(self, header: FrameHeader):
-        super().__init__(header)
+    def __init__(self, header: FrameHeader, timestamp:float|None=None):
+        super().__init__(header, timestamp)
         if (self.opcode != AudioCommandOpcode.VOLUME):
             raise Exception(f"invalid opcode {self.opcode}")
 
@@ -1039,8 +1059,8 @@ class FrameV2IPAudioLock(FrameV2IPAudio):
 
     Nothing is cached from it: a device answers a lock by reporting its
     endpoints again, and the status in that report is what is recorded.'''
-    def __init__(self, header: FrameHeader):
-        super().__init__(header)
+    def __init__(self, header: FrameHeader, timestamp:float|None=None):
+        super().__init__(header, timestamp)
         if (self.opcode != AudioCommandOpcode.LOCK):
             raise Exception(f"invalid opcode {self.opcode}")
 

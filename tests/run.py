@@ -54,6 +54,7 @@ SUITES = [
     'unit',         # a unit's status report, and the commands sent to one unit
     'v2iptestcard', # a V2IP sink's test pattern, tone and lip-sync flash
     'audiolock',    # an audio endpoint's status, and locking its source
+    'audioroute',   # audio routes across units, and what a sent audio command holds
     'staterequest', # a device that may have missed state is asked for it
     'routes',       # what a OneIP output is routed to, as the frames a unit acts on move it
     'meshbays',     # the bays a unit lists for other units, from its mappings

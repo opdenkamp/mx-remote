@@ -25,6 +25,7 @@ from ..Interface import (
 	Multiviewer,
 	AudioEndpoint,
 	AudioEndpoints,
+	AudioFeatures,
 	AudioChangeSource,
 	AudioLinks,
 	DeviceOneIPScalingSettings,
@@ -105,7 +106,7 @@ from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, ONEIP_DOWNMIX_LF
                               UnitCommandKind, UnitFlag, ONEIP_SOURCE_FILTER_MAX, MXR_RC_STATUS_MAX,
                               MXR_RC_STATUS_NAME_LEN, RCType)
 from ..proto.FrameUnitCommand import FrameUnitCommand
-from ..proto.FrameV2IPAudio import AUDIO_LAYOUT_SINCE, FrameV2IPAudio
+from ..proto.FrameV2IPAudio import AUDIO_LAYOUT_SINCE, AUDIO_REPORT_GUARD, AudioEndpointImpl, FrameV2IPAudio
 from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
 from ..proto.FrameV2IPPowerSave import FrameV2IPPowerSave
 from ..proto.FrameV2IPOsdSync import FrameV2IPOsdSync, OSD_KIND_MESSAGE_REQUEST, OSD_KIND_MESSAGE_SET
@@ -241,6 +242,10 @@ class Device(DeviceBase):
 		# Whether the audio module uses the layout of released firmware up to
 		# 4.4.2, as the device's own features report showed; None before one.
 		self._audio_legacy:bool|None = None
+		# When this client last sent the device an audio command, and when the
+		# device's features report was last taken, as time.time() read them.
+		self._audio_commanded:float|None = None
+		self._audio_reported:float|None = None
 		self._sys_status:int|None = None
 		self._sys_message:str|None = None
 		self._topology:list[TopologyEntry]|None = None
@@ -1195,6 +1200,50 @@ class Device(DeviceBase):
 		return None
 
 	@property
+	@override
+	def audio_endpoints(self) -> AudioEndpoints|None:
+		return self._audio_endpoints
+
+	@property
+	@override
+	def audio_reported(self) -> float|None:
+		return self._audio_reported
+
+	def audio_commanded(self) -> None:
+		'''Record that an audio command to the device has just gone out, which
+		starts AUDIO_REPORT_GUARD.'''
+		self._audio_commanded = time.time()
+
+	def _audio_guarded(self, received:float|None) -> bool:
+		'''Whether a report received then falls within AUDIO_REPORT_GUARD of
+		the last audio command; one stamped before the command does too.'''
+		return (received is not None) and (self._audio_commanded is not None) \
+			and (max(received - self._audio_commanded, 0.0) < AUDIO_REPORT_GUARD)
+
+	def hold_audio_route(self, sink:int, source:int) -> None:
+		'''Hold a sent route of endpoint source alone to endpoint sink as the
+		device's routing, until it reports its endpoints again; nothing for a
+		sink that reported no routes.'''
+		ep = self.audio_endpoint_by_id(sink)
+		if not isinstance(ep, AudioEndpointImpl) or (ep.in_routes_supported is None) or (source >= 32):
+			return
+		if (ep.in_routes != (1 << source)):
+			ep.in_routes = (1 << source)
+			self.call_callbacks()
+
+	def _hold_audio_switch(self, endpoint:int, feature:int, on:bool) -> None:
+		'''Hold a sent mute, trigger or lock as the endpoint's status, until the
+		device reports its endpoints again; nothing for one that reported no
+		status.'''
+		ep = self.audio_endpoint_by_id(endpoint)
+		if (ep is None) or (ep.status is None):
+			return
+		bits = (ep.status.value | feature) if on else (ep.status.value & ~feature)
+		if (bits != ep.status.value):
+			ep.status = AudioFeatures(value=bits)
+			self.call_callbacks()
+
+	@property
 	def audio_legacy(self) -> bool:
 		'''Whether the audio module speaks the layout of released firmware up to
 		4.4.2: as its features report showed, or before one, for a unit below
@@ -1324,6 +1373,10 @@ class Device(DeviceBase):
 				self._topology = data.topology
 				self.call_callbacks()
 		elif isinstance(data, AudioEndpoints):
+			if self._audio_guarded(data.received):
+				return
+			if (data.received is not None):
+				self._audio_reported = data.received
 			# A device answers a lock by re-sending its tree, so a report whose
 			# only change is an endpoint's status is still a change.
 			previous = self._audio_endpoints
@@ -1357,6 +1410,8 @@ class Device(DeviceBase):
 				if (target_ep is not None) and (target_ep.bay is not None):
 					target_ep.bay.on_mxr_audio_source_change(endpoint=target_ep, data=data) # pyright: ignore[reportAttributeAccessIssue]
 		elif isinstance(data, AudioLinks):
+			if self._audio_guarded(data.received):
+				return
 			for link in data.entries:
 				ep = self.audio_endpoint_by_id(link.endpoint)
 				if ep is not None:
@@ -2284,9 +2339,9 @@ class Device(DeviceBase):
 		audio source alone.
 
 		Refused unless the endpoint reports AudioFeatures.FEATURE_AUDIO_LOCK,
-		which is the only one the device acts on. The device reports its
-		endpoints again once the lock has changed; the endpoint's audio_locked
-		reads it.
+		which is the only one the device acts on. Once the frame is away, the
+		endpoint's audio_locked reads the new state until the device reports its
+		endpoints again, and its reports are ignored for AUDIO_REPORT_GUARD.
 		'''
 		ep = self.audio_endpoint_by_id(endpoint)
 		if (ep is None) or not ep.features.support_audio_lock:
@@ -2294,9 +2349,11 @@ class Device(DeviceBase):
 			return False
 		frame = FrameV2IPAudio.construct_lock(mxr=self.registry, target=self.remote_id,
 		                                      endpoint_id=endpoint, locked=locked)
-		if (frame is None):
+		if (frame is None) or (self.registry.transmit(frame.frame, to=self) != len(frame.frame)):
 			return False
-		return self.registry.transmit(frame.frame) == len(frame.frame)
+		self.audio_commanded()
+		self._hold_audio_switch(endpoint, AudioFeatures.FEATURE_AUDIO_LOCK, locked)
+		return True
 
 	async def request_oneip_testcard(self) -> bool:
 		'''Ask this OneIP sink for its test card, which it reports straight back

@@ -942,12 +942,37 @@ class AudioLinks(ABC):
     def entries(self) -> list[AudioLink]:
         pass
 
+    @property
+    def received(self) -> float|None:
+        '''When the report carrying these links arrived, as time.time() read
+        it; None when they were not received.'''
+        return None
+
+class AudioHop(NamedTuple):
+    '''One hop of an audio route: endpoint source on source_device feeds
+    endpoint sink on sink_device.'''
+    sink_device: MxrDeviceUid
+    '''The device holding the endpoint fed.'''
+    sink: int
+    '''The endpoint fed.'''
+    source_device: MxrDeviceUid
+    '''The device holding the endpoint feeding it.'''
+    source: int
+    '''The endpoint feeding it.'''
+
 class AudioEndpoints:
-    def __init__(self, legacy_layout:bool|None=None) -> None:
+    def __init__(self, legacy_layout:bool|None=None, address:OneIPStreamSource|None=None,
+                 received:float|None=None) -> None:
         self.endpoints:dict[int,AudioEndpoint] = {}
         self.legacy_layout = legacy_layout
         '''Whether the report used the audio module layout of released firmware
         up to 4.4.2, None when it described no endpoint and so did not say.'''
+        self.address = address
+        '''The device's own address and HTTP port, from the report's entry
+        about the device itself; None when it carried none.'''
+        self.received = received
+        '''When the report arrived, as time.time() read it; None when it was
+        not received.'''
 
     def add(self, endpoint:AudioEndpoint) -> None:
         self.endpoints[endpoint.id] = endpoint
@@ -996,10 +1021,15 @@ class AudioEndpoints:
         return True
 
     def same_status(self, other:'AudioEndpoints') -> bool:
-        '''Whether every endpoint reports the same status in both.'''
+        '''Whether every endpoint reports the same status and routing in both,
+        and the device the same address.'''
         if (self.endpoints.keys() != other.endpoints.keys()):
             return False
-        return all((ep.status == other.endpoints[k].status) for k, ep in self.endpoints.items())
+        if (str(self.address) != str(other.address)):
+            return False
+        return all((ep.status == other.endpoints[k].status)
+                   and (getattr(ep, 'in_routes', None) == getattr(other.endpoints[k], 'in_routes', None))
+                   for k, ep in self.endpoints.items())
 
     def __str__(self) -> str:
         return str(self.as_list)
@@ -3795,6 +3825,18 @@ class DeviceBase(ABC):
     def audio_endpoint_by_id(self, id:int) -> AudioEndpoint|None:
         pass
 
+    @property
+    @abstractmethod
+    def audio_endpoints(self) -> AudioEndpoints|None:
+        '''The audio endpoints this device reported, None before a report.'''
+
+    @property
+    @abstractmethod
+    def audio_reported(self) -> float|None:
+        '''When this device's audio features report was last taken, as
+        time.time() read it, None before one. A report ignored in the 500 ms
+        after an audio command to the device does not count.'''
+
     @abstractmethod
     def oneip_source(self, bay:BayBase) -> OneIPStreamSources|None:
         '''Get the OneIP source addresses for the given bay'''
@@ -4533,6 +4575,18 @@ class DeviceRegistry(ABC):
     @abstractmethod
     def get_audio_endpoint(self, device:MxrDeviceUid, id:int) -> AudioEndpoint|None:
         pass
+
+    @abstractmethod
+    def audio_route(self, sink:MxrDeviceUid, sink_endpoint:int, source:MxrDeviceUid,
+                    source_endpoint:int) -> list[AudioHop]|None:
+        '''The audio route from a source endpoint to a sink endpoint, hop by
+        hop from the source, None when there is none.'''
+
+    @abstractmethod
+    async def select_audio_endpoint_input(self, sink:MxrDeviceUid, sink_endpoint:int, source:MxrDeviceUid,
+                                          source_endpoint:int) -> bool:
+        '''Route a source endpoint to a sink endpoint, on one device or
+        through several.'''
 
     @property
     @abstractmethod

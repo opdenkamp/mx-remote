@@ -25,7 +25,8 @@ from .ConnectionAsync import ConnectionAsync
 from ..const import MXR_HELLO_INTERVAL_MIN, MXR_HELLO_INTERVAL_RAND, __version__
 from .Device import Device
 from .Tree import DeviceTree
-from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, OneIPStreamSources, DeviceTreeEntry
+from .AudioRoute import audio_path
+from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, AudioHop, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, OneIPStreamSources, DeviceTreeEntry
 from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat
 from ..proto.FrameDiscover import FrameDiscover, constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
@@ -38,6 +39,7 @@ from ..proto.FrameMeshOperation import FrameMeshOperation
 from ..proto.FrameSetInstaller import FrameSetInstaller
 from ..proto.FrameSetupStatus import FrameSetupStatus
 from ..proto.FrameV2IPSources import FrameV2IPSources, ONEIP_SOURCE_LIST_MAX
+from ..proto.FrameV2IPAudio import FrameV2IPAudio
 from ..proto.FrameHello import CLIENT_SERIAL
 from ..proto.FrameBase import FrameBase
 from ..proto.FrameHeader import FrameHeader
@@ -619,6 +621,67 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         if (dev is not None):
             return dev.audio_endpoint_by_id(id=id)
         return None
+
+    @override
+    def audio_route(self, sink:MxrDeviceUid, sink_endpoint:int, source:MxrDeviceUid,
+                    source_endpoint:int) -> list[AudioHop]|None:
+        '''The audio route from a source endpoint to a sink endpoint, hop by
+        hop from the source, None when there is none.
+
+        It is the route every unit finds for the request, from the two devices'
+        endpoint tables alone, so the units a route is sent to all switch the
+        same hops. It never passes through a third device; AudioRoute.audio_path
+        says how it is searched.'''
+        endpoints = {uid: eps for uid in (sink, source)
+                     if ((dev := self.get_by_uid(uid)) is not None) and ((eps := dev.audio_endpoints) is not None)}
+        return audio_path(endpoints, (sink, sink_endpoint), (source, source_endpoint))
+
+    @override
+    async def select_audio_endpoint_input(self, sink:MxrDeviceUid, sink_endpoint:int, source:MxrDeviceUid,
+                                          source_endpoint:int) -> bool:
+        '''Route a source endpoint to a sink endpoint, on one device or
+        through several.
+
+        The route is the one audio_route() finds. Each device owning the
+        endpoint fed by one of its hops is sent the whole request, from the
+        sink's end of the route, and switches its own hops. Refused, sending
+        nothing, when there is no route. Once a device's frame is away, its
+        audio_endpoints read its hops routed, and its reports are ignored for
+        500 ms, as after every audio command.
+
+        A unit on released firmware up to 4.4.2 routes only between its own
+        endpoints, so a route reaching it from another unit is refused.'''
+        hops = self.audio_route(sink, sink_endpoint, source, source_endpoint)
+        if (hops is None):
+            _LOGGER.warning(f"not routing audio endpoint {source}:{source_endpoint} to {sink}:{sink_endpoint}: "
+                            "no reported route leads from the source to the sink")
+            return False
+        units:list[Device] = []
+        for hop in reversed(hops):
+            if all((unit.remote_id != hop.sink_device) for unit in units):
+                if not isinstance((unit := self.get_by_uid(hop.sink_device)), Device):
+                    return False
+                units.append(unit)
+        # Every unit's frame is built before the first goes out, so a route
+        # one of them refuses sends nothing.
+        frames:list[tuple[Device, bytes]] = []
+        for unit in units:
+            frame = FrameV2IPAudio.construct_select_input(mxr=self, sink=sink, sink_ep=sink_endpoint, source=source,
+                                                          source_ep=source_endpoint, legacy=unit.audio_legacy,
+                                                          addressee=unit.remote_id)
+            if (frame is None):
+                _LOGGER.warning(f"not routing audio endpoint {source}:{source_endpoint} to {sink}:{sink_endpoint}: "
+                                f"{unit} routes only its own audio endpoints")
+                return False
+            frames.append((unit, frame.frame))
+        for unit, data in frames:
+            if (self.transmit(data, to=unit) != len(data)):
+                return False
+            unit.audio_commanded()
+            for hop in hops:
+                if (hop.sink_device == unit.remote_id) and (hop.source_device == unit.remote_id):
+                    unit.hold_audio_route(sink=hop.sink, source=hop.source)
+        return True
 
     @property
     def links(self) -> BayLinks:

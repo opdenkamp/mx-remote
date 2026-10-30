@@ -24,7 +24,6 @@ from ..proto.FrameSetName import FrameSetName, stored_name
 from ..proto.FrameRCAction import FrameRCAction
 from ..proto.FrameVolumeSet import FrameVolumeSet
 from ..proto.FrameAmpZoneSettings import FrameAmpZoneSettings
-from ..proto.FrameV2IPAudio import FrameV2IPAudio
 from ..Interface import (
     VideoColourSpace,
     VideoSignalDetails,
@@ -1100,11 +1099,11 @@ class Bay(BayBase):
             ep = source.device.audio_endpoint_by_name(name=endpoint)
             if (ep is None) or (sink.audio_endpoint is None):
                 return False
-            # A unit on released firmware up to 4.4.2 routes only between its
-            # own endpoints, which the builder refuses otherwise.
-            frame = FrameV2IPAudio.construct_select_input(mxr=self.device.registry, sink=sink.device.remote_id, sink_ep=sink.audio_endpoint,
-                                                          source=source.device.remote_id, source_ep=ep,
-                                                          legacy=getattr(sink.device, 'audio_legacy', False))
+            # Every unit owning an endpoint on the route switches its own hops,
+            # so the registry sends it to each of them.
+            return await self.device.registry.select_audio_endpoint_input(
+                sink=sink.device.remote_id, sink_endpoint=sink.audio_endpoint.id,
+                source=source.device.remote_id, source_endpoint=ep.id)
         else:
             frame = FrameV2IPSourceSwitch.construct(mxr=self.device.registry, target=sink, audio=source)
         if (frame is not None):
