@@ -600,6 +600,54 @@ the source's next configuration report carries the addresses it ends up with, in
 `oneip_details`. A device that is not a source, or announces less than protocol
 0x2B, would ignore the operation, so it is refused before anything is sent.
 
+### Taking the controller role
+
+A client can stand in for a unit as mesh controller. It announces itself as a
+mesh device rather than a management application, so a mesh takes it as a
+member, and under a serial and version of its own so the device list tells it
+apart from the unit it replaces:
+
+```python
+from mx_remote import MeshOperationMessage
+
+mx = mx_remote.Remote(mesh_device=True, serial='P9SN66660600', version='1.2.3')
+mx.set_mesh_controller(mx.uid)      # announce the controller role; None for none
+await mx.send_mesh_operation(MeshOperationMessage.report_controller(mx.uid, priority=1, installer=0x1234))
+await mx.send_mesh_operation(MeshOperationMessage.register(unit.remote_id, mx.uid))
+await mx.send_oneip_source_list(sources)   # the mesh's whole source list
+await mx.set_mesh_setup_completed(True)
+await mx.set_mesh_installer(0x1234)
+
+await output.set_oneip_mirroring(other_output)   # None to stop
+await output.set_oneip_source_filter([source.remote_id])
+await output.set_oneip_tiling(pos_x=0, pos_y=0, width=1920, height=1080)
+await unit.set_rc_settings(rc_target=RCType.CEC, ip=None, cec_enabled=True, cec_auto_on=True,
+                           forward_rc=True, forward_ir=False)
+```
+
+`set_mesh_controller()` changes only the announcement, at once: membership
+while there is a controller, and the controller role while it is this client.
+Membership reports and the units that follow this client are the caller's to
+keep in step. A mesh device's writes reach a unit only while that unit follows
+it as its controller.
+
+A unit named in a source list, hearing it from the controller it follows,
+registers every unit listed and unregisters every source unit that is not, so
+the list must always be complete. A list longer than 36 entries goes in
+numbered pages.
+
+What is set on an output is held once the frame is away: `mirroring` and
+`filtered` on its output bay read it until the output reports again. Each write
+is refused before anything is sent where a unit would drop it: a device that is
+not a OneIP output (or unit, for remote control settings), an output whose bay
+has not been reported, an output mirroring itself, a filter longer than
+`ONEIP_SOURCE_FILTER_MAX` (89), or a field that does not fit its width.
+
+A unit's controller report is kept as `device.mesh_controller_report`, and its
+membership report as `mesh_master`. Every other mesh operation a device sends
+arrives at `MxrCallbacks.on_mesh_operation()`, one this library has no name for
+with its raw value.
+
 ### Time zone and time
 
 The mesh controller announces its time zone and clock with every periodic

@@ -60,6 +60,7 @@ SUITES = [
     'v2ipsdp',      # what a OneIP output plays from a session description
     'privacy',      # how a OneIP source unit encrypts its streams
     'thirdparty',   # applications' own messages, sent and received
+    'meshcontrol',  # the mesh controller role and what a controller sends
     'baycontent',   # what the source on an input is showing
     'osdsync',      # overlay sync, watched and sent
     'osdmessage',   # the message on a unit's output, read and written

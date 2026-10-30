@@ -12,9 +12,16 @@ attribution. Payload is a single little-endian uint16.
 
 from functools import cached_property
 from .FrameBase import FrameBase
+from ..Interface import DeviceRegistry
+import struct
 
 class FrameSetInstaller(FrameBase):
     '''Installer id propagation.'''
+
+    @staticmethod
+    def construct(mxr:DeviceRegistry, installer:int) -> FrameBase|None:
+        '''Set the installer id of every unit that hears it.'''
+        return FrameBase.construct_base(mxr=mxr, opcode=0x37, payload=struct.pack('<H', installer))
 
     @cached_property
     def installer_id(self) -> int | None:

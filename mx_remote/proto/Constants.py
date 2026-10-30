@@ -550,6 +550,10 @@ OSD_SYNC_PERCENT_MAX = 100
 ONEIP_SDP_MAX = 2048
 """The longest session description a OneIP output takes, in bytes."""
 
+ONEIP_SOURCE_FILTER_MAX = 89
+"""The most sources one OneIP output's filter can name: what one frame holds
+behind the output itself. A unit takes the filter only whole, in one frame."""
+
 class OneIPSdpFlag(IntFlag):
 	'''The flags of a OneIP output's session description report.'''
 	ACTIVE    = (1 << 0)
@@ -1289,6 +1293,52 @@ class RCType(IntEnum):
 			rv[val.value] = str(val)
 		return rv
 
+class MeshOperation(IntEnum):
+	'''What a mesh operation (0x3B) asks of the mesh.'''
+	REGISTER = 0
+	'''The target joins the mesh of the controller the parameter names.'''
+	UNREGISTER = 1
+	'''The target leaves the mesh of the controller the parameter names.'''
+	REPLACE = 2
+	'''The unit the parameter names takes the target's place in the mesh.'''
+	REGENERATE_ADDRESSES = 3
+	'''The target picks new stream addresses.'''
+	REPORT_CONTROLLER = 4
+	'''The target announces itself as a mesh controller, with the priority and
+	installer id the parameter carries.'''
+	PROMOTE_CONTROLLER = 5
+	'''The target takes over as mesh controller from the unit the parameter names.'''
+	AUTO_ADDRESSES = 6
+	'''The target hands its source addresses back to automatic assignment.'''
+	PTP_TAKE_OVER = 7
+	'''The target takes over as PTP grandmaster from the sender.'''
+	REPORT_MEMBERSHIP = 0xFF
+	'''The sender reports the target as its mesh controller.'''
+
+	def __str__(self) -> str:
+		if self.value == MeshOperation.REGISTER.value:
+			return "register"
+		if self.value == MeshOperation.UNREGISTER.value:
+			return "unregister"
+		if self.value == MeshOperation.REPLACE.value:
+			return "replace"
+		if self.value == MeshOperation.REGENERATE_ADDRESSES.value:
+			return "regenerate addresses"
+		if self.value == MeshOperation.REPORT_CONTROLLER.value:
+			return "report controller"
+		if self.value == MeshOperation.PROMOTE_CONTROLLER.value:
+			return "promote controller"
+		if self.value == MeshOperation.AUTO_ADDRESSES.value:
+			return "automatic addresses"
+		if self.value == MeshOperation.PTP_TAKE_OVER.value:
+			return "take over PTP"
+		if self.value == MeshOperation.REPORT_MEMBERSHIP.value:
+			return "report membership"
+		return "unknown"
+
+	def __repr__(self) -> str:
+		return str(self)
+
 class RCStatus(IntEnum):
 	'''RC driver connection state on the source, forwarded in mxr_rc_config.
 
@@ -1312,6 +1362,9 @@ class RCStatus(IntEnum):
 
 	def __repr__(self) -> str:
 		return str(self)
+
+MXR_RC_STATUS_MAX = 0xF
+'''The highest driver state the remote control settings have room for: four bits.'''
 
 MXR_RC_STATUS_NAME_LEN = 15
 '''Longest RC driver status string, excluding its terminator.

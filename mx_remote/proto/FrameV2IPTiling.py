@@ -8,10 +8,18 @@
 
 from functools import cached_property
 from .FrameBase import FrameBase
-from ..Interface import DeviceBase, MxrDeviceUid
+from ..Interface import DeviceBase, DeviceRegistry, MxrDeviceUid
+import struct
 
 class FrameV2IPTiling(FrameBase):
     '''OneIP tiling configuration for video wall setups.'''
+    @staticmethod
+    def construct(mxr:DeviceRegistry, target:DeviceBase, pos_x:int, pos_y:int, width:int, height:int) -> FrameBase|None:
+        '''Set the window target, a OneIP output, shows: the output, then the
+        window's origin and size.'''
+        payload = target.remote_id.byte_value + struct.pack('<4H', pos_x, pos_y, width, height)
+        return FrameBase.construct_base(mxr=mxr, target=target, opcode=0x40, payload=payload)
+
     def process(self) -> None:
         '''No-op; tiling data is informational only.'''
         pass

@@ -2645,6 +2645,91 @@ class ThirdPartyVendor:
         return f"vendor OUI {self.id.hex(':')}"
 
 @dataclass(frozen=True)
+class MeshOperationMessage:
+    """
+    One operation on a mesh (0x3B): what it asks, the device it concerns, and
+    its parameter.
+
+    The parameter is a uid for every operation but
+    MeshOperation.REPORT_CONTROLLER, where it carries two 32-bit words instead,
+    which priority and installer read. The class methods build each operation
+    a mesh controller sends.
+    """
+    operation: MeshOperation|int
+    """What the operation asks; a raw int for one this library does not name."""
+    target: MxrDeviceUid
+    """The device it concerns."""
+    param: MxrDeviceUid
+    """Its parameter."""
+
+    @classmethod
+    def register(cls, unit:MxrDeviceUid, controller:MxrDeviceUid) -> 'MeshOperationMessage':
+        """unit joins the mesh of controller."""
+        return cls(MeshOperation.REGISTER, unit, controller)
+
+    @classmethod
+    def unregister(cls, unit:MxrDeviceUid, controller:MxrDeviceUid) -> 'MeshOperationMessage':
+        """unit leaves the mesh of controller."""
+        return cls(MeshOperation.UNREGISTER, unit, controller)
+
+    @classmethod
+    def replace(cls, unit:MxrDeviceUid, replacement:MxrDeviceUid) -> 'MeshOperationMessage':
+        """replacement takes the place of unit in its mesh."""
+        return cls(MeshOperation.REPLACE, unit, replacement)
+
+    @classmethod
+    def regenerate_addresses(cls, unit:MxrDeviceUid) -> 'MeshOperationMessage':
+        """unit picks new stream addresses."""
+        return cls(MeshOperation.REGENERATE_ADDRESSES, unit, MxrDeviceUid(None))
+
+    @classmethod
+    def auto_addresses(cls, unit:MxrDeviceUid) -> 'MeshOperationMessage':
+        """unit hands its source addresses back to automatic assignment."""
+        return cls(MeshOperation.AUTO_ADDRESSES, unit, MxrDeviceUid(None))
+
+    @classmethod
+    def report_controller(cls, controller:MxrDeviceUid, priority:int, installer:int) -> 'MeshOperationMessage':
+        """controller announces itself as a mesh controller. A lower priority
+        wins, and installer is the installer id its members take, 0 for none.
+        Units read each as 16 bits."""
+        if not (0 <= priority <= 0xFFFF) or not (0 <= installer <= 0xFFFF):
+            raise ValueError(f"priority {priority} and installer {installer} must each fit 16 bits")
+        return cls(MeshOperation.REPORT_CONTROLLER, controller,
+                   MxrDeviceUid(priority.to_bytes(4, 'little') + installer.to_bytes(4, 'little') + bytes(8)))
+
+    @classmethod
+    def promote_controller(cls, controller:MxrDeviceUid, previous:MxrDeviceUid) -> 'MeshOperationMessage':
+        """controller takes over as mesh controller from previous, and every unit
+        following previous follows controller from then on."""
+        return cls(MeshOperation.PROMOTE_CONTROLLER, controller, previous)
+
+    @classmethod
+    def report_membership(cls, controller:MxrDeviceUid|None) -> 'MeshOperationMessage':
+        """The sender reports controller as its mesh controller, None for none."""
+        return cls(MeshOperation.REPORT_MEMBERSHIP, MxrDeviceUid(controller), MxrDeviceUid(None))
+
+    @property
+    def priority(self) -> int:
+        """The priority a controller report carries."""
+        return int.from_bytes(self.param.byte_value[0:2], 'little')
+
+    @property
+    def installer(self) -> int:
+        """The installer id a controller report carries."""
+        return int.from_bytes(self.param.byte_value[4:6], 'little')
+
+    def __str__(self) -> str:
+        return f"{self.operation} target={self.target} param={self.param}"
+
+@dataclass(frozen=True)
+class MeshControllerReport:
+    """What a device last announced about itself as a mesh controller."""
+    priority: int
+    """Its priority as controller. Lower wins."""
+    installer: int
+    """The installer id its members take, 0 for none."""
+
+@dataclass(frozen=True)
 class ThirdPartyMessage:
     """
     A message an application sent to every device, under its own vendor id.
@@ -3448,6 +3533,12 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
+    def mesh_controller_report(self) -> MeshControllerReport|None:
+        '''What this device last announced about itself as a mesh controller,
+        None until it has.'''
+
+    @property
+    @abstractmethod
     def is_mesh_master(self) -> bool:
         '''True if this device is the master device of a OneIP mesh'''
 
@@ -3608,6 +3699,23 @@ class DeviceBase(ABC):
     @abstractmethod
     async def mesh_remove(self) -> bool:
         '''remove from mesh'''
+
+    @abstractmethod
+    async def set_oneip_mirroring(self, mirrored:'DeviceBase|None') -> bool:
+        '''have this OneIP output mirror another, or None to stop'''
+
+    @abstractmethod
+    async def set_oneip_source_filter(self, filtered:list[MxrDeviceUid]) -> bool:
+        '''replace the list of sources this OneIP output may not show'''
+
+    @abstractmethod
+    async def set_oneip_tiling(self, pos_x:int, pos_y:int, width:int, height:int) -> bool:
+        '''set the part of a video wall this OneIP output shows'''
+
+    @abstractmethod
+    async def set_rc_settings(self, rc_target:RCType|int, ip:str|None, cec_enabled:bool, cec_auto_on:bool,
+                              forward_rc:bool, forward_ir:bool, rc_status:int=0, status_name:str='') -> bool:
+        '''change this OneIP unit's remote control and CEC settings'''
 
     @abstractmethod
     async def read_stats(self, enable:bool) -> bool:
@@ -4456,6 +4564,12 @@ class MxrCallbacks:
         ''' called when amp dolby settings were changed '''
         _LOGGER.debug(f"{device} dolby settings changed")
         self.on_device_update(device)
+
+    def on_mesh_operation(self, dev:DeviceBase, operation:MeshOperationMessage) -> None:
+        ''' called when 'dev' sent a mesh operation other than a membership or
+        controller report, which mesh_master and mesh_controller_report hold.
+        An operation this library has no name for arrives with its raw value. '''
+        pass
 
     def on_third_party_message(self, dev:DeviceBase, message:ThirdPartyMessage) -> None:
         ''' called when the application on 'dev' sent a message under its own

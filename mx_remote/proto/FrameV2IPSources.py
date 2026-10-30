@@ -10,7 +10,9 @@ from functools import cached_property
 from .V2IPConfig import V2IPConfig
 from .FrameBase import FrameBase
 from .V2IPConfig import V2IPStreamSourcesImpl
-from ..Interface import OneIPStreamSourcesList
+from ..Interface import DeviceRegistry, MxrDeviceUid, OneIPStreamSources, OneIPStreamSourcesList
+import socket
+import struct
 
 # One source record, and the header a paged list puts in front of its records:
 # where in the sender's list this page starts, how many records that list held
@@ -18,8 +20,46 @@ from ..Interface import OneIPStreamSourcesList
 _RECORD_SIZE = 40
 _PAGE_HEADER_SIZE = 8
 
+_RECORDS_PER_PAGE = 36
+'''Records one frame carries: as many as fit the largest payload behind the
+page header.'''
+
+ONEIP_SOURCE_LIST_MAX = 0xFFFF
+'''The longest source list the pages can number.'''
+
+def _record(source:OneIPStreamSources) -> bytes:
+    '''A source's uid, then each stream's address in network order and its
+    port in a 32-bit field. The audio-return stream has no place in a record.'''
+    out = MxrDeviceUid(source.uid).byte_value
+    for stream in (source.video, source.audio, source.anc):
+        out += socket.inet_aton(stream.ip) + struct.pack('<I', stream.port)
+    return out
+
 class FrameV2IPSources(FrameBase):
     '''A device's configured OneIP sources, whole or one page of them.'''
+    @staticmethod
+    def construct(mxr:DeviceRegistry, sources:list[OneIPStreamSources]) -> list[FrameBase]|None:
+        '''The frames carrying a whole source list to every device, in the two
+        forms page describes: bare records when the list fits one frame, an
+        empty list included, and numbered pages past that. None for a list
+        longer than ONEIP_SOURCE_LIST_MAX. The caller has checked that every
+        source names its uid.'''
+        if (len(sources) > ONEIP_SOURCE_LIST_MAX):
+            return None
+        records = [_record(source) for source in sources]
+        if (len(records) <= _RECORDS_PER_PAGE):
+            payloads = [b''.join(records)]
+        else:
+            payloads = [struct.pack('<HH', first, len(records)) + bytes(4)
+                        + b''.join(records[first:first + _RECORDS_PER_PAGE])
+                        for first in range(0, len(records), _RECORDS_PER_PAGE)]
+        frames:list[FrameBase] = []
+        for payload in payloads:
+            if ((frame := FrameBase.construct_base(mxr=mxr, opcode=0x26, payload=payload)) is None):
+                return None
+            frames.append(frame)
+        return frames
+
     @cached_property
     def page(self) -> tuple[int,int]|None:
         '''Where this frame's records begin in the sender's list, and how long

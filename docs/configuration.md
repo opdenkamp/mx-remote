@@ -26,6 +26,9 @@ mx = mx_remote.Remote(open_connection=False)
 
 # separate identity, to run concurrent clients from one account
 mx = mx_remote.Remote(uid_path="/var/lib/myapp/.mxr-uid")
+
+# a mesh device that can take the controller role, under its own serial and version
+mx = mx_remote.Remote(mesh_device=True, serial="P9SN66660600", version="1.2.3")
 ```
 
 The uid at `uid_path` (default `~/.mxr-uid`) is this client's identity on the mesh:

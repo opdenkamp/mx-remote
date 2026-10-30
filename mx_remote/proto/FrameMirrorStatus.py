@@ -8,7 +8,7 @@
 
 from functools import cached_property
 from .FrameBase import FrameBase
-from ..Interface import DeviceBase, BayMirrorStatus
+from ..Interface import DeviceBase, DeviceRegistry, BayMirrorStatus
 from ..Uid import MxrDeviceUid, MxrBayUid
 
 _MIRROR_SIZE = 32
@@ -19,6 +19,13 @@ _NO_MIRROR = MxrDeviceUid(bytes([0xFF] * 16))
 class FrameMirrorStatus(FrameBase):
     '''Which sink a sink mirrors: a unit's report on its own sink, or management
     setting it. The sink is named in the first 16 bytes.'''
+    @staticmethod
+    def construct(mxr:DeviceRegistry, target:DeviceBase, mirrored:MxrDeviceUid|None) -> FrameBase|None:
+        '''Have target, a OneIP output, mirror the output mirrored, or none: the
+        output that mirrors, then the one it mirrors, all zero for none.'''
+        payload = target.remote_id.byte_value + MxrDeviceUid(mirrored).byte_value
+        return FrameBase.construct_base(mxr=mxr, target=target, opcode=0x32, payload=payload)
+
     @cached_property
     def target(self) -> MxrDeviceUid|None:
         '''UID of the mirroring target device.'''

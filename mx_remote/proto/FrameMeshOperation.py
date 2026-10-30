@@ -8,45 +8,11 @@
 
 from functools import cached_property
 from .FrameBase import FrameBase
-from .Constants import decode_enum
-from ..Interface import DeviceRegistry, DeviceBase, MxrDeviceUid
-from enum import IntEnum
+from .Constants import MeshOperation, decode_enum
+from ..Interface import DeviceRegistry, DeviceBase, MeshControllerReport, MeshOperationMessage, MxrDeviceUid
 import logging
 
 _LOGGER = logging.getLogger(__name__)
-class MeshOperation(IntEnum):
-    '''Mesh network operation types.'''
-    REGISTER = 0
-    UNREGISTER = 1
-    REPLACE = 2
-    REGENERATE_ADDRESSES = 3
-    REPORT_CONTROLLER = 4
-    PROMOTE_CONTROLLER = 5
-    AUTO_ADDRESSES = 6
-    '''Hand the target's source addresses back to automatic assignment.'''
-    REPORT_MEMBERSHIP = 0xFF
-
-    def __str__(self) -> str:
-        if self.value == MeshOperation.REGISTER.value:
-            return "register"
-        if self.value == MeshOperation.UNREGISTER.value:
-            return "unregister"
-        if self.value == MeshOperation.REPLACE.value:
-            return "replace"
-        if self.value == MeshOperation.REGENERATE_ADDRESSES.value:
-            return "regenerate addresses"
-        if self.value == MeshOperation.REPORT_CONTROLLER.value:
-            return "report controller"
-        if self.value == MeshOperation.PROMOTE_CONTROLLER.value:
-            return "promote controller"
-        if self.value == MeshOperation.AUTO_ADDRESSES.value:
-            return "automatic addresses"
-        if self.value == MeshOperation.REPORT_MEMBERSHIP.value:
-            return "report membership"
-        return "unknown"
-
-    def __repr__(self) -> str:
-        return str(self)
 
 # mxr_mesh_operation is ALIGN(8): u8 operation at 0, three bytes of padding to
 # the uid alignment, target uid at 4, parameter uid at 20, and four bytes of
@@ -94,6 +60,12 @@ class FrameMeshOperation(FrameBase):
         # A frame short by the four trailing pad bytes is dropped in silence.
         return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x3B, payload=payload, size=_WIRE_SIZE)
 
+    @staticmethod
+    def construct_message(mxr:DeviceRegistry, message:MeshOperationMessage) -> FrameBase|None:
+        '''Build a mesh operation addressed to every device, from its uids.'''
+        payload = bytes([int(message.operation), 0, 0, 0]) + message.target.byte_value + message.param.byte_value
+        return FrameBase.construct_base(mxr=mxr, opcode=0x3B, payload=payload, size=_WIRE_SIZE)
+
     @cached_property
     def acceptable(self) -> bool:
         '''Whether a receiver would act on this frame at all.
@@ -126,6 +98,37 @@ class FrameMeshOperation(FrameBase):
     def parameter(self) -> MxrDeviceUid|None:
         '''Optional parameter UID (e.g. replacement device for REPLACE operation).'''
         return self.payload_uuid(20)
+
+    @cached_property
+    def message(self) -> MeshOperationMessage|None:
+        '''The operation as it arrived, None when no receiver would have acted.
+
+        An operation this library has no name for keeps its raw value, so a
+        caller can follow it rather than lose it.'''
+        if not self.acceptable:
+            return None
+        kind = self.payload_u8(0)
+        target = self.target_uid
+        param = self.parameter
+        if (kind is None) or (target is None) or (param is None):
+            return None
+        try:
+            operation:MeshOperation|int = MeshOperation(kind)
+        except ValueError:
+            operation = kind
+        return MeshOperationMessage(operation, target, param)
+
+    @cached_property
+    def controller_report(self) -> MeshControllerReport|None:
+        '''The priority and installer id of a controller report, None for any
+        other operation.
+
+        Each is the low half of a 32-bit word, as a unit reads it. Below
+        _INSTALLER_PROTOCOL units read no installer from the frame, so it is 0.'''
+        if ((message := self.message) is None) or (message.operation != MeshOperation.REPORT_CONTROLLER):
+            return None
+        installer = message.installer if (self.protocol >= _INSTALLER_PROTOCOL) else 0
+        return MeshControllerReport(priority=message.priority, installer=installer)
 
     def process(self) -> None:
         '''Update the local device cache with the mesh operation.'''

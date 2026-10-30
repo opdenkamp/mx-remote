@@ -357,6 +357,27 @@ The time zone and clock a mesh controller announces.
    :members:
 ```
 
+## Mesh control
+
+The operations a mesh controller sends, and what a controller announces.
+
+```{eval-rst}
+.. autoclass:: mx_remote.MeshOperationMessage
+   :members:
+
+.. autoclass:: mx_remote.MeshControllerReport
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.MeshOperation
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.ONEIP_SOURCE_FILTER_MAX
+
+.. autodata:: mx_remote.proto.Constants.MXR_RC_STATUS_MAX
+
+.. autodata:: mx_remote.proto.FrameV2IPSources.ONEIP_SOURCE_LIST_MAX
+```
+
 ## Names from before OneIP
 
 Releases up to 5.11 used the firmware's internal names in the public API: V2IP

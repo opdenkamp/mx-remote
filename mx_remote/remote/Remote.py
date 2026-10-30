@@ -22,13 +22,18 @@ from datetime import datetime, timezone
 from .ConnectionAsync import ConnectionAsync
 from ..const import MXR_HELLO_INTERVAL_MIN, MXR_HELLO_INTERVAL_RAND, __version__
 from .Device import Device
-from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, mxr_broadcast_address, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor
+from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, mxr_broadcast_address, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, OneIPStreamSources
 from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, OsdSyncWhat
 from ..proto.FrameDiscover import FrameDiscover, constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
 from ..proto.FrameHello import FrameHello, constructFrameHello
 from ..proto.FramePing import FramePing
 from ..proto.FrameThirdParty import FrameThirdParty
+from ..proto.FrameMeshOperation import FrameMeshOperation
+from ..proto.FrameSetInstaller import FrameSetInstaller
+from ..proto.FrameSetupStatus import FrameSetupStatus
+from ..proto.FrameV2IPSources import FrameV2IPSources, ONEIP_SOURCE_LIST_MAX
+from ..proto.FrameHello import CLIENT_SERIAL
 from ..proto.FrameBase import FrameBase
 from ..proto.FrameTime import FrameTime
 from ..proto.FrameTimeZone import FrameTimeZone
@@ -104,7 +109,7 @@ def _missed_state(before:_Heard|None, device:DeviceBase) -> bool:
 class Remote(DeviceRegistry, ConnectionCallbacks):
     ''' Main component that handles the network connections and registration of remote devices '''
 
-    def __init__(self, target_ip:str|None=None, port:int|None=None, http_session:aiohttp.ClientSession|None=None, open_connection:bool=True, callbacks:MxrCallbacks|None=None, name:str="MXR Python", local_ip:str|None=None, broadcast:bool|None=None, addr_filter:str|None=None, uid_path:str|None=None, logo_port:int|None=None) -> None:
+    def __init__(self, target_ip:str|None=None, port:int|None=None, http_session:aiohttp.ClientSession|None=None, open_connection:bool=True, callbacks:MxrCallbacks|None=None, name:str="MXR Python", local_ip:str|None=None, broadcast:bool|None=None, addr_filter:str|None=None, uid_path:str|None=None, logo_port:int|None=None, serial:str=CLIENT_SERIAL, version:str|None=None, mesh_device:bool=False) -> None:
         '''Initialise the remote controller.
 
         :param target_ip: multicast/broadcast IP to use, or None for the default
@@ -120,10 +125,21 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             Give concurrent clients on one host separate paths - see _load_uid
         :param logo_port: TCP port to serve overlay sync logo images on, or None
             for a free one
+        :param serial: serial number advertised on the network
+        :param version: firmware version advertised on the network, or None for
+            this library's version
+        :param mesh_device: announce this client as a mesh device rather than a
+            management application. A mesh takes a mesh device as a member and
+            can hand it its controller role; units then take writes from it only
+            while they follow it as their controller.
         '''
         DeviceRegistry.__init__(self)
         ConnectionCallbacks.__init__(self)
         self._name = name
+        self._serial = serial
+        self._version = version if (version is not None) else __version__
+        self._mesh_device = mesh_device
+        self._mesh_controller:MxrDeviceUid|None = None
         self._closing = False
         self._own_session = (http_session is None)
         self._callbacks = State(callbacks, http_session)
@@ -242,6 +258,46 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
     @property
     def name(self) -> str:
         return self._name
+
+    @property
+    def serial(self) -> str:
+        '''The serial number this client advertises.'''
+        return self._serial
+
+    @property
+    def version(self) -> str:
+        '''The firmware version this client advertises.'''
+        return self._version
+
+    @property
+    def mesh_device(self) -> bool:
+        '''Whether this client announces itself as a mesh device rather than a
+        management application.'''
+        return self._mesh_device
+
+    @property
+    def mesh_controller(self) -> MxrDeviceUid|None:
+        '''The mesh controller this client announces it follows, None for none.'''
+        return self._mesh_controller
+
+    def set_mesh_controller(self, controller:MxrDeviceUid|None) -> None:
+        '''Set the mesh controller this client announces it follows: None for
+        none, and its own uid while it is the controller.
+
+        The hello then announces mesh membership while there is one, and the
+        mesh controller role while it is this client. Only the announcement
+        changes: membership reports, and the units that follow this client, are
+        the caller's to keep in step. A change is announced at once rather than
+        at the next scheduled hello.
+        '''
+        if (controller is not None):
+            controller = MxrDeviceUid(controller)
+            if controller.empty:
+                controller = None
+        if (controller == self._mesh_controller):
+            return
+        self._mesh_controller = controller
+        self.tx_hello()
 
     @property
     def callbacks(self) -> MxrCallbacks:
@@ -590,6 +646,58 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                             f"the most is {THIRD_PARTY_PAYLOAD_MAX}")
             return False
         return self._send_to_all(FrameThirdParty.construct(mxr=self, vendor=vendor, payload=payload))
+
+    async def send_mesh_operation(self, operation:MeshOperationMessage) -> bool:
+        '''Send a mesh operation to every device. True when all of it was
+        written.
+
+        A unit takes the operations that change a mesh from its controller or a
+        management application. Nothing acknowledges them: a unit that took one
+        reports the mesh controller it follows from then on, which mesh_master
+        reads.'''
+        return self._send_to_all(FrameMeshOperation.construct_message(mxr=self, message=operation))
+
+    async def send_oneip_source_list(self, sources:list[OneIPStreamSources]) -> bool:
+        '''Send the mesh's whole list of OneIP sources, as the mesh controller
+        does. True when every frame was written.
+
+        Each entry names a source unit by its uid and its video, audio and
+        ancillary stream addresses. A unit named in the list, hearing it from
+        the controller it follows, registers every unit listed and unregisters
+        every source unit that is not, so the list must always be complete. A
+        unit takes it from a sender that announces itself as the mesh master;
+        see set_mesh_controller().
+
+        A list longer than one frame goes out in pages that each say where they
+        start and how long the whole list is. Refused for an entry without a
+        uid, and for a list longer than ONEIP_SOURCE_LIST_MAX entries, which the
+        pages cannot number.'''
+        if any(source.uid is None for source in sources):
+            _LOGGER.warning("not sending the OneIP source list: an entry names no source uid")
+            return False
+        if ((frames := FrameV2IPSources.construct(mxr=self, sources=sources)) is None):
+            _LOGGER.warning(f"not sending the OneIP source list: {len(sources)} entries, "
+                            f"the most is {ONEIP_SOURCE_LIST_MAX}")
+            return False
+        return all(self._send_to_all(frame) for frame in frames)
+
+    async def set_mesh_setup_completed(self, completed:bool) -> bool:
+        '''Mark the setup of every unit that hears it completed, or not.
+
+        A unit takes it only from its mesh controller or a management
+        application, and shows it in its next announcement.'''
+        return self._send_to_all(FrameSetupStatus.construct(mxr=self, completed=completed))
+
+    async def set_mesh_installer(self, installer:int) -> bool:
+        '''Set the installer id of every unit that hears it, 16 bits.
+
+        A unit takes it only from its mesh controller or a management
+        application. A controller also carries the id in its controller report,
+        which MeshOperationMessage.report_controller() builds.'''
+        if not (0 <= installer <= 0xFFFF):
+            _LOGGER.warning(f"not setting installer id {installer}: it must fit 16 bits")
+            return False
+        return self._send_to_all(FrameSetInstaller.construct(mxr=self, installer=installer))
 
     async def set_mesh_time_zone(self, zone:str, rule:str) -> bool:
         '''Set the time zone of every device that hears it.

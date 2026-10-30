@@ -9,12 +9,19 @@
 from functools import cached_property
 from .FrameBase import FrameBase
 from ..Uid import MxrDeviceUid
-from ..Interface import FilteredDevices
+from ..Interface import DeviceBase, DeviceRegistry, FilteredDevices
 
 class FrameFilterStatus(FrameBase):
     '''The source devices filtered out of a sink's picker: the sink's uid, then
     the filtered uids. A unit's report on its own sink, or management setting
     a sink's list; a unit takes it only as a whole number of uids.'''
+    @staticmethod
+    def construct(mxr:DeviceRegistry, target:DeviceBase, filtered:list[MxrDeviceUid]) -> FrameBase|None:
+        '''Replace the sources target, a OneIP output, may not show: the
+        output, then each source.'''
+        payload = target.remote_id.byte_value + b''.join(MxrDeviceUid(u).byte_value for u in filtered)
+        return FrameBase.construct_base(mxr=mxr, target=target, opcode=0x38, payload=payload)
+
     @cached_property
     def filtered(self) -> FilteredDevices:
         '''Set of filtered (hidden) source devices.'''

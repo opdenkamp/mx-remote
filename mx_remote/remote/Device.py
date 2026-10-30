@@ -42,10 +42,17 @@ from ..Interface import (
 	DeviceClock,
 	OneIPOutputMode,
 	OneIPScalingSettings,
+	MeshControllerReport,
+	BayMirrorStatus,
+	FilteredDevices,
 )
 from ..proto.BayConfig import BayConfig
 from ..proto.FrameHello import FrameHello
 from ..proto.FrameMeshOperation import AUTO_ADDRESSES_PROTOCOL, MeshOperation, FrameMeshOperation
+from ..proto.FrameMirrorStatus import FrameMirrorStatus
+from ..proto.FrameFilterStatus import FrameFilterStatus
+from ..proto.FrameV2IPTiling import FrameV2IPTiling
+from ..proto.FrameRCSettings import FrameRCSettings
 from ..proto.FrameV2IPStats import FrameV2IPStats
 from ..proto.FrameNetworkStatus import NetworkPortStatus
 from ..proto.FrameReboot import FrameReboot
@@ -71,12 +78,13 @@ from ..proto.Multiviewer import (
 	MultiviewerHDCPMode,
 )
 from ..const import MXR_CONFIG_TIMEOUT
-from ..Uid import MxrDeviceUid
+from ..Uid import MxrDeviceUid, MxrBayUid
 from typing import Any, Callable
 from ..compat import override
 from dataclasses import replace
 from datetime import datetime
 from enum import Enum
+import ipaddress
 import logging
 import time
 
@@ -89,7 +97,8 @@ from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, ONEIP_DOWNMIX_LF
                               ONEIP_IR_PROFILE_MAX, ONEIP_IR_PROFILE_NOT_SET, ONEIP_VLAN_PORT_SFP,
                               ONEIP_DEVICE_SETTINGS_BLOCK, ONEIP_DSCP_MAX,
                               ONEIP_PTP_DOMAIN_MAX, ONEIP_SDP_MAX, OneIPPowerSaveLevel, OneIPPtpFlag, OneIPPtpMode, UnitCommandFlag,
-                              UnitCommandKind, UnitFlag)
+                              UnitCommandKind, UnitFlag, ONEIP_SOURCE_FILTER_MAX, MXR_RC_STATUS_MAX,
+                              MXR_RC_STATUS_NAME_LEN, RCType)
 from ..proto.FrameUnitCommand import FrameUnitCommand
 from ..proto.FrameV2IPAudio import AUDIO_LAYOUT_SINCE, FrameV2IPAudio
 from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
@@ -191,6 +200,7 @@ class Device(DeviceBase):
 		self._time_zone:TimeZone|None = None
 		self._clock:DeviceClock|None = None
 		self._mesh_master_uid:MxrDeviceUid|None = None
+		self._mesh_controller_report:MeshControllerReport|None = None
 		# The source device behind each OneIP bay, by bay mode and number. Held
 		# here as well as on the bays because a device may send its mappings
 		# before the bay configuration that creates those bays, and a bay that
@@ -769,6 +779,13 @@ class Device(DeviceBase):
 
 	@property
 	@override
+	def mesh_controller_report(self) -> MeshControllerReport|None:
+		'''What this device last announced about itself as a mesh controller,
+		None until it has.'''
+		return self._mesh_controller_report
+
+	@property
+	@override
 	def is_mesh_master(self) -> bool:
 		return (self.features is not None) and DeviceFeature.MESH_MASTER in self.features
 
@@ -934,6 +951,25 @@ class Device(DeviceBase):
 			or ((DeviceFeature.BOOT_BIT in before) != (DeviceFeature.BOOT_BIT in now)) \
 			or (DeviceFeature.STATUS_REBOOTING in now)
 
+	def _on_mxr_mesh_operation(self, frame:FrameMeshOperation) -> None:
+		'''A mesh operation this device sent.
+
+		Its membership report names the controller it follows, and its controller
+		report is filed only when it is about this device itself. Every other
+		operation reaches the caller as it arrived, so a controller can follow
+		promotions and registrations it did not send.'''
+		if ((message := frame.message) is None):
+			return
+		if (message.operation == MeshOperation.REPORT_MEMBERSHIP):
+			self.mesh_master = message.target
+		elif (message.operation == MeshOperation.REPORT_CONTROLLER):
+			report = frame.controller_report
+			if (message.target == self.remote_id) and (report != self._mesh_controller_report):
+				self._mesh_controller_report = report
+				self.call_callbacks()
+		else:
+			self.callbacks.on_mesh_operation(self, message)
+
 	def _on_mxr_hello(self, hello_frame:FrameHello) -> None:
 		# received a new hello frame from this device. update local info
 		# A source unit's video processor picks a new key generator every boot,
@@ -1053,8 +1089,7 @@ class Device(DeviceBase):
 		elif isinstance(data, FrameHello):
 			self._on_mxr_hello(data)
 		elif isinstance(data, FrameMeshOperation):
-			if (data.operation == MeshOperation.REPORT_MEMBERSHIP):
-				self.mesh_master = data.target_uid
+			self._on_mxr_mesh_operation(data)
 		elif isinstance(data, NetworkPortStatus):
 			self.update_network_status(data)
 		elif isinstance(data, SystemTemperature):
@@ -1401,6 +1436,118 @@ class Device(DeviceBase):
 		if (frame is None):
 			return False
 		return self.registry.transmit(frame.frame) == len(frame.frame)
+
+	def _oneip_output(self, what:str) -> BayBase|None:
+		'''This device's output bay, which holds what is set about a OneIP
+		output, or None with a warning when it is not a OneIP output whose bay
+		has been reported.'''
+		if not self.is_oneip_sink:
+			_LOGGER.warning(f"not setting {what} on {self}: not a OneIP output")
+			return None
+		if ((bay := self.first_output) is None):
+			_LOGGER.warning(f"not setting {what} on {self}: its output bay has not been reported")
+			return None
+		return bay
+
+	async def set_oneip_mirroring(self, mirrored:'DeviceBase|None') -> bool:
+		'''Have this OneIP output mirror another, or None to stop mirroring.
+
+		Every unit hears it and keeps it, and the output follows the one it
+		mirrors. A unit takes it only from its mesh controller or a management
+		application. Refused unless both are OneIP outputs whose bays have been
+		reported, and unless they differ. The output's mirroring reads what was
+		set once the frame is away, until its own report replaces it.
+		'''
+		if ((bay := self._oneip_output("mirroring")) is None):
+			return False
+		if (mirrored is not None):
+			if (mirrored.remote_id == self.remote_id):
+				_LOGGER.warning(f"not setting mirroring on {self}: an output cannot mirror itself")
+				return False
+			if not isinstance(mirrored, Device) or (mirrored._oneip_output("mirroring") is None):
+				return False
+		frame = FrameMirrorStatus.construct(mxr=self.registry, target=self,
+		                                    mirrored=(mirrored.remote_id if (mirrored is not None) else None))
+		if (frame is None) or (self.registry.transmit(frame.frame) != len(frame.frame)):
+			return False
+		bay.on_mxr_update(BayMirrorStatus(MxrBayUid(mirrored.remote_id, 0)) if (mirrored is not None)
+		                  else BayMirrorStatus())
+		return True
+
+	async def set_oneip_source_filter(self, filtered:list[MxrDeviceUid]) -> bool:
+		'''Replace the list of sources this OneIP output may not show.
+
+		A unit takes it only from its mesh controller or a management
+		application, and only whole, so a list longer than
+		ONEIP_SOURCE_FILTER_MAX is refused, as is a device that is not a OneIP
+		output with a reported bay. The output's filtered list reads what was set
+		once the frame is away.
+		'''
+		if (len(filtered) > ONEIP_SOURCE_FILTER_MAX):
+			_LOGGER.warning(f"not setting the source filter on {self}: {len(filtered)} sources, "
+			                f"and one frame holds {ONEIP_SOURCE_FILTER_MAX}")
+			return False
+		if ((bay := self._oneip_output("the source filter")) is None):
+			return False
+		frame = FrameFilterStatus.construct(mxr=self.registry, target=self, filtered=filtered)
+		if (frame is None) or (self.registry.transmit(frame.frame) != len(frame.frame)):
+			return False
+		bay.on_mxr_update(FilteredDevices(b''.join(MxrDeviceUid(u).byte_value for u in filtered)))
+		return True
+
+	async def set_oneip_tiling(self, pos_x:int, pos_y:int, width:int, height:int) -> bool:
+		'''Set the part of a video wall this OneIP output shows: the window of
+		the picture it crops and scales up, each value 16 bits.
+
+		The output takes it only from its mesh controller or a management
+		application, and a video wall module loaded on it replaces it within a
+		second. Refused unless this is a OneIP output.
+		'''
+		if not self.is_oneip_sink:
+			_LOGGER.warning(f"not setting tiling on {self}: not a OneIP output")
+			return False
+		if not all(0 <= v <= 0xFFFF for v in (pos_x, pos_y, width, height)):
+			_LOGGER.warning(f"not setting tiling on {self}: each value must fit 16 bits")
+			return False
+		frame = FrameV2IPTiling.construct(mxr=self.registry, target=self, pos_x=pos_x, pos_y=pos_y,
+		                                  width=width, height=height)
+		if (frame is None):
+			return False
+		return (self.registry.transmit(frame.frame) == len(frame.frame))
+
+	async def set_rc_settings(self, rc_target:RCType|int, ip:str|None, cec_enabled:bool, cec_auto_on:bool,
+	                          forward_rc:bool, forward_ir:bool, rc_status:int=0, status_name:str='') -> bool:
+		'''Change this OneIP unit's remote control and CEC settings.
+
+		The unit applies the control method, the controlled device's address
+		(None for none) and the four switches, then reports its settings; the
+		driver state and status text are its own to report and it ignores them
+		here. It takes the change only from its mesh controller or a management
+		application. Refused unless this is a OneIP unit, rc_status fits
+		MXR_RC_STATUS_MAX, and status_name is at most MXR_RC_STATUS_NAME_LEN
+		ASCII bytes without a NUL.
+		'''
+		if not (0 <= rc_status <= MXR_RC_STATUS_MAX) or (len(status_name) > MXR_RC_STATUS_NAME_LEN) \
+				or ('\0' in status_name) or not status_name.isascii() or not (0 <= int(rc_target) <= 0xFF):
+			_LOGGER.warning(f"not setting remote control settings on {self}: "
+			                f"a method, driver state or status text that does not fit its field")
+			return False
+		if (ip is not None):
+			try:
+				ipaddress.IPv4Address(ip)
+			except ValueError:
+				_LOGGER.warning(f"not setting remote control settings on {self}: {ip!r} is not an IPv4 address")
+				return False
+		if not self.is_oneip:
+			_LOGGER.warning(f"not setting remote control settings on {self}: not a OneIP unit")
+			return False
+		frame = FrameRCSettings.construct(mxr=self.registry, target=self, rc_target=int(rc_target), ip=ip,
+		                                  cec_enabled=cec_enabled, cec_auto_on=cec_auto_on,
+		                                  forward_rc=forward_rc, forward_ir=forward_ir,
+		                                  rc_status=rc_status, status_name=status_name)
+		if (frame is None):
+			return False
+		return (self.registry.transmit(frame.frame) == len(frame.frame))
 
 	async def mesh_remove(self) -> bool:
 		'''Remove this device from the mesh network.'''

@@ -7,9 +7,9 @@
 '''Protocol frame for remote control settings.'''
 
 from functools import cached_property
-from .FrameBase import FrameBase
+from .FrameBase import FrameBase, append_payload_str
 from .Constants import RCStatus, RCType, MXR_RC_STATUS_NAME_LEN
-from ..Interface import DeviceBase
+from ..Interface import DeviceBase, DeviceRegistry
 from ..Uid import MxrDeviceUid
 import socket
 import struct
@@ -36,9 +36,24 @@ _IP_OFFSET = 20
 _FLAGS_OFFSET = 24
 _STATUS_NAME_OFFSET = 28
 _STATUS_NAME_SIZE = MXR_RC_STATUS_NAME_LEN + 1
+_WIRE_SIZE = 48
 
 class FrameRCSettings(FrameBase):
     '''Remote control settings for one device, forwarded from a source to the master.'''
+    @staticmethod
+    def construct(mxr:DeviceRegistry, target:DeviceBase, rc_target:int, ip:str|None, cec_enabled:bool,
+                  cec_auto_on:bool, forward_rc:bool, forward_ir:bool, rc_status:int, status_name:str) -> FrameBase|None:
+        '''Change target's remote control settings, as the 48-byte struct
+        above with its padding zeroed. The caller has checked that rc_target fits
+        a byte, rc_status its four bits and status_name its field.'''
+        flags = int(cec_enabled) | (int(cec_auto_on) << 1) | (int(forward_rc) << 2) \
+            | (int(forward_ir) << 3) | (rc_status << 4)
+        payload = target.remote_id.byte_value + bytes([rc_target, 0, 0, 0]) \
+            + socket.inet_aton(ip if (ip is not None) else '0.0.0.0') \
+            + struct.pack('<HH', flags, 0) \
+            + bytes(append_payload_str(payload=[], value=status_name, sz=_STATUS_NAME_SIZE))
+        return FrameBase.construct_base(mxr=mxr, target=target, opcode=0x45, payload=payload, size=_WIRE_SIZE)
+
     @cached_property
     def target_uid(self) -> MxrDeviceUid | None:
         '''Device these settings belong to.'''

@@ -13,6 +13,7 @@ mirror MXR_FEATURE_SETUP_COMPLETED based on this bit so the UI can show
 
 from functools import cached_property
 from .FrameBase import FrameBase
+from ..Interface import DeviceRegistry
 
 class FrameSetupStatus(FrameBase):
     '''Setup-completed status announcement.
@@ -20,6 +21,11 @@ class FrameSetupStatus(FrameBase):
     Wire layout (mxr_dev_tx_setup_status):
         0     uint8_t status   sent as 1 = setup complete, 0 = not complete
     '''
+
+    @staticmethod
+    def construct(mxr:DeviceRegistry, completed:bool) -> FrameBase|None:
+        '''Mark the setup of every unit that hears it completed, or not.'''
+        return FrameBase.construct_base(mxr=mxr, opcode=0x35, payload=bytes([int(completed)]))
 
     @cached_property
     def setup_completed(self) -> bool | None:
