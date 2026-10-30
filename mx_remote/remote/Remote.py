@@ -44,7 +44,9 @@ from ..proto.FrameHeader import FrameHeader
 from ..proto.FrameTime import FrameTime
 from ..proto.FrameTimeZone import FrameTimeZone
 from ..proto.FrameTopology import FrameTopology
+from ..proto.FrameUpgradeFPGA import FrameUpgradeFPGA
 from ..proto.FrameV2IPDetectBays import FrameV2IPDetectBays
+from ..proto.FrameV2IPPowerSave import FrameV2IPPowerSave
 from ..proto.FrameV2IPPrivacy import FrameV2IPPrivacy
 from ..proto.FrameV2IPSettingsAll import FrameV2IPSettingsAll
 from ..proto.FrameV2IPOsdSync import FrameV2IPOsdSync
@@ -740,6 +742,26 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         Current firmware takes the frame and does nothing with it; it still
         counts as traffic from this client.'''
         return self._send_to_all(FrameV2IPDetectBays.construct(mxr=self))
+
+    async def request_all_oneip_power_save(self, suspend:bool) -> bool:
+        '''Ask every OneIP unit to enter power save, or to leave it: 0x41 with
+        the flag alone, as a mesh controller sends it without a target. True
+        when all of it was written.
+
+        A unit takes it only from its mesh controller or a management
+        application, and one that cannot power down ignores it.
+        DeviceBase.request_oneip_power_save() asks one unit.'''
+        return self._send_to_all(FrameV2IPPowerSave.construct_all(mxr=self, suspend=suspend))
+
+    async def upgrade_all_video_processors(self) -> bool:
+        '''Have every unit flash the latest video processor image it holds, as a
+        mesh controller's upgrade does: 0x2C with no payload, to both endpoints.
+        True when all of it was written.
+
+        A unit takes it only from management, and flashes only when its running
+        image differs: the frame carries no force.
+        DeviceBase.upgrade_unit_video_processor() forces one unit.'''
+        return self._send_to_all(FrameUpgradeFPGA.construct(mxr=self))
 
     def _send_to_all(self, frame:FrameBase|None) -> bool:
         '''Send a frame to every device, True when all of it was written.'''

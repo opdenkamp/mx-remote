@@ -3616,6 +3616,14 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
+    def oneip_locale(self) -> int|None:
+        '''The locale this OneIP device runs, by its number, as it last reported
+        or as it was last written; None while it reports none, and always for
+        one whose firmware has no locales. ONEIP_LOCALE_UNKNOWN is a stored
+        locale its firmware does not know.'''
+
+    @property
+    @abstractmethod
     def oneip_ptp(self) -> OneIPPtpState|None:
         '''The PTP state this OneIP device last reported about itself, None
         until it has reported one, and while it has no PTP to report: none on
@@ -3958,6 +3966,26 @@ class DeviceBase(ABC):
     @abstractmethod
     async def set_oneip_vlan(self, vlan:OneIPVlan) -> bool:
         '''change the device's VLAN configuration'''
+
+    @abstractmethod
+    async def confirm_oneip_vlan(self) -> bool:
+        '''confirm the VLAN configuration the device runs pending, so it keeps it'''
+
+    @abstractmethod
+    async def set_oneip_locale(self, locale:int) -> bool:
+        '''set the locale the device runs, by its number'''
+
+    @abstractmethod
+    async def set_oneip_skip_420(self, enabled:bool) -> bool:
+        '''have the sink skip its check that the display lists 4:2:0, or check again'''
+
+    @abstractmethod
+    async def set_oneip_dscp(self, marking:OneIPDscpConfig) -> bool:
+        '''mark the source's three streams with the DSCP values of marking'''
+
+    @abstractmethod
+    async def request_oneip_power_save(self, suspend:bool) -> bool:
+        '''ask the unit to enter power save now, or to leave it'''
 
     @abstractmethod
     async def set_audio_endpoint_locked(self, endpoint:int, locked:bool) -> bool:

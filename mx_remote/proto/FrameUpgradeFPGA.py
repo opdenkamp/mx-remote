@@ -6,14 +6,20 @@
 ######################################################
 '''Protocol frame for V2IP_UPGRADE_FPGA (opcode 0x2C).
 
-A mesh controller broadcasts this to ask peers to upgrade their OneIP video processor
-to the version currently active on the controller. Payload is empty.
+A mesh controller broadcasts this to have every unit flash the latest OneIP video
+processor image it holds. Payload is empty, so it carries no force: a unit flashes
+only when its running image differs, and takes the request only from management.
 '''
 
 from .FrameBase import FrameBase
+from ..Interface import DeviceRegistry
 
 class FrameUpgradeFPGA(FrameBase):
-    '''Request to upgrade the OneIP FPGA on receiving peers.'''
+    '''Request to upgrade the OneIP video processor on every unit.'''
+    @staticmethod
+    def construct(mxr:DeviceRegistry) -> FrameBase|None:
+        '''Build the request for transmission.'''
+        return FrameBase.construct_base(mxr=mxr, opcode=0x2C)
 
     def __str__(self) -> str:
         return f"v2ip fpga upgrade request from {self.remote_device}"

@@ -14,8 +14,9 @@ the directive source as prose and the build still succeeds.
 ## Client
 
 `Remote` owns the two endpoints, the device registry and the background probe
-that keeps both in step with the mesh. `reboot_all()`, `reboot_mesh()` and
-`factory_reset_all()` act on every unit at once.
+that keeps both in step with the mesh. `reboot_all()`, `reboot_mesh()`,
+`factory_reset_all()`, `request_all_oneip_power_save()` and
+`upgrade_all_video_processors()` act on every unit at once.
 
 ```{eval-rst}
 .. automodule:: mx_remote.remote.Remote
@@ -184,6 +185,14 @@ How a device's output mixes 5.1 and 7.1 PCM down to stereo.
    :members:
 
 .. autodata:: mx_remote.proto.Constants.ONEIP_DOWNMIX_LFE_MAX
+```
+
+## OneIP locale
+
+The locale a device runs, by its number.
+
+```{eval-rst}
+.. autodata:: mx_remote.proto.Constants.ONEIP_LOCALE_UNKNOWN
 ```
 
 ## OneIP PTP

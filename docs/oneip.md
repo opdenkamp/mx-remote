@@ -32,6 +32,12 @@ if device.oneip_details:
     if details.dscp and details.dscp.complete:
         print(f"DSCP: {details.dscp}")     # video / audio / anc, 0..63
 
+# mark a source's three streams; a unit takes a marking only for all three at
+# once, so a partial one or one above ONEIP_DSCP_MAX is refused before sending,
+# as is a device that announces no source. Read back from oneip_details.dscp
+# until the device reports its own.
+await device.set_oneip_dscp(mx_remote.OneIPDscpConfig(video=46, audio=34, anc=26))
+
 # streaming statistics
 # The subscription lapses 60s after the request and there is no free-running
 # mode, so call this again inside the minute to keep the 1Hz reports coming.
@@ -125,6 +131,11 @@ await device.set_oneip_output_mode(mode)
 await device.set_oneip_auto_scaling(True)    # back on, if that is what you want
 
 await device.clear_oneip_output_mode()       # the only way to say "no mode"
+
+# skip the check that the display lists 4:2:0; one validity bit covers this and
+# match-source, so the write restates match-source as the sink last reported it
+print(scaling.skip_420, scaling.match_source)
+await device.set_oneip_skip_420(True)
 ```
 
 **Set the mode with automatic scaling off.** A sink scaling automatically
@@ -240,7 +251,15 @@ print(device.unit_status.power_save_level(OneIPPowerSaveLevel.LOW))  # e.g. SUPP
 
 await device.set_oneip_power_save(True)
 await mx.set_all_oneip_power_save(False)   # every OneIP device of the mesh
+
+# ask for the state now, as a mesh controller does, rather than the setting
+await device.request_oneip_power_save(True)      # 0x41 naming the unit
+await mx.request_all_oneip_power_save(False)     # 0x41 with the flag alone
 ```
+
+A power save request reaches a unit only from its mesh controller or a
+management application, and one that cannot power down ignores it. A unit tells
+the two forms apart by their exact length.
 
 Switched off, `OneIPDeviceSetting.POWER_SAVE_DISABLED` is on: the device does
 not power down by itself, and a power save request still powers it down.
@@ -352,6 +371,24 @@ if downmix is not None:
 The downmix ends the settings block, behind a second valid word, so the write
 runs on to 248 bytes and carries no other setting.
 
+### Locale
+
+A device whose firmware has locales reports the one it runs by its number, its
+position in the list the device's `/system/locale` names, behind the downmix.
+`ONEIP_LOCALE_UNKNOWN` is a stored locale the firmware does not know.
+
+```python
+print(device.oneip_locale)        # None: no report yet, or no locales
+await device.set_oneip_locale(1)
+```
+
+A device stores a locale it knows and ignores one it does not, so the write goes
+also to a device that has not reported its settings yet, and the locale is
+cached once sent until the device's next report. Refused before sending:
+`ONEIP_LOCALE_UNKNOWN`, a number that is not a byte, and a device whose settings
+arrived without a locale, as its firmware has none. Another controller's write
+reaches only a device that reports a locale.
+
 ### VLAN
 
 A device that announces `DeviceFeature.VLAN` tags its uplink by a VLAN
@@ -368,12 +405,18 @@ print(vlan.device, vlan.port, vlan.pinned_uplink_port, vlan.active_uplink_port)
 print(vlan.is_pending, vlan.revert_s)
 
 await device.set_oneip_vlan(OneIPVlan(device=10, port=(0, 20, 0), uplink=2))
+if device.oneip_vlan.is_pending:
+    await device.confirm_oneip_vlan()   # keep it, as the mesh controller does
 ```
 
 Only the device knows what it runs, so `oneip_vlan` is read only from the device
 describing itself, and a write is not cached. The device applies a change at
 once and reverts it after `revert_s` seconds unless the mesh controller, hearing
-it report the change as pending, confirms it.
+it report the change as pending, confirms it. `confirm_oneip_vlan()` sends that
+confirmation: the pending configuration echoed with its trunk bit and CONFIRM. A
+device repeats its report every 3 s while the change is pending, so a
+confirmation lost or sent twice is answered by the next report. Refused unless
+the device announces the VLAN feature and last reported a pending change.
 
 Only the ids, the uplink and the trunk bit are written. Refused before sending:
 a device without the VLAN feature or that has not reported its configuration, an
@@ -562,6 +605,7 @@ from mx_remote import UnitNetConfig
 
 await device.clear_unit_status()
 await device.upgrade_unit_video_processor(force=False)
+await mx.upgrade_all_video_processors()    # every unit, flashing only a differing image
 await device.set_unit_network(UnitNetConfig(
     ip='10.1.2.3', netmask='255.255.255.0', gateway='10.1.2.254', dns1='10.1.2.254'))
 await device.confirm_unit_network()    # keep it, once the unit reports it

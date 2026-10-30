@@ -636,6 +636,11 @@ class OneIPDownmixLevel(IntEnum):
 ONEIP_DOWNMIX_LFE_MAX = 100
 """The largest percent a OneIP output mixes its LFE channel in at."""
 
+ONEIP_LOCALE_UNKNOWN = 255
+"""The locale a OneIP device reports for a stored locale its firmware does not
+know. Every other value numbers a locale, and keeps its meaning across firmware
+versions."""
+
 class UnitPowerSave(IntFlag):
 	'''What a unit offers at one power save level.'''
 	SUPPORTED   = (1 << 0)

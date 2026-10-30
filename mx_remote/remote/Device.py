@@ -13,6 +13,7 @@ from ..Interface import (
 	OneIPPtpMessages,
 	OneIPPtpState,
 	OneIPDownmix,
+	OneIPDscpConfig,
 	UnitNetConfig,
 	UnitStatus,
 	AmpDolbySettings,
@@ -92,10 +93,12 @@ import time
 
 from ..Interface import DeviceBase, BayBase, DeviceRegistry
 from ..proto.FrameBase import FrameBase
-from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, ONEIP_DOWNMIX_LFE_MAX, OSD_MESSAGE_TEXT_MAX, OsdMessageFlag, OsdMessagePriority, BayFeaturesMask, DeviceFeature, Endpoints, MxrSignalType, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag,
+from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, ONEIP_DOWNMIX_LFE_MAX, ONEIP_LOCALE_UNKNOWN, OSD_MESSAGE_TEXT_MAX, OsdMessageFlag, OsdMessagePriority, BayFeaturesMask, DeviceFeature, Endpoints, MxrSignalType, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag,
                               OneIPTestPattern, OneIPToneMode,
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
-                              MXR_SCALING_FLAG_OPTIONS_VALID, ONEIP_DEVICE_SETTING_SWITCHES,
+                              MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_OPTIONS2_VALID,
+                              MXR_SCALING_FLAG_MATCH_SOURCE, MXR_SCALING_FLAG_SKIP_420,
+                              MXR_SCALING_OPTIONS2_SETTINGS, ONEIP_DEVICE_SETTING_SWITCHES,
                               ONEIP_IR_PROFILE_MAX, ONEIP_IR_PROFILE_NOT_SET, ONEIP_VLAN_PORT_SFP,
                               ONEIP_DEVICE_SETTINGS_BLOCK, ONEIP_DSCP_MAX,
                               ONEIP_PTP_DOMAIN_MAX, ONEIP_SDP_MAX, OneIPPowerSaveLevel, OneIPPtpFlag, OneIPPtpMode, UnitCommandFlag,
@@ -104,6 +107,7 @@ from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, ONEIP_DOWNMIX_LF
 from ..proto.FrameUnitCommand import FrameUnitCommand
 from ..proto.FrameV2IPAudio import AUDIO_LAYOUT_SINCE, FrameV2IPAudio
 from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
+from ..proto.FrameV2IPPowerSave import FrameV2IPPowerSave
 from ..proto.FrameV2IPOsdSync import FrameV2IPOsdSync, OSD_KIND_MESSAGE_REQUEST, OSD_KIND_MESSAGE_SET
 from ..proto.FrameV2IPPrivacy import FrameV2IPPrivacy
 from ..proto.FrameV2IPSinkSdp import (FrameV2IPSinkSdp, SdpDescriptionPage, SDP_DESCRIPTION_PROTOCOL, SDP_PAGE_TIMEOUT,
@@ -208,6 +212,7 @@ class Device(DeviceBase):
 		self._v2ip_vlan:OneIPVlan|None = None
 		self._v2ip_ptp:OneIPPtpState|None = None
 		self._v2ip_downmix:OneIPDownmix|None = None
+		self._v2ip_locale:int|None = None
 		self._unit_status:UnitStatus|None = None
 		self._v2ip_testcard:OneIPTestcard|None = None
 		self._v2ip_sink_sdp:OneIPSinkSdp|None = None
@@ -600,6 +605,11 @@ class Device(DeviceBase):
 	@override
 	def oneip_downmix(self) -> OneIPDownmix|None:
 		return self._v2ip_downmix
+
+	@property
+	@override
+	def oneip_locale(self) -> int|None:
+		return self._v2ip_locale
 
 	@property
 	@override
@@ -1238,6 +1248,8 @@ class Device(DeviceBase):
 				self.call_callbacks()
 		elif isinstance(data, FrameV2IPDeviceConfiguration):
 			self._on_oneip_downmix(data.downmix, reported=data.target_self)
+			if data.carries_locale:
+				self._on_oneip_locale(data.locale, reported=data.target_self)
 		elif isinstance(data, OneIPTestcard):
 			if (self._v2ip_testcard != data):
 				self._v2ip_testcard = data
@@ -1806,6 +1818,56 @@ class Device(DeviceBase):
 		return self._send_v2ip_scaling(mode=MxrSignalType(bytes(2)), refresh=0,
 		                               written=written, applied=applied)
 
+	async def set_oneip_skip_420(self, enabled:bool) -> bool:
+		'''Have this sink skip its check that the display lists 4:2:0, or check
+		again.
+
+		One validity bit covers this and the sink's match-source setting, so the
+		write restates match-source as the sink last reported it, off when it
+		reported none. Otherwise as set_oneip_auto_scaling().
+		'''
+		scaling = self._cached_scaling
+		written = MXR_SCALING_FLAG_OPTIONS2_VALID
+		if enabled:
+			written |= MXR_SCALING_FLAG_SKIP_420
+		if (scaling.match_source is True):
+			written |= MXR_SCALING_FLAG_MATCH_SOURCE
+		def applied(cached:DeviceOneIPScalingSettings) -> OneIPScalingSettings:
+			flags = (cached.flags & ~MXR_SCALING_OPTIONS2_SETTINGS) | written
+			return OneIPScalingSettings(mode=cached.mode, refresh=cached.refresh, flags=flags)
+		return self._send_v2ip_scaling(mode=MxrSignalType(bytes(2)), refresh=0,
+		                               written=written, applied=applied)
+
+	async def set_oneip_dscp(self, marking:OneIPDscpConfig) -> bool:
+		'''Mark the streams this OneIP source sends with the DSCP values of
+		marking, all three at once.
+
+		A device applies a marking only when all three streams carry one, so a
+		marking that leaves a stream out, or one above ONEIP_DSCP_MAX, is refused
+		before anything is sent, as is a device that does not announce a source.
+		Nothing acknowledges the frame; oneip_details.dscp reads the marking
+		written until the device reports its own.
+		'''
+		why = None
+		if not marking.complete:
+			why = 'a marking leaves a stream out'
+		elif any(not (0 <= m <= ONEIP_DSCP_MAX) for m in (marking.video, marking.audio, marking.anc)):
+			why = f'a DSCP above {ONEIP_DSCP_MAX}'
+		elif (self.features is None) or (DeviceFeature.ONEIP_SOURCE not in self.features):
+			why = 'markings need a OneIP source'
+		if (why is not None):
+			_LOGGER.warning(f"not marking the streams of {self}: {why}")
+			return False
+		frame = FrameV2IPDeviceConfiguration.construct_dscp(
+			mxr=self.registry, target=self, target_uid=self.remote_id,
+			video=marking.video, audio=marking.audio, anc=marking.anc)
+		if (frame is None) or (self.registry.transmit(frame.frame) != len(frame.frame)):
+			return False
+		if (self._v2ip_details is None) or (self._v2ip_details.dscp != marking):
+			self.oneip_details = DeviceOneIPDetails(video=None, audio=None, anc=None, arc=None,
+			                                        tx_rate=None, scaling=None, dscp=marking)
+		return True
+
 	async def set_oneip_output_mode(self, mode:OneIPOutputMode) -> bool:
 		'''Set the output format this sink scales to.
 
@@ -2070,6 +2132,43 @@ class Device(DeviceBase):
 			self._v2ip_downmix = downmix
 			self.call_callbacks()
 
+	def _on_oneip_locale(self, locale:int|None, reported:bool) -> None:
+		'''Take the locale a configuration carries as the device takes it: a
+		report replaces the one held, None included, and another sender's write
+		is applied only to a device that reports a locale, since one without
+		locales ignores it.'''
+		if not reported and ((locale is None) or (self._v2ip_locale is None)):
+			return
+		if (self._v2ip_locale != locale):
+			self._v2ip_locale = locale
+			self.call_callbacks()
+
+	async def set_oneip_locale(self, locale:int) -> bool:
+		'''Set the locale this OneIP device runs, by its number: its position in
+		the list of locales the device's /system/locale names.
+
+		A device stores and loads a locale it knows and ignores one it does not,
+		so a locale is sent also to a device that has not reported its settings
+		yet. Refused before anything is sent for ONEIP_LOCALE_UNKNOWN or a number
+		that is not a byte, and for a device whose settings arrived without a
+		locale, as its firmware has none. The locale is cached once the frame is
+		sent, and the device's next report replaces it.
+		'''
+		why = None
+		if not (0 <= locale < ONEIP_LOCALE_UNKNOWN):
+			why = 'no such locale'
+		elif (self._v2ip_settings is not None) and (self._v2ip_locale is None):
+			why = "the device's firmware has no locales"
+		if (why is not None):
+			_LOGGER.warning(f"not setting locale {locale} on {self}: {why}")
+			return False
+		frame = FrameV2IPDeviceConfiguration.construct_locale(
+			mxr=self.registry, target=self, target_uid=self.remote_id, locale=locale)
+		if (frame is None) or (self.registry.transmit(frame.frame) != len(frame.frame)):
+			return False
+		self._on_oneip_locale(locale, reported=True)
+		return True
+
 	async def set_oneip_downmix(self, downmix:OneIPDownmix) -> bool:
 		'''Set how this OneIP device's output mixes 5.1 and 7.1 PCM down to
 		stereo: the mode, level and LFE percent of downmix, which the device
@@ -2129,6 +2228,52 @@ class Device(DeviceBase):
 		                   device=vlan.device, port=tuple(vlan.port), uplink=vlan.uplink)
 		frame = FrameV2IPDeviceConfiguration.construct_vlan(
 			mxr=self.registry, target=self, target_uid=self.remote_id, vlan=written)
+		if (frame is None):
+			return False
+		return self.registry.transmit(frame.frame) == len(frame.frame)
+
+	async def confirm_oneip_vlan(self) -> bool:
+		'''Confirm the VLAN configuration this OneIP device runs pending, as its
+		mesh controller does, so the device keeps it rather than reverting it.
+
+		The frame echoes the configuration the device last reported, its trunk
+		flag included, with CONFIRM in place of what only a device reports. A
+		device repeats its report every 3 s while the change is pending and
+		stores a confirmation only while it is, so a confirmation lost or sent
+		twice is answered by the next report. It takes it only from its mesh
+		controller or a management application. Refused unless the device
+		announces DeviceFeature.VLAN and has last reported a pending
+		configuration.
+		'''
+		why = None
+		if (self.features is None) or (DeviceFeature.VLAN not in self.features):
+			why = 'the device does not take VLANs'
+		elif ((reported := self._v2ip_vlan) is None):
+			why = 'it has not reported its VLAN configuration'
+		elif not reported.is_pending:
+			why = 'it has no VLAN change pending'
+		if (why is not None):
+			_LOGGER.warning(f"not confirming the VLAN configuration of {self}: {why}")
+			return False
+		confirmed = replace(reported, active_uplink=0, revert_s=0,
+		                    flags=(OneIPVlanFlag.VALID | OneIPVlanFlag.CONFIRM | (reported.flags & OneIPVlanFlag.TRUNK)))
+		frame = FrameV2IPDeviceConfiguration.construct_vlan(
+			mxr=self.registry, target=self, target_uid=self.remote_id, vlan=confirmed)
+		if (frame is None):
+			return False
+		return self.registry.transmit(frame.frame) == len(frame.frame)
+
+	async def request_oneip_power_save(self, suspend:bool) -> bool:
+		'''Ask this OneIP unit to enter power save, or to leave it: 0x41 naming
+		the unit. It takes the request only from its mesh controller or a
+		management application, and one that cannot power down ignores it.
+
+		This asks for a state now; set_oneip_power_save() switches the setting
+		that lets the unit power down by itself.
+		Remote.request_all_oneip_power_save() asks every unit.
+		'''
+		frame = FrameV2IPPowerSave.construct(mxr=self.registry, target=self,
+		                                     target_uid=self.remote_id, suspend=suspend)
 		if (frame is None):
 			return False
 		return self.registry.transmit(frame.frame) == len(frame.frame)

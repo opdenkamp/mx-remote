@@ -7,11 +7,31 @@
 '''Protocol frame for OneIP power saving mode configuration.'''
 
 from functools import cached_property
-from ..Interface import MxrDeviceUid, DeviceBase
+from typing import Any
+from ..Interface import MxrDeviceUid, DeviceBase, DeviceRegistry
 from .FrameBase import FrameBase
 
+_OPCODE = 0x41
+
 class FrameV2IPPowerSave(FrameBase):
-    '''OneIP power saving mode status or configuration.'''
+    '''A request for OneIP units to enter or leave power save.
+
+    A unit tells the two forms apart by their exact length: 17 bytes, the uid
+    of the unit asked and then the flag, or the flag alone, which reaches every
+    unit. It takes either only from its mesh controller or a management
+    application, and one that cannot power down ignores it.
+    '''
+    @staticmethod
+    def construct(mxr:DeviceRegistry, target:Any, target_uid:MxrDeviceUid, suspend:bool) -> FrameBase|None:
+        '''Build the request asking one unit.'''
+        return FrameBase.construct_base(mxr=mxr, opcode=_OPCODE, target=target,
+                                        payload=(target_uid.byte_value + bytes([int(suspend)])))
+
+    @staticmethod
+    def construct_all(mxr:DeviceRegistry, suspend:bool) -> FrameBase|None:
+        '''Build the request asking every unit.'''
+        return FrameBase.construct_base(mxr=mxr, opcode=_OPCODE, payload=bytes([int(suspend)]))
+
     def process(self) -> None:
         '''No-op; power save state is informational only.'''
         pass

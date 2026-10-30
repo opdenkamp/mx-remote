@@ -19,8 +19,8 @@ from ..Interface import (DeviceBase, DeviceRegistry, DeviceOneIPDetails, DeviceO
 from .Constants import (ONEIP_DEVICE_SETTINGS_BLOCK, ONEIP_DEVICE_SETTINGS_PTP, OneIPDownmixLevel, OneIPDownmixMode, OneIPPtpFlag, OneIPPtpLock, OneIPPtpMode, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag, MXR_SCALING_FLAG_AUTO_SCALING,
                         MXR_SCALING_FLAG_MODE_VALID,
                         MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_OPTIONS2_VALID,
-                        MXR_SCALING_OPTIONS2_SETTINGS, MxrSignalType, oneip_dscp_value,
-                        oneip_rate_valid)
+                        MXR_SCALING_OPTIONS2_SETTINGS, MXR_ONEIP_DSCP_SET, MxrSignalType,
+                        oneip_dscp_value, oneip_rate_valid)
 from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 
 # v2ip_device_config_update wire layout (little-endian, ALIGN(8) per inner struct):
@@ -53,14 +53,16 @@ from .V2IPConfig import V2IPStreamSourceImpl, parse_v2ip_av_source
 #             reserved
 #   232..248  from a device with the downmix: u32 second valid word, then
 #             the downmix's u8 mode, level, LFE percent, state and channels
-#             at 236..241, 7 reserved
+#             at 236..241, then from a device with locales the u8 locale at
+#             241, 6 reserved
 #
 # That block is the last of its frame, so it is read by its length: shorter
 # than 8 carries none of its values, and 8, which every device without the TTL
 # sends, carries all but the TTL. A write grows it to 16 only when it carries
 # the TTL or the rotation, and to 32 only for the downmix, so the frames other
 # writes send are unchanged for units that predate them. A block too short to
-# hold the downmix's channels carries no bit of the second valid word.
+# hold the downmix's channels carries no bit of the second valid word, and one
+# too short to hold the locale says nothing about it.
 #
 # Each of those blocks was appended behind what came before it, leaving every
 # offset ahead of it where it was, so the length is what says whether one is
@@ -146,10 +148,15 @@ _VALID_EXT_OFFSET = SETTINGS_BLOCK_OFFSET + _SETTINGS_BLOCK_LONG_SIZE
 '''The second valid word of the settings, behind the block of their own.'''
 _DOWNMIX_OFFSET = _VALID_EXT_OFFSET + 4
 _DOWNMIX_SIZE = 5
+_LOCALE_AT = _DOWNMIX_OFFSET + _DOWNMIX_SIZE
+'''The locale's number, behind the downmix.'''
 _WITH_DOWNMIX_SIZE = SETTINGS_BLOCK_OFFSET + 32
-'''The frame a downmix write sends: the settings block run on to 32 bytes.'''
+'''The frame a downmix or locale write sends: the settings block run on to 32
+bytes.'''
 _SETTING_EXT_DOWNMIX = 1 << 0
 '''The bit of the second valid word that carries the downmix.'''
+_SETTING_EXT_LOCALE = 1 << 1
+'''The bit of the second valid word that carries the locale.'''
 
 def carries_settings_block(settings:OneIPDeviceSettings) -> bool:
     '''Whether settings carry a value only the block of their own can hold.'''
@@ -391,6 +398,25 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         return FrameBase.construct_base(target=target, mxr=mxr, opcode=_OPCODE, payload=bytes(payload))
 
     @staticmethod
+    def construct_dscp(mxr:DeviceRegistry, target:Any, target_uid:MxrDeviceUid,
+                       video:int, audio:int, anc:int) -> FrameBase|None:
+        '''Build the 0x3C write that marks a source's three streams and nothing else.
+
+        The 88 bytes of construct_scaling(), with the video, audio and ancillary
+        markings at 41, 42 and 43, each behind MXR_ONEIP_DSCP_SET, and no scaling
+        validity bit. A receiver applies a marking only when all three carry it.
+        '''
+        payload = bytearray(target_uid.byte_value)
+        if (len(payload) != 16):
+            raise ValueError(f"invalid uid length: {len(payload)}")
+        # source: three stream slots, left zeroed so the encoder keeps its own.
+        payload += bytes(40 - len(payload))
+        payload.append(_RATE_UNSET)
+        payload += bytes(MXR_ONEIP_DSCP_SET | m for m in (video, audio, anc))
+        payload += bytes(_BASE_SIZE - len(payload))
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=_OPCODE, payload=bytes(payload))
+
+    @staticmethod
     def construct_settings(mxr:DeviceRegistry, target:Any, target_uid:MxrDeviceUid,
                            settings:OneIPDeviceSettings) -> FrameBase|None:
         '''Build the 0x3C write that changes a device's settings and nothing else.
@@ -458,6 +484,24 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         payload += bytes(_WITH_DOWNMIX_SIZE - len(payload))
         struct.pack_into('<IBBB', payload, _VALID_EXT_OFFSET, _SETTING_EXT_DOWNMIX,
                          int(downmix.mode), int(downmix.level), downmix.lfe)
+        return FrameBase.construct_base(target=target, mxr=mxr, opcode=_OPCODE, payload=bytes(payload))
+
+    @staticmethod
+    def construct_locale(mxr:DeviceRegistry, target:Any, target_uid:MxrDeviceUid,
+                         locale:int) -> FrameBase|None:
+        '''Build the 0x3C write that changes a device's locale and nothing else.
+
+        248 bytes, as construct_downmix() builds them, with the second valid
+        word carrying the locale alone and its number at 241.
+        '''
+        frame = FrameV2IPDeviceConfiguration.construct_settings(
+            mxr=mxr, target=target, target_uid=target_uid, settings=OneIPDeviceSettings())
+        if (frame is None):
+            return None
+        payload = bytearray(frame.payload or b"")
+        payload += bytes(_WITH_DOWNMIX_SIZE - len(payload))
+        struct.pack_into('<I', payload, _VALID_EXT_OFFSET, _SETTING_EXT_LOCALE)
+        payload[_LOCALE_AT] = locale
         return FrameBase.construct_base(target=target, mxr=mxr, opcode=_OPCODE, payload=bytes(payload))
 
     @staticmethod
@@ -638,6 +682,27 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         return OneIPDownmix(mode=_wire_enum(OneIPDownmixMode, mode), level=_wire_enum(OneIPDownmixLevel, level),
                             lfe=lfe, state=state, channels=channels)
 
+    @property
+    def carries_locale(self) -> bool:
+        '''Whether the frame is long enough to say whether it carries a locale.'''
+        return (self.payload is not None) and (len(self.payload) > _LOCALE_AT)
+
+    @cached_property
+    def locale(self) -> int|None:
+        '''The locale the frame carries by its number, None when it carries none:
+        in a frame too short to hold it, or without its bit of the second valid
+        word.
+
+        From the subject itself, None reports that its firmware has no locales;
+        from another sender it is a write.'''
+        if not self.carries_locale:
+            return None
+        p = self.payload or b""
+        valid_ext = struct.unpack_from('<I', p, _VALID_EXT_OFFSET)[0]
+        if not (valid_ext & _SETTING_EXT_LOCALE):
+            return None
+        return p[_LOCALE_AT]
+
     def process(self) -> None:
         '''Update the cache of the device this configuration names, not of its sender.'''
         if ((dev := self.subject_device) is None):
@@ -663,4 +728,5 @@ class FrameV2IPDeviceConfiguration(FrameBase):
         vlan_str = f" vlan=[{self.vlan}]" if (self.vlan is not None) else ""
         ptp_str = "" if (self.ptp is None) else \
             f" ptp=[{self.ptp}]" if (OneIPPtpFlag.VALID in self.ptp.flags) else " ptp=none"
-        return f"OneIP device configuration self={self.target_self} {self.video} {self.audio} {self.anc} {self.arc} options={self.options}{sink_str}{fpga_str}{settings_str}{vlan_str}{ptp_str}"
+        locale_str = f" locale={self.locale}" if (self.locale is not None) else ""
+        return f"OneIP device configuration self={self.target_self} {self.video} {self.audio} {self.anc} {self.arc} options={self.options}{sink_str}{fpga_str}{settings_str}{vlan_str}{ptp_str}{locale_str}"
