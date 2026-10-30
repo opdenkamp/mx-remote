@@ -109,4 +109,26 @@ refused(hello(uid(0x13), 0x2F, DeviceFeature.ONEIP_SOURCE).request_oneip_privacy
 refused(hello(uid(0x14), 0x30, DeviceFeature.ONEIP_SINK).request_oneip_privacy(), 'a unit that is not a source')
 print('refusals    : nothing a unit would ignore is sent')
 
+# ------------------------------------------------------------------- restarts
+# A kept report is dropped by a hello showing its sender may have restarted,
+# and by no other: a new boot brings a new key generator.
+from datetime import timedelta
+plain = DeviceFeature.ONEIP_SOURCE
+for what, features, silence in (('went offline', plain, 120),
+                                ('flipped its reboot toggle', plain | DeviceFeature.BOOT_BIT, 0),
+                                ('announced a reboot', plain | DeviceFeature.STATUS_REBOOTING, 0)):
+    dev = hello(uid(0x20), 0x30, plain)
+    rx(uid(0x20), 0x54, report(uid(0x20)))
+    hello(uid(0x20), 0x30, plain)
+    assert dev.oneip_privacy is not None, f'a plain hello dropped it ({what})'
+    seen = []
+    dev.register_callback(seen.append)
+    dev._last_ping -= timedelta(seconds=silence)
+    hello(uid(0x20), 0x30, features)
+    assert dev.oneip_privacy is None, f'kept after it {what}'
+    assert seen, f'dropped unannounced after it {what}'
+    dev.unregister_callback(seen.append)
+    hello(uid(0x20), 0x30, plain)
+print('restart     : a hello showing a possible restart drops the report')
+
 print('ALL OK')

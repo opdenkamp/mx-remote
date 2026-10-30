@@ -3727,7 +3727,11 @@ class DeviceBase(ABC):
     def oneip_privacy(self) -> OneIPPrivacy|None:
         '''How this OneIP source unit's streams are encrypted, as it last
         reported it, None until it has. It reports when that changes and at
-        least once a minute.'''
+        least once a minute.
+
+        A hello showing the unit may have restarted - it was offline, its
+        reboot toggle flipped, or it is about to reboot - sets this back to
+        None, since every boot brings a new key generator.'''
 
     @abstractmethod
     async def request_oneip_privacy(self) -> bool:

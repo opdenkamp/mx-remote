@@ -924,8 +924,24 @@ class Device(DeviceBase):
 			if isinstance(bay, Bay):
 				bay.adopt_pending_source(source)
 
+	def _may_have_restarted(self, hello_frame:FrameHello) -> bool:
+		'''Whether a hello shows the device may have restarted since it was
+		last heard: it was offline, its reboot toggle flipped, or it is about
+		to reboot.'''
+		before = self._hello.features or DeviceFeature(0)
+		now = hello_frame.features or DeviceFeature(0)
+		return (not self.online) \
+			or ((DeviceFeature.BOOT_BIT in before) != (DeviceFeature.BOOT_BIT in now)) \
+			or (DeviceFeature.STATUS_REBOOTING in now)
+
 	def _on_mxr_hello(self, hello_frame:FrameHello) -> None:
 		# received a new hello frame from this device. update local info
+		# A source unit's video processor picks a new key generator every boot,
+		# and the reports it sent while it could not be heard are lost, so what
+		# it reported before would decrypt its new streams as noise.
+		dropped = (self._v2ip_privacy is not None) and self._may_have_restarted(hello_frame)
+		if dropped:
+			self._v2ip_privacy = None
 		self._last_ping = datetime.now()
 		changed = (self._hello != hello_frame)
 		# A unit about to reboot says so in its hello, and what it said about
@@ -937,6 +953,8 @@ class Device(DeviceBase):
 		if changed:
 			# tell callbacks that this device changed
 			self.callbacks.on_device_config_changed(self)
+			self.call_callbacks()
+		elif dropped:
 			self.call_callbacks()
 
 	def _on_mxr_temperature(self, temperature_frame:SystemTemperature) -> None:

@@ -509,6 +509,11 @@ await mx.request_all_oneip_privacy()    # every source unit of the mesh
 print(source.oneip_privacy)   # None until the unit has reported
 ```
 
+The video processor picks a new key generator every boot, so a hello showing
+the unit may have restarted - it was offline, flipped its reboot toggle or is
+about to reboot - drops the report, and `oneip_privacy` reads None until the
+unit reports again.
+
 A request to a unit that is not a source, or that is below protocol 0x30, is
 refused before it is sent.
 
