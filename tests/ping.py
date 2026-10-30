@@ -41,12 +41,14 @@ def client():
     mx.transmit = lambda data, to=None: (sent.append(data), len(data))[1]
     return mx, sent
 
-# ---- answering: a ping for this client is answered at once, whoever sent it
+# ---- answering: a ping for this client from a known device is answered at once
+# A unit drops a ping from a sender it has not registered, as it does every
+# frame but a hello and a discover.
 mx, sent = client()
 peer = bytes(range(1, 17))
 mx.on_datagram_received(create_mxr_frame(peer, PING, OURS), ADDR)
-assert [opcode(f) for f in sent] == [HELLO], 'a ping from a stranger went unanswered'
-print('answer      : a stranger\'s ping for this client is answered with a hello')
+assert sent == [], 'a ping from a stranger was answered'
+print('answer      : a stranger\'s ping is dropped')
 
 mx.on_datagram_received(hello(peer, 0x2A, 'PR0002'), ADDR)
 sent.clear()
@@ -54,9 +56,13 @@ mx.on_datagram_received(create_mxr_frame(peer, PING, bytes(range(0x40, 0x50))), 
 assert sent == [], 'a ping for another device was answered'
 print('answer      : a ping for another device is not')
 
+# A unit answers a ping only at exactly the uid's 16 bytes.
+for payload in (OURS + b'\x00', OURS[:15]):
+    mx.on_datagram_received(create_mxr_frame(peer, PING, payload), ADDR)
+    assert sent == [], f'a {len(payload)}-byte ping was answered'
 mx.on_datagram_received(create_mxr_frame(peer, PING, OURS), ADDR)
 assert [opcode(f) for f in sent] == [HELLO], 'a known device\'s ping went unanswered'
-print('answer      : a known device\'s ping is answered')
+print('answer      : a known device\'s ping is answered, at its exact length only')
 
 # ---- sending: the ping names its device, and goes only to one on 0x2A or later
 mx, sent = client()

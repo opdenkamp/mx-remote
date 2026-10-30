@@ -611,7 +611,8 @@ apart from the unit it replaces:
 from mx_remote import MeshOperationMessage
 
 mx = mx_remote.Remote(mesh_device=True, serial='P9SN66660600', version='1.2.3')
-mx.set_mesh_controller(mx.uid)      # announce the controller role; None for none
+mx.set_mesh_controller(mx.uid)      # follow itself as controller; None for none
+mx.set_mesh_bays_mapped(True)       # the role is announced only with bays mapped
 await mx.send_mesh_operation(MeshOperationMessage.report_controller(mx.uid, priority=1, installer=0x1234))
 await mx.send_mesh_operation(MeshOperationMessage.register(unit.remote_id, mx.uid))
 await mx.send_oneip_source_list(sources)   # the mesh's whole source list
@@ -626,7 +627,10 @@ await unit.set_rc_settings(rc_target=RCType.CEC, ip=None, cec_enabled=True, cec_
 ```
 
 `set_mesh_controller()` changes only the announcement, at once: membership
-while there is a controller, and the controller role while it is this client.
+while there is a controller, and the controller role while it is this client
+and `set_mesh_bays_mapped()` says it has bays, as a unit announces it.
+`mx.features` is what the hello announces as of now. `send_oneip_detect_bays()`
+asks every unit to detect its bays, which current firmware ignores.
 Membership reports and the units that follow this client are the caller's to
 keep in step. A mesh device's writes reach a unit only while that unit follows
 it as its controller.

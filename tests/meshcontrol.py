@@ -132,8 +132,13 @@ assert me.mesh_controller == U(0x11)
 assert role(heard(me)) == (True, False), 'following another controller'
 me.sent.clear()
 me.set_mesh_controller(MxrDeviceUid(me._uid))
+assert role(heard(me)) == (True, False), 'the role was announced with no bays mapped'
+me.sent.clear()
+me.set_mesh_bays_mapped(True)
 assert role(heard(me)) == (True, True), 'taking the role was not announced'
 me.sent.clear()
+me.set_mesh_bays_mapped(True)
+assert not me.sent, 'unchanged bays were re-announced'
 me.set_mesh_controller(MxrDeviceUid(me._uid))
 assert not me.sent, 'an unchanged controller was re-announced'
 me.set_mesh_controller(None)

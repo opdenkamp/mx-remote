@@ -122,6 +122,8 @@ class Bay(BayBase):
         self._decoder_disabled = None
         self._encoder_disabled = None
         self._status_mask = data.status
+        # The status word the device last sent for the bay, by any report.
+        self._status_word:BayStatusMask|None = None
         self._audio_endpoint:AudioEndpoint|None = None
         self._v2ip_uid:MxrDeviceUid|None = None
         self._amp_settings:AmpZoneSettings|None = None
@@ -1322,10 +1324,16 @@ class Bay(BayBase):
     def features(self) -> BayFeaturesMask:
         return self._features
 
+    @property
+    @override
+    def status_word(self) -> BayStatusMask|None:
+        return self._status_word
+
     def _on_mxr_bay_status(self, data:BayStatusMask|None) -> None:
         if (data is None):
             #TODO
             return
+        self._status_word = data
         self.faulty = BayStatusMask.FAULT in data
         self.hidden = BayStatusMask.HIDDEN in data
         self.zone_powered = BayStatusMask.POWERED in data

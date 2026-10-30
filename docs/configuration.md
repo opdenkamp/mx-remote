@@ -55,6 +55,13 @@ discards everything the other sends, so give concurrent clients separate paths.
 
 A `DeviceBase` represents a physical device on the network (a Pulse-Eight neo matrix, OneIP unit, or ProAmp8 amplifier). Devices are automatically registered when they respond to discovery requests.
 
+The registry is kept as a unit keeps its own. Every frame from a live device
+keeps it alive, and only a hello brings back one gone silent. A device silent
+for three times the window that takes it offline is forgotten:
+`on_device_unregistered` fires, and a hello from it later registers it as a new
+device. `mx.device_tree` lists every device and this client as a unit lists
+them: depth first, each under the device whose topology report names it.
+
 ```python
 # look up a device by serial number or unique ID
 device = mx.get_by_serial("AB1234")
@@ -67,7 +74,14 @@ device.model_name      # model (e.g. "neo:8", "OneIP Transmitter")
 device.address         # IP address
 device.version         # firmware version
 device.online          # True if responding
+device.bays_online     # online, and its bays have arrived since it was heard,
+                       # rebooted or went offline, as a unit judges it
+device.multicast       # heard by multicast in the last two minutes; None on one endpoint
 device.status          # DeviceStatus enum (ONLINE, OFFLINE, REBOOTING, BOOTING, INACTIVE)
+device.raw_name        # name, version and serial as the bytes announced,
+device.raw_version     # never substituted or decoded
+device.raw_serial
+device.igmp_querier    # the IGMP querier its last uplink report names, or None
 device.features        # DeviceFeatures bitmask
 device.config_initialised  # False if the device broadcasts config blocks built from
                            # uninitialised memory; scaling, bay 0 addresses and the
@@ -115,6 +129,7 @@ bay.hidden           # hidden from UI
 bay.online           # device is online
 bay.features         # BayFeaturesMask
 bay.status           # DeviceStatus enum
+bay.status_word      # the whole BayStatusMask as last sent, or None
 
 # video/audio routing (output bays)
 bay.video_source              # currently selected video source bay

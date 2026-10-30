@@ -54,7 +54,7 @@ from ..proto.FrameFilterStatus import FrameFilterStatus
 from ..proto.FrameV2IPTiling import FrameV2IPTiling
 from ..proto.FrameRCSettings import FrameRCSettings
 from ..proto.FrameV2IPStats import FrameV2IPStats
-from ..proto.FrameNetworkStatus import NetworkPortStatus
+from ..proto.FrameNetworkStatus import NetworkPortStatus, NetworkPortStatusImpl
 from ..proto.FrameReboot import FrameReboot
 from ..proto.FramePing import FramePing
 from ..proto.FrameV2IPBayMapping import FrameV2IPBayMapping
@@ -159,6 +159,14 @@ PATH_WINDOW = 120.0
 '''How long a frame by one endpoint counts as proof that a device is heard by
 it, in seconds.'''
 
+FORGET_WINDOWS = 3
+'''How many offline windows of silence a device is forgotten after, as a unit
+forgets one.'''
+
+_UPLINK_REPORT_LEN = 144
+'''The length a unit requires of a network status report before it takes the
+IGMP querier from it.'''
+
 class Device(DeviceBase):
 	'''Remote device on the MX network (matrix, OneIP unit, or amplifier).'''
 
@@ -170,6 +178,11 @@ class Device(DeviceBase):
 		self._temperatures:SystemTemperature = SystemTemperature([])
 		self._link_config_received = False
 		self._bay_config_received = False
+		# Whether the device's bays have come into use, as a unit judges it: by
+		# a OneIP device's source list, or by any other device's primary bay
+		# list, since it registered, last announced a reboot or last went
+		# offline.
+		self._bays_arrived = False
 		self._last_ping = datetime.now()
 		# When a frame from this device last arrived by multicast, and by
 		# broadcast, as time.time().
@@ -224,6 +237,11 @@ class Device(DeviceBase):
 		self._sys_status:int|None = None
 		self._sys_message:str|None = None
 		self._topology:list[TopologyEntry]|None = None
+		# The last topology list as it arrived, padding included, which is
+		# what a unit compares the next one against.
+		self._topology_raw = b''
+		# The IGMP querier the last uplink report named, as a unit stores it.
+		self._igmp_querier:str|None = None
 		self._rebooting = False
 		self._multiviewer:MultiviewerImpl = MultiviewerImpl(device=self)
 		self._hello_received = time.time()
@@ -265,13 +283,64 @@ class Device(DeviceBase):
 		return self._registry
 
 	@property
+	def offline_window(self) -> int:
+		'''How long the device may stay silent before it counts as offline, in
+		seconds, which a unit sets by the protocol the device announces.'''
+		if (self.protocol >= MXR_PROTOCOL_VERSION_SLOW_HELLO):
+			return 60
+		if (self.protocol >= 0x20):
+			return 15
+		return 180
+
+	@property
 	def online(self) -> bool:
 		'''Check whether this device has pinged recently.'''
-		if (self.protocol >= MXR_PROTOCOL_VERSION_SLOW_HELLO):
-			return ((datetime.now() - self._last_ping).total_seconds() < 60)
-		if (self.protocol >= 0x20):
-			return ((datetime.now() - self._last_ping).total_seconds() < 15)
-		return ((datetime.now() - self._last_ping).total_seconds() < 180)
+		return ((datetime.now() - self._last_ping).total_seconds() < self.offline_window)
+
+	@property
+	def forgotten(self) -> bool:
+		'''Whether the device has been silent for FORGET_WINDOWS offline
+		windows, after which a unit forgets it.'''
+		return ((datetime.now() - self._last_ping).total_seconds() >= (self.offline_window * FORGET_WINDOWS))
+
+	def keep_alive(self) -> None:
+		'''Note a frame from the device: one still counted alive stays so,
+		whatever the frame carries. Once it has gone silent long enough to count
+		as offline, only a hello brings it back.'''
+		if self.online:
+			self._last_ping = datetime.now()
+
+	@property
+	@override
+	def bays_online(self) -> bool:
+		return self._bays_arrived and self.online
+
+	@property
+	@override
+	def multicast(self) -> bool|None:
+		if not getattr(self._registry, 'paths_known', False):
+			return None
+		return not self.broadcast_only(time.time())
+
+	@property
+	@override
+	def raw_name(self) -> bytes:
+		return self._hello.raw_device_name
+
+	@property
+	@override
+	def raw_version(self) -> bytes:
+		return self._hello.raw_version
+
+	@property
+	@override
+	def raw_serial(self) -> bytes:
+		return self._hello.raw_serial
+
+	@property
+	@override
+	def igmp_querier(self) -> str|None:
+		return self._igmp_querier
 
 	@property
 	def rebooting(self) -> bool:
@@ -338,6 +407,10 @@ class Device(DeviceBase):
 		return Endpoints.BROADCAST if self.broadcast_only(now) else Endpoints.MULTICAST
 
 	def check_online(self) -> None:
+		# A bay list from a device gone silent still brings its bays in, and
+		# the next pass takes them out again, as a unit's does.
+		if not self.online:
+			self._bays_arrived = False
 		if self.online != self._online:
 			self._online = not self._online
 			if not self._online:
@@ -350,6 +423,7 @@ class Device(DeviceBase):
 		unit does for one that went offline or rebooted.'''
 		self._have_config = False
 		self._bay_config_received = False
+		self._bays_arrived = False
 
 	@override
 	def note_link_config(self) -> None:
@@ -358,6 +432,22 @@ class Device(DeviceBase):
 			return
 		self._link_config_received = True
 		self._check_config_complete()
+
+	@override
+	def note_bays_listed(self) -> None:
+		'''Note a primary bay list holding a record. A unit takes a OneIP
+		device's bays as arrived with its source list instead.'''
+		if not self.is_oneip:
+			self._bays_arrived = True
+
+	def note_topology(self, raw:bytes) -> bool:
+		'''Record a topology list as it arrived, returning whether it differs
+		byte for byte from the last, which is when a unit reshapes its
+		registry by it.'''
+		if (raw == self._topology_raw):
+			return False
+		self._topology_raw = raw
+		return True
 
 	@override
 	def note_bay_config(self) -> None:
@@ -391,6 +481,10 @@ class Device(DeviceBase):
 		a promise about the set, so it decides only whether this frame is the
 		whole list - it never sizes the result.
 		'''
+		# Whatever it lists, as a unit takes it: a device that is not a OneIP
+		# one is not brought online by this frame.
+		if self.is_oneip:
+			self._bays_arrived = True
 		whole = (first == 0) and (len(page) == total)
 		if whole:
 			self._v2ip_source_pages.clear()
@@ -1057,11 +1151,6 @@ class Device(DeviceBase):
 			self.call_callbacks()
 
 	def _on_mxr_bay_config(self, data:BayConfig) -> None:
-		# A frame keeps a device that is still counted alive so, as a unit
-		# keeps it; once it has gone silent long enough to count as offline,
-		# only a hello brings it back.
-		if self.online:
-			self._last_ping = datetime.now()
 		# A record with an empty name describes no bay: a unit sends one, all
 		# zero, for an input it cannot number. So is a record for a OneIP bay
 		# standing for another unit: what it says about that unit's bay is never
@@ -1288,6 +1377,11 @@ class Device(DeviceBase):
 
 	def update_network_status(self, status:NetworkPortStatus) -> None:
 		self._network[status.port] = status
+		# A unit takes the querier from a whole uplink report of the current
+		# layout alone, and keeps it across the reports of its other ports.
+		if isinstance(status, NetworkPortStatusImpl) and (len(status.data) >= _UPLINK_REPORT_LEN) \
+				and status.features_status.port_uplink:
+			self._igmp_querier = status.querier
 		self.call_callbacks()
 
 	async def get_api(self, uri:str) -> dict[str, Any]|None:

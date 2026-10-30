@@ -34,8 +34,9 @@ class FramePing(FrameBase):
     def process(self) -> None:
         '''Hand a ping addressed to this client to the registry, which answers it.
 
-        A ping for another device asks nothing of this one.'''
-        if (self.target_uid is not None) and (self.target_uid == self.mxr.uid):
+        A ping for another device asks nothing of this one, and a unit takes
+        one only at exactly the uid's 16 bytes.'''
+        if (len(self.payload or b'') == 16) and (self.target_uid == self.mxr.uid):
             self.mxr.on_mxr_update(self)
 
     def __str__(self) -> str:

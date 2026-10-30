@@ -24,7 +24,8 @@ from datetime import datetime, timezone
 from .ConnectionAsync import ConnectionAsync
 from ..const import MXR_HELLO_INTERVAL_MIN, MXR_HELLO_INTERVAL_RAND, __version__
 from .Device import Device
-from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, OneIPStreamSources
+from .Tree import DeviceTree
+from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, OneIPStreamSources, DeviceTreeEntry
 from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat
 from ..proto.FrameDiscover import FrameDiscover, constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
@@ -39,8 +40,11 @@ from ..proto.FrameSetupStatus import FrameSetupStatus
 from ..proto.FrameV2IPSources import FrameV2IPSources, ONEIP_SOURCE_LIST_MAX
 from ..proto.FrameHello import CLIENT_SERIAL
 from ..proto.FrameBase import FrameBase
+from ..proto.FrameHeader import FrameHeader
 from ..proto.FrameTime import FrameTime
 from ..proto.FrameTimeZone import FrameTimeZone
+from ..proto.FrameTopology import FrameTopology
+from ..proto.FrameV2IPDetectBays import FrameV2IPDetectBays
 from ..proto.FrameV2IPPrivacy import FrameV2IPPrivacy
 from ..proto.FrameV2IPSettingsAll import FrameV2IPSettingsAll
 from ..proto.FrameV2IPOsdSync import FrameV2IPOsdSync
@@ -59,9 +63,18 @@ from ..const import MX_MCAST_UDP_IP, MX_MCAST_UDP_PORT
 _LOGGER = logging.getLogger(__name__)
 
 # The opcodes a device accepts from a sender it has no record of: the
-# announcement itself, and the requests for one - discover asks everyone, ping
-# asks one device.
-_ACCEPT_UNANNOUNCED = (0x00, 0x01, 0x4A)
+# announcement itself, and the discover asking for one. A unit drops a
+# stranger's ping.
+_ACCEPT_UNANNOUNCED = (0x00, 0x01)
+
+_OPCODE_LIMIT = 0x55
+'''The first opcode past a unit's table (MX_OP_NB). A frame at or above it has
+no valid header to a unit, which drops it before it keeps its sender alive or
+proves its path.'''
+
+_THIS_CLIENT = object()
+'''This client's place in the device tree, which holds it from the start, before
+its uid is known.'''
 
 _HELLO_BROADCAST = 30.0
 '''Longest a unit leaves its hello off the broadcast endpoint, in seconds.'''
@@ -176,10 +189,12 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._version = version if (version is not None) else __version__
         self._mesh_device = mesh_device
         self._mesh_controller:MxrDeviceUid|None = None
+        self._mesh_bays_mapped = False
         self._closing = False
         self._own_session = (http_session is None)
         self._callbacks = State(callbacks, http_session)
         self.remotes:dict[MxrDeviceUid,Device] = {}
+        self._tree = DeviceTree(_THIS_CLIENT)
         self._links = BayLinks(self)
         self._hello_due = 0.0
         self._probe_failures = 0
@@ -264,6 +279,12 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         return self._port if ((self._target_ip is not None) and (self._port is not None)) else MX_MCAST_UDP_PORT
 
     @property
+    def paths_known(self) -> bool:
+        '''Whether frames are told apart by the endpoint they arrived by, which
+        only a client running both endpoints can do.'''
+        return (self.conn is not None) and self.conn.is_dual
+
+    @property
     def multicast_fault(self) -> bool:
         '''Whether this client's own multicast fails: a peer, not about to
         reboot, is heard by broadcast but not by multicast. The hello announces
@@ -331,10 +352,10 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         none, and its own uid while it is the controller.
 
         The hello then announces mesh membership while there is one, and the
-        mesh controller role while it is this client. Only the announcement
-        changes: membership reports, and the units that follow this client, are
-        the caller's to keep in step. A change is announced at once rather than
-        at the next scheduled hello.
+        mesh controller role while it is this client and set_mesh_bays_mapped()
+        says it has bays. Only the announcement changes: membership reports, and
+        the units that follow this client, are the caller's to keep in step. A
+        change is announced at once rather than at the next scheduled hello.
         '''
         if (controller is not None):
             controller = MxrDeviceUid(controller)
@@ -344,6 +365,31 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             return
         self._mesh_controller = controller
         self.tx_hello()
+
+    @property
+    def mesh_bays_mapped(self) -> bool:
+        '''Whether the caller has mesh bays mapped, as set_mesh_bays_mapped()
+        last said.'''
+        return self._mesh_bays_mapped
+
+    def set_mesh_bays_mapped(self, mapped:bool) -> None:
+        '''Set whether the caller has mesh bays mapped: the inputs and outputs of
+        the units in its mesh, which a controller keeps.
+
+        A unit announces the mesh controller role only while it is its own
+        controller and has bays mapped, so a freshly promoted controller with
+        none does not, and neither does this client until this is set. A change
+        to what the hello announces goes out at once.'''
+        before = self.features
+        self._mesh_bays_mapped = mapped
+        if (self.features != before):
+            self.tx_hello()
+
+    @property
+    def features(self) -> DeviceFeature:
+        '''The features this client announces in its hello as of now, which is
+        what a peer lists it with.'''
+        return FrameHello.announced_features(self)
 
     @property
     def callbacks(self) -> MxrCallbacks:
@@ -459,6 +505,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                     self._reasked.pop(uid, None)
             elif device.online:
                 self._reask(uid)
+        self._forget_silent()
         if (len(self.remotes) == 0) and ((time.time() - self._discover_timeout) >= _DISCOVER_COVERS):
             self.tx_discover()
 
@@ -684,6 +731,15 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         reset of every unit does before it resets itself: 0x3A with the single
         byte 0xFF, to both endpoints. Otherwise as reboot_all().'''
         return self._send_to_all(FrameFactoryReset.construct_all(mxr=self))
+
+    async def send_oneip_detect_bays(self) -> bool:
+        '''Ask every unit to detect its bays, as a mesh controller's detect
+        does: 0x21 with no payload, to both endpoints. True when all of it was
+        written.
+
+        Current firmware takes the frame and does nothing with it; it still
+        counts as traffic from this client.'''
+        return self._send_to_all(FrameV2IPDetectBays.construct(mxr=self))
 
     def _send_to_all(self, frame:FrameBase|None) -> bool:
         '''Send a frame to every device, True when all of it was written.'''
@@ -913,14 +969,20 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
 
         path is the endpoint it arrived by, when two are open. A known sender
         is then recorded as heard by that path, which is what decides whether
-        frames must reach it by broadcast too, and that happens before the
-        duplicate check, so the copy that loses the race still proves its path.
-        A datagram repeating one received within _DUPLICATE_WINDOW is dropped.'''
+        frames must reach it by broadcast too. A frame from a known sender that
+        is still alive keeps it so, whatever it carries; once it has gone silent
+        long enough to count as offline, only a hello brings it back. Both
+        happen before the duplicate check, so the copy that loses the race still
+        proves its path, and neither for an opcode past a unit's table. A
+        datagram repeating one received within _DUPLICATE_WINDOW is dropped.'''
         proc = False
         self._state_request = None
         try:
             frame = process_mxr_frame(mxr=self, timestamp=timestamp, data=data, addr=addr)
-            if (frame is not None) and (frame.header.protocol > MXR_PROTOCOL_VERSION):
+            # An opcode this library decodes nothing of still has a header,
+            # which is what a unit keeps its sender alive by.
+            header:FrameHeader|None = frame.header if (frame is not None) else FrameHeader(self, data, addr)
+            if (header is not None) and (header.protocol > MXR_PROTOCOL_VERSION):
                 # The stamp is the version at which this opcode's payload last
                 # changed, not the sender's version. Above ours means this
                 # opcode's layout is newer than we know: the frames we would
@@ -930,21 +992,27 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 # A release raises the stamp only where a layout moved, so this
                 # silences those opcodes until the library is bumped, not the
                 # mesh.
-                _LOGGER.debug(f"rx {addr[0]}: opcode {frame.header.opcode:02X} needs protocol "
-                              f"{frame.header.protocol:02X}, this build knows {MXR_PROTOCOL_VERSION:02X}")
-                frame = None
-            if (frame is not None) and ((len(data) != 24 + frame.header.payload_len)
-                                        or (frame.header.protocol == _BROKEN_PROTOCOL)):
+                _LOGGER.debug(f"rx {addr[0]}: opcode {header.opcode:02X} needs protocol "
+                              f"{header.protocol:02X}, this build knows {MXR_PROTOCOL_VERSION:02X}")
+                frame = header = None
+            if (header is not None) and ((len(data) != 24 + header.payload_len)
+                                         or (header.protocol == _BROKEN_PROTOCOL)):
                 # A unit drops a datagram whose length is not the header's
                 # exactly, and a frame stamped with the version a broken
                 # revision once stamped.
-                _LOGGER.debug(f"rx {addr[0]}: opcode {frame.header.opcode:02X} dropped: {len(data)} bytes "
-                              f"declaring {frame.header.payload_len}, stamped {frame.header.protocol:02X}")
-                frame = None
-            if (frame is not None) and (frame.header.remote_id != self.uid) and (path is not None):
-                if ((known := self.remotes.get(frame.remote_id)) is not None):
-                    known.heard_on(path, timestamp)
-                if self._is_duplicate(data, timestamp):
+                _LOGGER.debug(f"rx {addr[0]}: opcode {header.opcode:02X} dropped: {len(data)} bytes "
+                              f"declaring {header.payload_len}, stamped {header.protocol:02X}")
+                frame = header = None
+            if (header is not None) and (header.remote_id != self.uid):
+                # An opcode past a unit's table is no valid header to it, so it
+                # touches neither; this client still hands an application's
+                # message on.
+                known = self.remotes.get(header.remote_id)
+                if (known is not None) and (header.opcode < _OPCODE_LIMIT):
+                    if (path is not None):
+                        known.heard_on(path, timestamp)
+                    known.keep_alive()
+                if (path is not None) and self._is_duplicate(data, timestamp):
                     frame = None
             if (frame is not None) and (frame.header.remote_id != self.uid):
                 # A device announces itself before it sends anything else, so a
@@ -952,9 +1020,10 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 # Decode and report it - this library is also used to watch the
                 # bus - but keep it out of the cache and the callbacks.
                 #
-                # Hello, discover and ping are exempt: the hello is what makes
-                # a sender known, so gating it leaves it unknown forever, and a
-                # discover or a ping is how a stranger asks to be told.
+                # Hello and discover are exempt: the hello is what makes a
+                # sender known, so gating it leaves it unknown forever, and a
+                # discover is how a stranger asks to be told. A unit drops a
+                # stranger's ping.
                 proc = (frame.remote_device is not None) \
                     or (frame.header.opcode in _ACCEPT_UNANNOUNCED)
                 if (self._addr_filter is None) or (addr[0] == self._addr_filter):
@@ -1115,6 +1184,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             self._answer_osd_request(data)
         elif isinstance(data, FrameHello):
             self._on_mxr_hello(data)
+        elif isinstance(data, FrameTopology):
+            self._on_mxr_topology(data)
         elif isinstance(data, (FramePing, FrameDiscover)):
             # Announcing is driven by a clock, and these are the frames that add
             # a hello to it. A device that pings hears nothing back within about
@@ -1129,7 +1200,47 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         if d is None:
             d = Device(self, hello_frame)
             self.remotes[hello_frame.remote_id] = d
+            self._tree.add(hello_frame.remote_id)
         d.on_mxr_update(hello_frame)
+
+    def _on_mxr_topology(self, frame:FrameTopology) -> None:
+        '''Reshape the device tree by a topology list, as a unit does with one
+        differing byte for byte from the sender's last.'''
+        if ((d := self.remotes.get(frame.remote_id)) is None) or not d.note_topology(frame.payload or b''):
+            return
+        self._tree.apply_topology(frame.remote_id, [self._tree_key(e.uid) for e in frame.topology])
+
+    def _tree_key(self, uid:MxrDeviceUid) -> object:
+        '''The key a device sits under in the tree, which for this client is
+        _THIS_CLIENT.'''
+        return _THIS_CLIENT if (uid == self.uid) else uid
+
+    @property
+    def device_tree(self) -> list[DeviceTreeEntry]:
+        '''Every device heard from and this client, as a unit keeps its
+        registry: a tree, walked depth first, a parent before its children.
+
+        This client heads the root, and each device joins the end of it when
+        first heard. A device another one's topology report lists moves to the
+        end of that one's children, unless it is below it already, and back to
+        the end of the root once a later report leaves it out. Only a report
+        differing byte for byte from that device's last reshapes the tree, and
+        only for devices registered by then; a device not registered is skipped.
+        A device the sender sits below, the sender itself included, stays where
+        it is. A forgotten device's children move to the end of its parent's.'''
+        return [DeviceTreeEntry(self.uid if (key is _THIS_CLIENT) else key, depth) # type: ignore[arg-type]
+                for key, depth in self._tree.walk()]
+
+    def _forget_silent(self) -> None:
+        '''Forget every device silent long enough for a unit to forget it, with
+        the links it reported. One heard again registers anew, at the end of
+        the root.'''
+        for uid in [uid for uid, d in self.remotes.items() if d.forgotten]:
+            device = self.remotes.pop(uid)
+            self._tree.remove(uid)
+            self._links.forget_device(uid)
+            self._reasked.pop(uid, None)
+            self.callbacks.on_device_unregistered(device)
 
 # The V2IP spelling of a Remote method, from before the rename to OneIP.
 from ..deprecated import alias_members as _alias_members

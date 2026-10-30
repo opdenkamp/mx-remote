@@ -38,10 +38,11 @@ def hello(mx, peer, features):
                                              + struct.pack('<I', int(features))), ADDR)
 
 def silence(mx, peer):
-    '''Move the last time peer was heard far enough back to count as offline.'''
+    '''Move the last time peer was heard far enough back to count as offline,
+    and not so far that it is forgotten.'''
     dev = mx.get_by_uid(mx_remote.MxrDeviceUid(peer))
-    dev._last_ping -= timedelta(seconds=600)
-    assert not dev.online
+    dev._last_ping -= timedelta(seconds=dev.offline_window + 1)
+    assert not dev.online and not dev.forgotten
 
 def discovers(sent):
     '''The discovers sent, as their payloads.'''

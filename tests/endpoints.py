@@ -87,13 +87,19 @@ dev = mx.get_by_uid(mx_remote.MxrDeviceUid(PEER))
 assert dev is not None
 assert dev._heard_multicast is None, 'a device was recorded heard by the hello that made it known'
 
+# A monitoring pulse proves a path, as every frame in a unit's opcode table
+# does; the application's message past it proves none, but shows what is acted on.
+pulse = create_mxr_frame(PEER, 0x2B, b'')
+mx.process_frame(1000.5, pulse, ADDR, M)
+assert dev._heard_multicast == 1000.5
+mx.process_frame(1000.51, pulse, ADDR, B)
+assert dev._heard_broadcast == 1000.51, 'the second copy did not prove its path'
+
 data = message(PEER, 1)
 mx.process_frame(1001.0, data, ADDR, M)
 assert len(seen.messages) == 1, seen.messages
-assert dev._heard_multicast == 1001.0
 mx.process_frame(1001.01, data, ADDR, B)
 assert len(seen.messages) == 1, 'the second copy was acted on'
-assert dev._heard_broadcast == 1001.01, 'the second copy did not prove its path'
 mx.process_frame(1001.15, data, ADDR, M)
 assert len(seen.messages) == 2, 'a repeat after 100 ms was dropped'
 mx.process_frame(1001.15, data, ADDR, None)

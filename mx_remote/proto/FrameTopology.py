@@ -50,8 +50,13 @@ class FrameTopology(FrameBase):
         return rv
 
     def process(self) -> None:
-        '''Update the local device cache with topology data.'''
+        '''Update the local device cache with topology data.
+
+        A unit takes whole entries only, and none from a ragged list.'''
+        if (len(self.payload or b'') % _ENTRY_SIZE != 0):
+            return
         if ((dev := self.remote_device) is not None):
+            self.mxr.on_mxr_update(self)
             dev.on_mxr_update(self)
 
     def __str__(self) -> str:

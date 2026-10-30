@@ -53,6 +53,8 @@ class FrameBayConfig(FrameBase):
         for bayconfig in self.bays:
             _LOGGER.debug(f"process {bayconfig}")
             dev.on_mxr_update(bayconfig)
+        if (len(self.bays) > 0):
+            dev.note_bays_listed()
         dev.note_bay_config()
 
     def __str__(self) -> str:

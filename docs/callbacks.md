@@ -41,6 +41,7 @@ Available callback methods:
 | `on_device_config_changed` | device configuration updated |
 | `on_device_config_complete` | all device configuration received |
 | `on_device_online_status_changed` | device went online/offline |
+| `on_device_unregistered` | device forgotten after three offline windows of silence |
 | `on_device_temperature_changed` | temperature readings changed |
 | `on_bay_registered` | new bay discovered |
 | `on_video_source_changed` | video routing changed |

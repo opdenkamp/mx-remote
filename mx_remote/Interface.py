@@ -33,7 +33,7 @@ from .proto.Multiviewer import (
 	MultiviewerHDCPMode,
 )
 from .proto.Svd import SvdMap, lookup_svd
-from typing import Any, Callable
+from typing import Any, Callable, NamedTuple
 from .Uid import MxrDeviceUid, MxrBayUid
 
 _LOGGER = logging.getLogger(__name__)
@@ -951,6 +951,14 @@ class DeviceList(list[MxrDeviceUid]):
 class FilteredDevices(DeviceList):
     ''' list of filtered devices '''
 
+class DeviceTreeEntry(NamedTuple):
+    '''One device's place in the tree a unit lists its registry as.'''
+    uid: MxrDeviceUid
+    '''The device, or this client itself.'''
+    depth: int
+    '''How deep it sits: zero at the root, one under a device whose topology
+    report listed it, and so on.'''
+
 @dataclass(frozen=True)
 class BayContentField:
     '''One thing an input's source is showing, such as its channel name.
@@ -1200,6 +1208,14 @@ class BayBase(ABC):
     @abstractmethod
     def faulty(self) -> bool:
         '''True if a fault was detected'''
+
+    @property
+    @abstractmethod
+    def status_word(self) -> BayStatusMask|None:
+        '''The bay's whole status word as the device last sent it, in its bay
+        list, a status report or a signal report; None before any. It carries
+        what no other property does, such as ENCODER_ERROR and the source's
+        HDCP mode (bay_status_hdcp()).'''
 
     @property
     @abstractmethod
@@ -3275,6 +3291,32 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
+    def raw_name(self) -> bytes:
+        '''The name exactly as the device announced it: the bytes of its
+        hello's name field up to the first NUL, or all sixteen when the name
+        fills the field. Never substituted or decoded, as name is.'''
+
+    @property
+    @abstractmethod
+    def raw_version(self) -> bytes:
+        '''The firmware version exactly as the device announced it, read as
+        raw_name is.'''
+
+    @property
+    @abstractmethod
+    def raw_serial(self) -> bytes:
+        '''The serial exactly as the device announced it, read as raw_name
+        is.'''
+
+    @property
+    @abstractmethod
+    def igmp_querier(self) -> str|None:
+        '''The IGMP querier the device's last uplink report names, as a unit
+        stores it; None while it names none, its report does not support IGMP,
+        or it has sent no uplink report of the current layout (protocol 0x22).'''
+
+    @property
+    @abstractmethod
     def bays(self) -> dict[int, BayBase]:
         '''device inputs and outputs'''
 
@@ -3312,6 +3354,30 @@ class DeviceBase(ABC):
     @abstractmethod
     def online(self) -> bool:
         '''True if online'''
+
+    @property
+    @abstractmethod
+    def bays_online(self) -> bool:
+        '''Whether the device is online as a unit judges it: it is online, and
+        its bays have arrived since it was first heard, last announced a reboot
+        or last went offline. A OneIP device's bays arrive with its source list,
+        and any other device's with its primary bay list. Until then a unit uses
+        none of the device's bays, links or routes.'''
+
+    @property
+    @abstractmethod
+    def multicast(self) -> bool|None:
+        '''Whether a frame from the device arrived by multicast within the last
+        two minutes, which is what a unit means by reaching it by multicast.
+
+        A unit judges that by the frame's destination hardware address. A UDP
+        socket here does not report the address a datagram was sent to, so the
+        endpoint that took it stands in: a frame sent to this host's own
+        address on the discovery port counts as multicast. Every frame with a
+        valid header counts, the second copy of one sent to both endpoints and
+        one from a device gone silent included, but not the frame that
+        registered the device, as on a unit. None unless this client runs both
+        endpoints.'''
 
     @property
     @abstractmethod
@@ -3667,6 +3733,11 @@ class DeviceBase(ABC):
     @abstractmethod
     def note_bay_config(self) -> None:
         '''internal callback: the primary bay configuration was received'''
+
+    @abstractmethod
+    def note_bays_listed(self) -> None:
+        '''internal callback: a page of the primary bay configuration holding a
+        record was received'''
 
     @abstractmethod
     async def get_api(self, uri:str) -> dict[str, Any]|None:
@@ -4241,6 +4312,10 @@ class BayLinks:
             return self._links[bay.bay_uid]
         return None
 
+    def forget_device(self, device:MxrDeviceUid) -> None:
+        '''Drop every link reported for a bay of device.'''
+        self._links = {key: link for key, link in self._links.items() if (key.device != device)}
+
 class DeviceRegistry(ABC):
     ''' all mx_remote devices on the network '''
 
@@ -4380,6 +4455,13 @@ class MxrCallbacks:
         ''' called when the online status of 'dev' changed '''
         _LOGGER.debug(f"{dev} online status changed to {online}")
         self.on_device_update(dev)
+
+    def on_device_unregistered(self, dev:DeviceBase) -> None:
+        ''' called when 'dev' was forgotten, as a unit forgets one: nothing was
+        heard from it for three times the silence that takes it offline. It is
+        no longer in the registry, and a hello from it later registers it as a
+        new device. '''
+        _LOGGER.debug(f"{dev} unregistered")
 
     def on_bay_registered(self, bay:BayBase) -> None:
         ''' called when a new bay was registered by mx_remote '''

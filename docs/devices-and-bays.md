@@ -20,7 +20,8 @@ result = await device.get_api("system/status")
 
 A device on protocol 0x2A pings a peer it suspects is gone and takes it
 offline when nothing answers within about 1.5s. The client answers a ping
-addressed to it with a hello at once, from any sender.
+addressed to it with a hello at once, from a device it has heard, as a unit
+does.
 
 ## Bay Naming
 
