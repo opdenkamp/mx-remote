@@ -180,6 +180,42 @@ class ConnectStatus(IntEnum):
     def __repr__(self) -> str:
         return str(self)
 
+@dataclass(frozen=True)
+class P8ModelInfo:
+    """A Pulse-Eight device a unit reports connected to one of its bays, from
+    the long form of its connect frame."""
+    vendor: str
+    """The device's vendor name."""
+    model: str
+    """The device's model name."""
+    board_rev: int
+    """The device's board revision."""
+    serial: str
+    """The device's serial."""
+    version: str
+    """The device's firmware version."""
+    remote_mode: int
+    """The mode of the bay on the device: -1 unknown, 0 input, 1 output."""
+    remote_bay: int
+    """The bay's number on the device."""
+    loopback: bool
+    """Whether the bay connects back to the reporting unit itself."""
+    hdmi: bool
+    """Whether the device is connected over HDMI rather than through mx_remote."""
+    ip: str
+    """The device's address, 0.0.0.0 while unknown."""
+    mask: str
+    """The device's netmask."""
+    gateway: str
+    """The device's gateway."""
+
+@dataclass(frozen=True)
+class ConnectReport:
+    """A connect frame: the bay's status, and the Pulse-Eight device its long
+    form names, None for a short or disconnecting one."""
+    status: ConnectStatus
+    device: P8ModelInfo|None
+
 class VideoColourSpace(IntEnum):
     '''Video colour space encoding format.'''
     RGB = 0
@@ -211,18 +247,29 @@ class VideoSignalDetails:
     ``bpp`` is a bit depth in both cases, not a wire index. None means no format
     is set; 0 means one is set whose depth is not known, and those are different
     answers.
+
+    A report also carries what ``signal_type`` is written from, so a caller can
+    name the signal its own way: the active size, and whether the stream is
+    interlaced or carries HDR. The snapshot carries none of them, and leaves
+    them None.
     """
     def __init__(self, svd:int|None, colour:VideoColourSpace|None, bpp:int|None,
-                 non_int:bool|None, from_report:bool) -> None:
+                 non_int:bool|None, from_report:bool, width:int|None=None, height:int|None=None,
+                 interlaced:bool|None=None, hdr:bool|None=None) -> None:
         self._svd = svd
         self._colour = colour
         self._bpp = bpp
         self._non_int = non_int
         self._from_report = from_report
+        self._width = width
+        self._height = height
+        self._interlaced = interlaced
+        self._hdr = hdr
 
     @property
     def svd(self) -> int|None:
-        '''CTA-861 short video descriptor, or None when no format is set.'''
+        '''CTA-861 short video descriptor, or None when no format is set. A
+        report of a valid stream whose mode names none carries 0.'''
         return self._svd
 
     @property
@@ -245,14 +292,38 @@ class VideoSignalDetails:
         '''True when this came from a signal status report rather than the bay config snapshot.'''
         return self._from_report
 
+    @property
+    def width(self) -> int|None:
+        '''Active width: the mode's, or the measured one for a stream whose
+        mode the CTA table lacks. None from the bay config snapshot.'''
+        return self._width
+
+    @property
+    def height(self) -> int|None:
+        '''Active height, as width.'''
+        return self._height
+
+    @property
+    def interlaced(self) -> bool|None:
+        '''True for an interlaced stream. None from the bay config snapshot.'''
+        return self._interlaced
+
+    @property
+    def hdr(self) -> bool|None:
+        '''True for a stream carrying HDR. None from the bay config snapshot.'''
+        return self._hdr
+
+    def _key(self) -> tuple[Any, ...]:
+        return (self._svd, self._colour, self._bpp, self._non_int,
+                self._width, self._height, self._interlaced, self._hdr)
+
     def __eq__(self, other:Any) -> bool:
         if not isinstance(other, VideoSignalDetails):
             return NotImplemented
-        return (self._svd == other._svd) and (self._colour == other._colour) \
-            and (self._bpp == other._bpp) and (self._non_int == other._non_int)
+        return self._key() == other._key()
 
     def __hash__(self) -> int:
-        return hash((self._svd, self._colour, self._bpp, self._non_int))
+        return hash(self._key())
 
     def __str__(self) -> str:
         if self._svd is None:
@@ -1263,6 +1334,13 @@ class BayBase(ABC):
     @abstractmethod
     def hpd_detected(self) -> bool:
         '''Hotplug detected'''
+
+    @property
+    @abstractmethod
+    def p8_device(self) -> P8ModelInfo|None:
+        '''The Pulse-Eight device the unit last reported connected to this bay,
+        from the long form of its connect frame; None after a short or
+        disconnecting one'''
 
     @property
     @abstractmethod

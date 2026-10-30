@@ -71,6 +71,32 @@ cleans it, so it reads as the unit's own API shows it. The content outlives the
 signal, so check `signal_detected` before showing it. `on_bay_content_changed`
 reports a change, and an empty `content` is a source showing nothing.
 
+## Signal and Connected Device
+
+`signal_type` is a description written for display. `video_details` holds the
+parts it is written from, so a caller can name the signal its own way:
+
+```python
+d = bay.video_details
+if d is not None and d.from_report:
+    print(d.width, d.height, d.colour, d.bpp, d.interlaced, d.hdr)
+```
+
+A signal status report carries all of them for a valid stream, with `svd` 0 and
+the measured size for a stream whose mode the CTA table lacks. The bay config
+snapshot, which `video_details` falls back to, carries no size or flags, and
+leaves them None.
+
+A unit reports the Pulse-Eight device connected to a bay, such as an amplifier
+on a matrix output, in the long form of its connect frame:
+
+```python
+if (p8 := bay.p8_device) is not None:
+    print(p8.model, p8.serial, p8.version, p8.ip)
+```
+
+It is None after a short or a disconnecting connect frame.
+
 ## Mesh Bays
 
 A OneIP unit lists the inputs and outputs of the other units in its mesh as

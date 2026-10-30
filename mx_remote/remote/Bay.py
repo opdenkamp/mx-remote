@@ -40,6 +40,8 @@ from ..Interface import (
     PowerStatus,
     SignalStatus,
     ConnectStatus,
+    ConnectReport,
+    P8ModelInfo,
     FilteredDevices,
     HiddenStatus,
     BayMirrorStatus,
@@ -114,6 +116,7 @@ class Bay(BayBase):
         self._video_details:VideoSignalDetails|None = None
         self._signal_snapshot:MxrSignalType|None = None
         self._hpd_detected = None
+        self._p8_device:P8ModelInfo|None = None
         self._cec_detected = None
         self._arc = self.ARC_NONE
         self._audio_volume = None
@@ -848,6 +851,14 @@ class Bay(BayBase):
             self.call_callbacks()
 
     @property
+    @override
+    def p8_device(self) -> P8ModelInfo|None:
+        '''The Pulse-Eight device the unit last reported connected to this bay.'''
+        if ((owner := self.mesh_owner) is not None):
+            return owner.p8_device
+        return self._p8_device
+
+    @property
     def cec_detected(self) -> bool:
         '''CEC capable device detected.'''
         if ((owner := self.mesh_owner) is not None):
@@ -1492,6 +1503,11 @@ class Bay(BayBase):
         elif isinstance(data, RCKey):
             self.callbacks.on_key_pressed(self, data)
             self.call_callbacks()
+        elif isinstance(data, ConnectReport):
+            self.on_mxr_update(data.status)
+            if (self._p8_device != data.device):
+                self._p8_device = data.device
+                self.call_callbacks()
         elif isinstance(data, ConnectStatus):
             if self.is_input:
                 self.signal_detected = (data == ConnectStatus.CONNECTED)

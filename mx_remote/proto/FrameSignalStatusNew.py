@@ -99,6 +99,11 @@ class SignalStatusAvDetailsVideo:
         self._data = data
 
     @property
+    def svd_id(self) -> int:
+        '''The stream's video mode id as sent, 0 when it names none.'''
+        return self._data[0]
+
+    @property
     def svd(self) -> Svd|None:
         '''The CTA mode, None for a stream whose mode the table lacks.'''
         return self._svd.svd.get(self._data[0]) if self._data[0] != 0 else None
@@ -333,20 +338,25 @@ class FrameSignalStatusNew(FrameBase):
         else:
             if ((svd := self.video.svd) is not None):
                 width, height = svd.horizontal_active, svd.vertical_active
-                details = VideoSignalDetails(
-                    svd=svd.id,
-                    colour=self.video.colour_space,
-                    bpp=self.video.colour_depth,
-                    non_int=(self.stream_flags is not None) and self.stream_flags.video_non_int_clock,
-                    from_report=True)
             else:
                 width, height = self.payload_u16(_VSYNC_H_ACTIVE), self.payload_u16(_VSYNC_V_ACTIVE)
+            flags = self.stream_flags
+            interlaced = (flags is not None) and flags.video_interlaced
+            hdr = (flags is not None) and flags.video_hdr
+            # the parts signal_type is written from, so a caller can name the
+            # signal its own way
+            details = VideoSignalDetails(
+                svd=self.video.svd_id,
+                colour=self.video.colour_space,
+                bpp=self.video.colour_depth,
+                non_int=(flags is not None) and flags.video_non_int_clock,
+                from_report=True,
+                width=width, height=height, interlaced=interlaced, hdr=hdr)
             signal_type = f'{width}x{height} / {self.video.colour_space} / {self.video.colour_depth}bpp'
-            if (self.stream_flags is not None):
-                if self.stream_flags.video_interlaced:
-                    signal_type += ' interlaced'
-                if self.stream_flags.video_hdr:
-                    signal_type += ' HDR'
+            if interlaced:
+                signal_type += ' interlaced'
+            if hdr:
+                signal_type += ' HDR'
             signal_type += f' / {self.frame_rate}Hz'
         # A unit applies the status word as it does a bay configuration's, and
         # that is what says whether a signal is detected.
