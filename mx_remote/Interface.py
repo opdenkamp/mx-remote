@@ -1401,7 +1401,8 @@ class BayBase(ABC):
 
     @abstractmethod
     async def set_name(self, name:str) -> bool:
-        '''change the name of abay'''
+        '''change the name of a bay; an empty name asks its unit to reset it to
+        its default, which the bay takes once the unit reports it'''
 
     @abstractmethod
     async def tx_action(self, action:RCAction) -> bool:

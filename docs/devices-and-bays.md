@@ -27,7 +27,12 @@ does.
 
 ```python
 await bay.set_name("Living Room TV")
+await bay.set_name("")     # back to the default name the unit picks
 ```
+
+An empty name asks the unit to reset the bay to its default. The unit picks
+that name itself, so the bay keeps its current name until the unit reports the
+new one in its next bay list.
 
 ## Bay Visibility
 

@@ -195,4 +195,16 @@ print('guarded commands checked both ways:', len(COMMANDS))
 
 print('frames handed to the wire:', len(sent))
 assert len(sent) >= 9 + 2 * len(COMMANDS)
+
+# An empty name asks the unit for the bay's default, which only the unit's next
+# bay list names: the bay keeps its name until then.
+wire(True)
+sent.clear()
+assert asyncio.run(out.set_name('')) is True
+assert sent and (sent[-1][24 + 18:24 + 34] == bytes(16)), 'the empty name was not sent'
+assert out.user_name == 'Renamed', 'renamed at once'
+rx(0x02, bay(1, 1, 0, 'Out 1')[:21] + name('Samsung TV') + bay(1, 1, 0, 'Out 1')[37:])
+assert out.user_name == 'Samsung TV', out.user_name
+print('set_name    : an empty name is sent, and waits for the unit to report the default')
+
 print('ALL OK')

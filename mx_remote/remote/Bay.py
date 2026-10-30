@@ -1154,7 +1154,11 @@ class Bay(BayBase):
 
     @override
     async def set_name(self, name:str) -> bool:
-        '''Set the user-defined name for this bay.'''
+        '''Set the user-defined name for this bay.
+
+        An empty name asks the unit to reset the bay to its default name. The
+        unit picks that name itself and reports it in its next bay list, so the
+        bay keeps its current name here until then.'''
         if self.is_oneip_remote:
             owner = self._acted_on('a rename')
             return (await owner.set_name(name)) if (owner is not None) else False
@@ -1162,7 +1166,8 @@ class Bay(BayBase):
         if frame is not None:
             if self.device.registry.transmit(frame.frame) != len(frame.frame):
                 return False
-            self.user_name = stored_name(name)
+            if (stored_name(name) != ''):
+                self.user_name = stored_name(name)
             return True
         return False
 
