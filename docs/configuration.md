@@ -6,20 +6,17 @@ Opening a connection and keeping it in step with the mesh.
 
 ### Remote
 
-`Remote` is the main entry point. It manages the UDP connection (multicast or broadcast), handles device discovery, and maintains a registry of all discovered devices.
+`Remote` is the main entry point. It manages the UDP connection, handles device discovery, and maintains a registry of all discovered devices.
 
 ```python
-# default: multicast on 224.8.8.8:8812
+# both endpoints a unit has: the group 224.8.8.8:8812 and the subnet broadcast on 8811
 mx = mx_remote.Remote()
-
-# use broadcast instead
-mx = mx_remote.Remote(broadcast=True)
 
 # bind to a specific network interface
 mx = mx_remote.Remote(local_ip="192.168.1.100")
 
-# custom target address and port
-mx = mx_remote.Remote(target_ip="10.8.8.255", port=8811)
+# tests and development only: one endpoint on a scratch address in place of both
+mx = mx_remote.Remote(target_ip="239.255.77.90", port=18890)
 
 # offline mode for processing capture files
 mx = mx_remote.Remote(open_connection=False)
@@ -30,6 +27,24 @@ mx = mx_remote.Remote(uid_path="/var/lib/myapp/.mxr-uid")
 # a mesh device that can take the controller role, under its own serial and version
 mx = mx_remote.Remote(mesh_device=True, serial="P9SN66660600", version="1.2.3")
 ```
+
+Each frame leaves by the endpoints a unit picks for it:
+
+- a frame for every unit at once goes to both: a discover, reboot or factory
+  reset of every unit, the monitoring pulse, bay detection and the video
+  processor upgrade;
+- the hello goes to both when it is the first since the sockets opened, or the
+  last one there went 30 s ago or more;
+- a frame meant for one device alone, such as a ping or a remote-control
+  action, goes by the endpoint that device is heard by;
+- every other frame goes to the group, and to the broadcast address as well
+  while some peer has not been heard by multicast for two minutes or reports
+  that its multicast fails.
+
+A peer heard only by broadcast in that time has this client announce
+`DeviceFeature.STATUS_MCAST_FAULT` itself, at once. A datagram arriving by both
+endpoints within 100 ms is acted on once. `broadcast=` is deprecated and
+ignored.
 
 The uid at `uid_path` (default `~/.mxr-uid`) is this client's identity on the mesh:
 addressing is by uid in the payload, and a frame carrying our own uid is dropped as
@@ -122,10 +137,7 @@ Update connection settings at runtime:
 
 ```python
 await mx.update_config(
-    target_ip="10.8.8.255",
-    port=8811,
     local_ip="192.168.1.100",
-    broadcast=True,
     callbacks=MyCallbacks(),
     name="My Application",
 )

@@ -12,6 +12,7 @@ It addresses them as a reboot does: see manage_target().
 
 from functools import cached_property
 from .FrameBase import FrameBase
+from ..Interface import DeviceRegistry
 from ..Uid import MxrDeviceUid
 
 _MANAGE_ALL = 0xFF
@@ -32,6 +33,12 @@ def manage_target(frame:FrameBase) -> tuple[bool, MxrDeviceUid|None]|None:
 
 class FrameFactoryReset(FrameBase):
     '''Factory reset request.'''
+
+    @staticmethod
+    def construct_all(mxr:DeviceRegistry) -> FrameBase|None:
+        '''Build a factory reset of every unit: the single byte 0xFF, as a
+        unit's own factory reset of every unit sends it.'''
+        return FrameBase.construct_base(mxr=mxr, opcode=0x3A, payload=bytes([_MANAGE_ALL]))
 
     @cached_property
     def is_broadcast_all(self) -> bool:

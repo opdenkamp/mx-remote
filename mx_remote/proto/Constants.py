@@ -275,6 +275,14 @@ class DeviceFeature(IntFlag):
 	BOOT_BIT           = (1 << 31)
 	'''Flips on every reboot, so a peer that sees it change knows the device restarted.'''
 
+class Endpoints(IntFlag):
+	'''The endpoints of a unit: the discovery group 224.8.8.8 on 8812, and the
+	subnet broadcast address on 8811. A frame arrives by one of them and leaves
+	by one or both.'''
+	MULTICAST = (1 << 0)
+	BROADCAST = (1 << 1)
+	BOTH      = MULTICAST | BROADCAST
+
 class OneIPVideoProcessorFeature(IntFlag):
 	'''What a OneIP device's video processor supports, as the device reports it in
 	its configuration.

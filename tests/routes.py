@@ -32,7 +32,7 @@ seen = Watching()
 mx = mx_remote.Remote(open_connection=False, callbacks=seen)
 mx._uid = bytes(range(0x20, 0x30))
 sent = []
-mx.transmit = lambda data: (sent.append(bytes(data)), len(data))[1]
+mx.transmit = lambda data, to=None: (sent.append(bytes(data)), len(data))[1]
 
 def call(coro):
     return asyncio.run(coro)

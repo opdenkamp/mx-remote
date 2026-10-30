@@ -61,6 +61,11 @@ class FrameHello(FrameBase):
         # for a new sync to it.
         if getattr(mxr, 'osd_sync_held', False):
             features |= DeviceFeature.OSD_SYNC
+        # A peer heard by broadcast but not by multicast shows this client's
+        # multicast fails, which a unit announces so its peers reach it by
+        # broadcast too.
+        if getattr(mxr, 'multicast_fault', False):
+            features |= DeviceFeature.STATUS_MCAST_FAULT
         payload += [ (features >> 0) & 0xFF, (features >> 8) & 0xFF, (features >> 16) & 0xFF, (features >> 24) & 0xFF ]
         return FrameBase.construct_base(mxr=mxr, opcode=0, payload=bytes(payload))
 

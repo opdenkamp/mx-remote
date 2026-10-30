@@ -33,7 +33,7 @@ def name(s, sz=16):
 mx = mx_remote.Remote(open_connection=False)
 mx._uid = bytes(range(0x20, 0x30))
 sent = []
-mx.transmit = lambda data: (sent.append(data), len(data))[1]
+mx.transmit = lambda data, to=None: (sent.append(data), len(data))[1]
 
 def rx(opcode, payload, protocol=0x2A):
     frame = bytearray(create_mxr_frame(CTRL, opcode, payload))
@@ -218,9 +218,9 @@ assert p[20:] == bytes(20), 'the parameter and padding'
 refused(old.auto_assign_oneip_source_addresses(), 'a source below 0x2B, which ignores the operation')
 refused(sink_only.auto_assign_oneip_source_addresses(), 'a device that is not a source')
 
-mx.transmit = lambda data: 0
+mx.transmit = lambda data, to=None: 0
 assert call(src.auto_assign_oneip_source_addresses()) is False, 'a failed send reported success'
-mx.transmit = lambda data: (sent.append(data), len(data))[1]
+mx.transmit = lambda data, to=None: (sent.append(data), len(data))[1]
 print('auto addrs  : mesh operation 6 to a source on 0x2B; anything else is refused')
 
 print('ALL OK')

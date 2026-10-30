@@ -61,6 +61,7 @@ SUITES = [
     'privacy',      # how a OneIP source unit encrypts its streams
     'thirdparty',   # applications' own messages, sent and received
     'meshcontrol',  # the mesh controller role and what a controller sends
+    'endpoints',    # both endpoints a unit has, and each frame's endpoints
     'baycontent',   # what the source on an input is showing
     'osdsync',      # overlay sync, watched and sent
     'osdmessage',   # the message on a unit's output, read and written

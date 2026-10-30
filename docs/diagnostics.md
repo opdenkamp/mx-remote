@@ -21,7 +21,7 @@ for port_id, port_status in device.network_status.items():
 The `mxr` console application is installed with the package. It discovers devices and logs all received frames in human-readable form.
 
 ```
-usage: mxr [-h] [-i INPUT] [-f FILTER] [-o OUTPUT] [-l LOCAL_IP] [-b]
+usage: mxr [-h] [-i INPUT] [-f FILTER] [-o OUTPUT] [-l LOCAL_IP]
 
 MX Remote Manager / Debugger
 
@@ -31,8 +31,10 @@ options:
   -f FILTER     only log frames from this ip address
   -o OUTPUT     write output to a file
   -l LOCAL_IP   local ip address of the network interface to use
-  -b            use broadcast mode instead of multicast
 ```
+
+`mxr` always runs both endpoints a unit has, the multicast group and the subnet
+broadcast. `-b` is still accepted, and ignored.
 
 ### Examples
 
@@ -42,9 +44,6 @@ mxr
 
 # bind to a specific network interface
 mxr -l 192.168.1.100
-
-# use broadcast mode
-mxr -b
 
 # log output to a file
 mxr -o /path/to/output.txt

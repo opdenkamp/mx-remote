@@ -32,7 +32,7 @@ seen = Listening()
 mx = mx_remote.Remote(open_connection=False, callbacks=seen)
 mx._uid = OURS
 sent = []
-mx.transmit = lambda data: (sent.append(bytes(data)), len(data))[1]
+mx.transmit = lambda data, to=None: (sent.append(bytes(data)), len(data))[1]
 
 def uid(n):
     return bytes([n]) * 16

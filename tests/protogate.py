@@ -62,7 +62,7 @@ def probes(dev, bay):
 def check(protocol, expect, uid):
     mx = mx_remote.Remote(open_connection=False)
     mx._uid = bytes(range(0x20, 0x30))
-    mx.transmit = lambda data: len(data)          # a wire that always writes fully
+    mx.transmit = lambda data, to=None: len(data)          # a wire that always writes fully
     dev = device(mx, uid, protocol)
     bay = dev.get_by_portnum(0)
     got = {k: fn() for k, fn in probes(dev, bay).items()}

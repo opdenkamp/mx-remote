@@ -4251,11 +4251,6 @@ class DeviceRegistry(ABC):
 
     @property
     @abstractmethod
-    def broadcast(self) -> bool:
-         '''broadcast or multicast'''
-
-    @property
-    @abstractmethod
     def library_version(self) -> str:
         ''' version of the mx_remote library '''
 
@@ -4295,8 +4290,10 @@ class DeviceRegistry(ABC):
         ''' callbacks to call when the device is updated '''
 
     @abstractmethod
-    def transmit(self, data: bytes) -> int:
-        ''' transmit data to this device (broadcast/multicast) '''
+    def transmit(self, data: bytes, to:'DeviceBase|None'=None) -> int:
+        ''' put a frame on the wire, by the endpoints a unit would pick for it:
+        to the one device to, by the endpoint it is heard by, or with to None
+        as a frame for the mesh '''
 
     @property
     @abstractmethod
@@ -4356,8 +4353,8 @@ class ConnectionCallbacks(ABC):
         '''called when the socket was opened'''
 
     @abstractmethod
-    def on_datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
-         '''called when a datagram was received'''
+    def on_datagram_received(self, data: bytes, addr: tuple[str, int], path:Endpoints|None=None) -> None:
+         '''called when a datagram was received, by path when two endpoints are open'''
 
 class MxrCallbacks:
     ''' callbacks that can be used by an external application to get notified when a status changes '''

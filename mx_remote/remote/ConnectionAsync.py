@@ -4,7 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
 ## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
 ######################################################
-'''Async UDP connection for MX Remote multicast/broadcast communication.'''
+'''Async UDP endpoints for MX Remote: the multicast group and the subnet broadcast.'''
 
 import asyncio
 import logging
@@ -12,7 +12,9 @@ import os
 import socket
 import ipaddress
 from typing import Tuple
-from ..Interface import ConnectionCallbacks, mxr_valid_addresses
+from ..Interface import ConnectionCallbacks, mxr_broadcast_address, mxr_valid_addresses
+from ..const import MX_BCAST_UDP_PORT, MX_MCAST_UDP_IP, MX_MCAST_UDP_PORT
+from ..proto.Constants import Endpoints
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -20,10 +22,10 @@ _LOGGER = logging.getLogger(__name__)
 # is not necessarily addressed to us, and one addressed to us is not necessarily
 # the only copy on the wire. Demultiplex on the uid.
 #
-# Delivery is currently to a group: a device has two endpoints, the multicast
-# group and the interface broadcast address, and nothing resolves a per-device
-# address. Do not build on that: the firmware threads a device through its own
-# endpoint selection, so directed sends can be added later.
+# A unit always runs two endpoints, the multicast group 224.8.8.8 on 8812 and
+# the subnet broadcast address on 8811, and neither can be moved or disabled. A
+# peer whose multicast fails is still reached by broadcast, so this client runs
+# both as well. Which of them a frame leaves by is Remote.transmit()'s choice.
 #
 # Two things keep this correct if they are:
 #
@@ -66,25 +68,21 @@ MULTICAST_TTL = 64
 '''The TTL a unit sends on the discovery group with. Anything lower leaves a
 unit more routed hops away hearing every unit but this client.'''
 
-class ConnectionAsync(asyncio.DatagramProtocol):
-    ''' send and receive UDP data '''
-    def __init__(self, callbacks:ConnectionCallbacks, target_ip:str, port:int, local_ip:str|None=None) -> None:
-        self._transport = None
-        self._callbacks = callbacks
+class _Endpoint(asyncio.DatagramProtocol):
+    ''' one endpoint: a socket receiving on its port and one sending to its target '''
+    def __init__(self, owner:'ConnectionAsync', target_ip:str, port:int, local_ip:str|None, path:Endpoints) -> None:
+        self._owner = owner
+        self._transport:asyncio.DatagramTransport|None = None
         self._target_ip = target_ip
-        self._local_ip = local_ip
         self._port = port
-        self._closed = False
+        self._local_ip = local_ip
+        self._path = path
         self._tx_socket:socket.socket|None = None
         super().__init__()
 
     @property
-    def tx_socket(self) -> socket.socket|None:
-        return self._tx_socket
-
-    @property
-    def is_open(self) -> bool:
-        return (self._transport is not None) and (not self._closed)
+    def path(self) -> Endpoints:
+        return self._path
 
     @property
     def target_ip(self) -> str:
@@ -95,19 +93,11 @@ class ConnectionAsync(asyncio.DatagramProtocol):
         return self._port
 
     @property
-    def local_ip(self) -> str|None:
-        if (self._local_ip is None) or (len(self._local_ip) == 0):
-            addresses = mxr_valid_addresses()
-            if len(addresses) > 0:
-                self._local_ip = addresses[0]
-        return self._local_ip
-
-    @property
     def is_multicast(self) -> bool:
         return ipaddress.IPv4Address(self.target_ip).is_multicast
 
     def _create_tx_socket(self) -> socket.socket:
-        local_ip = self.local_ip
+        local_ip = self._local_ip
         if local_ip is None:
             raise Exception("failed to find local ip address")
         _LOGGER.debug(f"open tx socket {local_ip}:{self.port}")
@@ -138,13 +128,13 @@ class ConnectionAsync(asyncio.DatagramProtocol):
         sock.bind(('', self.port))
 
         if self.is_multicast:
-            if (self.local_ip is None):
+            if (self._local_ip is None):
                 sock.close()
                 return None
             sock.setsockopt(
                 socket.IPPROTO_IP,
                 socket.IP_ADD_MEMBERSHIP,
-                socket.inet_aton(self.target_ip) + socket.inet_aton(self.local_ip)
+                socket.inet_aton(self.target_ip) + socket.inet_aton(self._local_ip)
             )
             _LOGGER.debug(f"rx multicast joined")
         else:
@@ -152,44 +142,108 @@ class ConnectionAsync(asyncio.DatagramProtocol):
 
         return sock
 
-    async def start_srv(self) -> tuple[asyncio.DatagramTransport, 'ConnectionAsync']:
-        '''Start the UDP datagram service and return the transport and protocol.'''
-        _LOGGER.debug(f"starting service on {self.target_ip}:{self.port}")
-        try:
-            loop = asyncio.get_running_loop()
-            self._closed = False
-            self._tx_socket = self._create_tx_socket()
-            return await loop.create_datagram_endpoint(
-                    lambda: self, sock=self._create_rx_socket())
-        except Exception as e:
-            _LOGGER.warning(f"failed to start mx_remote service: {e}")
-            raise
+    async def start(self) -> None:
+        loop = asyncio.get_running_loop()
+        self._tx_socket = self._create_tx_socket()
+        await loop.create_datagram_endpoint(lambda: self, sock=self._create_rx_socket())
 
     def close(self) -> None:
-        '''Close the connection and underlying transport.'''
-        if self.is_open:
-            _LOGGER.debug(f"closing {self.target_ip}:{self.port}")
-            if (self._transport is not None):
-                self._transport.close()
-            if (self._tx_socket is not None):
-                self._tx_socket.close()
-                self._tx_socket = None
-            self._closed = True
+        if (self._transport is not None):
+            self._transport.close()
+            self._transport = None
+        if (self._tx_socket is not None):
+            self._tx_socket.close()
+            self._tx_socket = None
 
-    def connection_made(self, transport:asyncio.DatagramTransport) -> None:
-        '''Called when the datagram endpoint is established.'''
-        _LOGGER.debug(f"listening on {self.target_ip}:{self.port} - {str(type(transport))}")
-        self._transport = transport
-        self._callbacks.on_connection_made()
+    def connection_made(self, transport:asyncio.BaseTransport) -> None:
+        _LOGGER.debug(f"listening on {self.target_ip}:{self.port}")
+        self._transport = transport  # type: ignore[assignment]
 
     def datagram_received(self, data: bytes, addr: Tuple[str, int]) -> None:
-        '''Called when a UDP datagram is received; forwards to callbacks.'''
-        self._callbacks.on_datagram_received(data, addr)
+        self._owner._received(data, addr, self._path)
 
     def transmit(self, data: bytes) -> int:
-        '''Send a UDP datagram to the target. Returns bytes sent, or 0 if closed.'''
-        if self._closed or (self.tx_socket is None):
+        if (self._tx_socket is None):
             return 0
+        return self._tx_socket.sendto(data, (self.target_ip, self.port))
 
-        _LOGGER.debug(f"tx to {self.target_ip}:{self.port} (mcast:{self.is_multicast})")
-        return self.tx_socket.sendto(data, (self.target_ip, self.port))
+class ConnectionAsync:
+    ''' send and receive UDP data, by both endpoints a unit has '''
+    def __init__(self, callbacks:ConnectionCallbacks, local_ip:str|None=None, target_ip:str|None=None, port:int|None=None) -> None:
+        '''Both endpoints a unit has on the interface at local_ip, or the first
+        one found.
+
+        target_ip replaces them with one endpoint on that address and port
+        (8812 when unset), so a test or development setup runs on a scratch
+        address rather than a live network. A client on one endpoint sends every
+        frame by it and does not tell paths apart.'''
+        self._callbacks = callbacks
+        self._local_ip = local_ip
+        self._closed = True
+        if (target_ip is not None):
+            self._endpoints = [_Endpoint(self, target_ip, port or MX_MCAST_UDP_PORT, self.local_ip,
+                                         Endpoints.MULTICAST if ipaddress.IPv4Address(target_ip).is_multicast
+                                         else Endpoints.BROADCAST)]
+            return
+        self._endpoints = [_Endpoint(self, MX_MCAST_UDP_IP, MX_MCAST_UDP_PORT, self.local_ip, Endpoints.MULTICAST)]
+        if ((broadcast := mxr_broadcast_address(self.local_ip)) is not None):
+            self._endpoints.append(_Endpoint(self, broadcast, MX_BCAST_UDP_PORT, self.local_ip, Endpoints.BROADCAST))
+        else:
+            _LOGGER.warning("failed to determine the broadcast address, running the multicast endpoint alone")
+
+    @property
+    def endpoints(self) -> tuple[_Endpoint, ...]:
+        return tuple(self._endpoints)
+
+    @property
+    def is_dual(self) -> bool:
+        '''Whether both endpoints are open, and so paths are told apart.'''
+        return (len(self._endpoints) == 2)
+
+    @property
+    def is_open(self) -> bool:
+        return not self._closed
+
+    @property
+    def local_ip(self) -> str|None:
+        if (self._local_ip is None) or (len(self._local_ip) == 0):
+            addresses = mxr_valid_addresses()
+            if len(addresses) > 0:
+                self._local_ip = addresses[0]
+        return self._local_ip
+
+    async def start_srv(self) -> None:
+        '''Open every endpoint, and report the connection made.'''
+        _LOGGER.debug("starting service on " + ", ".join(f"{e.target_ip}:{e.port}" for e in self._endpoints))
+        try:
+            for endpoint in self._endpoints:
+                await endpoint.start()
+        except Exception as e:
+            _LOGGER.warning(f"failed to start mx_remote service: {e}")
+            self.close()
+            raise
+        self._closed = False
+        self._callbacks.on_connection_made()
+
+    def close(self) -> None:
+        '''Close every endpoint.'''
+        for endpoint in self._endpoints:
+            endpoint.close()
+        self._closed = True
+
+    def _received(self, data: bytes, addr: Tuple[str, int], path:Endpoints) -> None:
+        self._callbacks.on_datagram_received(data, addr, path if self.is_dual else None)
+
+    def transmit(self, data: bytes, endpoints:Endpoints=Endpoints.MULTICAST) -> int:
+        '''Send a datagram by endpoints, returning the bytes the first of them
+        took, or 0 when closed. A client on one endpoint sends everything by it.'''
+        if self._closed:
+            return 0
+        if not self.is_dual:
+            return self._endpoints[0].transmit(data)
+        sent = None
+        for endpoint in self._endpoints:
+            if (endpoint.path in endpoints):
+                n = endpoint.transmit(data)
+                sent = n if (sent is None) else sent
+        return sent or 0

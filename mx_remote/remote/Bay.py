@@ -1172,7 +1172,7 @@ class Bay(BayBase):
         pkt = FrameRCAction.construct(mxr=self.device.registry, target=self, action=action)
         if pkt is None:
             return False
-        return self.device.registry.transmit(pkt.frame) == len(pkt.frame)
+        return self.device.registry.transmit(pkt.frame, to=self.device) == len(pkt.frame)
 
     @override
     async def power_on(self) -> bool:

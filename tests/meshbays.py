@@ -266,7 +266,7 @@ print('by name     : a mesh input is found by its owner\'s name, and not while i
 # the unit listing the mesh bay.
 import asyncio
 sent = []
-mx.transmit = lambda data: (sent.append(bytes(data)), len(data))[1]
+mx.transmit = lambda data, to=None: (sent.append(bytes(data)), len(data))[1]
 r = receiver(0x50)
 rx(uid(0x50), 0x44, page(True, 1, [uid(0x51)]))
 rx(uid(0x50), 0x44, page(False, 128, [uid(0x52)]))

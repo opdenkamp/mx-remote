@@ -120,7 +120,7 @@ def call(coro):
     return asyncio.new_event_loop().run_until_complete(coro)
 
 def wire():
-    def tx(data):
+    def tx(data, to=None):
         sent.append(data)
         return len(data)
     mx.transmit = tx

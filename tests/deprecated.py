@@ -180,7 +180,7 @@ assert bay.oneip_uid == peer, 'writing the old name did not write the new one'
 
 # A method called by its old name runs the new one.
 sent = []
-mx.transmit = lambda data: (sent.append(data), len(data))[1]
+mx.transmit = lambda data, to=None: (sent.append(data), len(data))[1]
 fn = deprecated(lambda: dev.set_v2ip_output_mode, 'DeviceBase.set_v2ip_output_mode')
 assert fn.__func__ is type(dev).set_oneip_output_mode
 print('members     :', sum(map(len, RELEASED_MEMBERS.values())), 'members resolve on live objects')

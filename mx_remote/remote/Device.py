@@ -90,7 +90,7 @@ import time
 
 from ..Interface import DeviceBase, BayBase, DeviceRegistry
 from ..proto.FrameBase import FrameBase
-from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, ONEIP_DOWNMIX_LFE_MAX, OSD_MESSAGE_TEXT_MAX, OsdMessageFlag, OsdMessagePriority, BayFeaturesMask, DeviceFeature, MxrSignalType, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag,
+from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, ONEIP_DOWNMIX_LFE_MAX, OSD_MESSAGE_TEXT_MAX, OsdMessageFlag, OsdMessagePriority, BayFeaturesMask, DeviceFeature, Endpoints, MxrSignalType, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag,
                               OneIPTestPattern, OneIPToneMode,
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                               MXR_SCALING_FLAG_OPTIONS_VALID, ONEIP_DEVICE_SETTING_SWITCHES,
@@ -155,6 +155,10 @@ class PortLayout(Enum):
 _SCALING_WRITE_PROTOCOL = 0x2F
 '''The protocol from which a unit applies a scaling write from management.'''
 
+PATH_WINDOW = 120.0
+'''How long a frame by one endpoint counts as proof that a device is heard by
+it, in seconds.'''
+
 class Device(DeviceBase):
 	'''Remote device on the MX network (matrix, OneIP unit, or amplifier).'''
 
@@ -167,6 +171,10 @@ class Device(DeviceBase):
 		self._link_config_received = False
 		self._bay_config_received = False
 		self._last_ping = datetime.now()
+		# When a frame from this device last arrived by multicast, and by
+		# broadcast, as time.time().
+		self._heard_multicast:float|None = None
+		self._heard_broadcast:float|None = None
 		self._online = True
 		self._have_config = False
 		self._dolby_settings:AmpDolbySettings|None = None
@@ -307,6 +315,27 @@ class Device(DeviceBase):
 		def_message = 'Crashed Recently' if (self.crashed_recently) else 'Healthy'
 		sys_message = def_message if (self._sys_message is None) else self._sys_message
 		return f'{str(con_status)} - {sys_message}'
+
+	def heard_on(self, path:Endpoints, stamped:float) -> None:
+		'''Record that a frame from this device arrived by path at stamped.'''
+		if (path == Endpoints.MULTICAST):
+			self._heard_multicast = stamped
+		elif (path == Endpoints.BROADCAST):
+			self._heard_broadcast = stamped
+
+	def broadcast_only(self, now:float) -> bool:
+		'''Whether no frame from this device has arrived by multicast within
+		PATH_WINDOW, as a unit judges a peer it must also reach by broadcast.'''
+		return (self._heard_multicast is None) or ((now - self._heard_multicast) >= PATH_WINDOW)
+
+	def heard_broadcast_lately(self, now:float) -> bool:
+		'''Whether a frame from this device arrived by broadcast within PATH_WINDOW.'''
+		return (self._heard_broadcast is not None) and ((now - self._heard_broadcast) < PATH_WINDOW)
+
+	def heard_path(self, now:float) -> Endpoints:
+		'''The endpoint this device is heard by, as a unit picks the one for a
+		frame meant for it alone: broadcast while it is broadcast-only.'''
+		return Endpoints.BROADCAST if self.broadcast_only(now) else Endpoints.MULTICAST
 
 	def check_online(self) -> None:
 		if self.online != self._online:
@@ -1402,7 +1431,7 @@ class Device(DeviceBase):
 		frame = FramePing.construct(mxr=self.registry, target=self)
 		if (frame is None):
 			return False
-		return (self.registry.transmit(frame.frame) == len(frame.frame))
+		return (self.registry.transmit(frame.frame, to=self) == len(frame.frame))
 
 	async def mesh_promote(self) -> bool:
 		'''Promote this device to mesh controller.'''
@@ -2053,7 +2082,7 @@ class Device(DeviceBase):
 		                                           kind=kind, flags=flags, logo=logo, priority=priority, text=text)
 		if (frame is None):
 			return False
-		return self.registry.transmit(frame.frame) == len(frame.frame)
+		return self.registry.transmit(frame.frame, to=self) == len(frame.frame)
 
 	@property
 	@override
@@ -2193,7 +2222,7 @@ class Device(DeviceBase):
 		                                    kind=kind, parts=parts, testcard=testcard)
 		if (frame is None):
 			return False
-		return self.registry.transmit(frame.frame) == len(frame.frame)
+		return self.registry.transmit(frame.frame, to=self) == len(frame.frame)
 
 	def _send_v2ip_settings(self, settings:OneIPDeviceSettings) -> bool:
 		'''The one send behind the device settings commands.'''

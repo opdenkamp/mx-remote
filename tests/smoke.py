@@ -62,7 +62,7 @@ class Recording:
 real_socket = socket.socket
 socket.socket = Recording
 try:
-    tx = ConnectionAsync(callbacks=None, target_ip='239.255.255.250', port=8812, local_ip='192.0.2.9')._create_tx_socket()
+    tx = ConnectionAsync(callbacks=None, target_ip='239.255.255.250', port=8812, local_ip='192.0.2.9').endpoints[0]._create_tx_socket()
 finally:
     socket.socket = real_socket
 assert tx.opts[(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL)] == 64, tx.opts

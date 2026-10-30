@@ -72,7 +72,7 @@ assert out is not None and out.is_output
 sent = []
 def wire(ok):
     '''Stand in for the socket: full write when ok, nothing written when not.'''
-    def tx(data):
+    def tx(data, to=None):
         sent.append(data)
         return len(data) if ok else 0
     mx.transmit = tx

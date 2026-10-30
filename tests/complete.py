@@ -232,7 +232,7 @@ print('complete    : an empty V2IP source list is a list')
 stuck_seen = []
 runtime = mx_remote.Remote(open_connection=False, callbacks=Watching(stuck_seen))
 runtime._uid = bytes(range(100, 116))
-runtime.transmit = lambda data: len(data)  # no socket; the loop's sends are not the subject
+runtime.transmit = lambda data, to=None: len(data)  # no socket; the loop's sends are not the subject
 
 STUCK = bytes(range(81, 97))
 def rx_runtime(op, pl):

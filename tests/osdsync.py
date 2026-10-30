@@ -46,7 +46,7 @@ def client():
     mx = mx_remote.Remote(open_connection=False, callbacks=seen)
     mx._uid = OURS
     sent = []
-    mx.transmit = lambda data: (sent.append(bytes(data)), len(data))[1]
+    mx.transmit = lambda data, to=None: (sent.append(bytes(data)), len(data))[1]
     return mx, seen, sent
 
 def rx(mx, sender, opcode, payload=b'', protocol=0x2F):

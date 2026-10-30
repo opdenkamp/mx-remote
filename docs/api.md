@@ -13,8 +13,9 @@ the directive source as prose and the build still succeeds.
 
 ## Client
 
-`Remote` owns the socket, the device registry and the background probe that
-keeps both in step with the mesh.
+`Remote` owns the two endpoints, the device registry and the background probe
+that keeps both in step with the mesh. `reboot_all()`, `reboot_mesh()` and
+`factory_reset_all()` act on every unit at once.
 
 ```{eval-rst}
 .. automodule:: mx_remote.remote.Remote

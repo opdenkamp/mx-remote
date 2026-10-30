@@ -38,7 +38,7 @@ def client():
     mx._uid = OURS
     mx._hello_due = time.time() + 3600          # nothing is due on the clock
     sent = []
-    mx.transmit = lambda data: (sent.append(data), len(data))[1]
+    mx.transmit = lambda data, to=None: (sent.append(data), len(data))[1]
     return mx, sent
 
 # ---- answering: a ping for this client is answered at once, whoever sent it

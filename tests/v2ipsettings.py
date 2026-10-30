@@ -209,7 +209,7 @@ print('ctrl write  : cached as far as the device takes it')
 sent = []
 def wire(ok):
     '''Stand in for the socket: full write when ok, nothing written when not.'''
-    def tx(data):
+    def tx(data, to=None):
         sent.append(data)
         return len(data) if ok else 0
     mx.transmit = tx

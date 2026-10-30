@@ -27,9 +27,10 @@ ADDR = ('192.0.2.9', 8812)
 
 class RecordingConn:
     """Stands in for ConnectionAsync so transmits can be counted."""
+    is_dual = False
     def __init__(self):
         self.sent = []
-    def transmit(self, data):
+    def transmit(self, data, endpoints=None):
         self.sent.append(data)
         return len(data)
 

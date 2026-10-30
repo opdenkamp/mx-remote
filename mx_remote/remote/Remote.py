@@ -4,7 +4,7 @@
 ## author: Lars Op den Kamp (lars@opdenkamp-it.nl)  ##
 ## copyright (c) 2021-2026 Op den Kamp IT Solutions ##
 ######################################################
-'''Remote device discovery and management over UDP multicast/broadcast.'''
+'''Remote device discovery and management over UDP, by the multicast group and the subnet broadcast.'''
 
 from functools import cached_property
 import logging
@@ -13,21 +13,25 @@ from typing import Any
 from ..compat import override
 import aiofiles
 import aiohttp
+from collections import deque
 import os
 from pathlib import Path
 import random
 import time
+import warnings
 from datetime import datetime, timezone
 
 from .ConnectionAsync import ConnectionAsync
 from ..const import MXR_HELLO_INTERVAL_MIN, MXR_HELLO_INTERVAL_RAND, __version__
 from .Device import Device
-from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, mxr_broadcast_address, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, OneIPStreamSources
-from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, OsdSyncWhat
+from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, OneIPStreamSources
+from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat
 from ..proto.FrameDiscover import FrameDiscover, constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
 from ..proto.FrameHello import FrameHello, constructFrameHello
 from ..proto.FramePing import FramePing
+from ..proto.FrameReboot import FrameReboot
+from ..proto.FrameFactoryReset import FrameFactoryReset
 from ..proto.FrameThirdParty import FrameThirdParty
 from ..proto.FrameMeshOperation import FrameMeshOperation
 from ..proto.FrameSetInstaller import FrameSetInstaller
@@ -50,7 +54,7 @@ from .State import State
 
 import traceback
 
-from ..const import MX_BCAST_UDP_PORT, MX_MCAST_UDP_IP, MX_MCAST_UDP_PORT
+from ..const import MX_MCAST_UDP_IP, MX_MCAST_UDP_PORT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,6 +62,31 @@ _LOGGER = logging.getLogger(__name__)
 # announcement itself, and the requests for one - discover asks everyone, ping
 # asks one device.
 _ACCEPT_UNANNOUNCED = (0x00, 0x01, 0x4A)
+
+_HELLO_BROADCAST = 30.0
+'''Longest a unit leaves its hello off the broadcast endpoint, in seconds.'''
+
+_DUPLICATE_WINDOW = 0.1
+'''How long a datagram identical to one already received counts as its second
+copy, in seconds. Short, because a key press carries nothing that tells two
+presses apart.'''
+
+_DUPLICATE_RING = 64
+'''How many recent datagrams the duplicate check compares against.'''
+
+def _for_every_unit(opcode:int, payload:bytes) -> bool:
+    '''Whether a unit sends this frame to both endpoints whatever its peers
+    need: a discover, reboot or factory reset of every unit - an empty payload,
+    or the single byte 0xFF - the monitoring pulse, the bay detection and the
+    video processor upgrade. One naming a unit goes as any other frame.
+
+    The hello is not among them: it reaches the broadcast endpoint on a clock
+    of its own.'''
+    if (opcode == 0x01):    # SYS_DISCOVER
+        return (len(payload) == 0)
+    if opcode in (0x28, 0x3A):    # SYS_REBOOT, SYS_FACTORY_RESET
+        return payload in (b'', b'\xff')
+    return opcode in (0x21, 0x2B, 0x2C)    # V2IP_DETECT_BAYS, SYS_MONITORING_PULSE, V2IP_UPGRADE_FPGA
 
 _BROKEN_PROTOCOL = 2
 '''The header protocol a broken revision of one layout was stamped with, which
@@ -112,14 +141,18 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
     def __init__(self, target_ip:str|None=None, port:int|None=None, http_session:aiohttp.ClientSession|None=None, open_connection:bool=True, callbacks:MxrCallbacks|None=None, name:str="MXR Python", local_ip:str|None=None, broadcast:bool|None=None, addr_filter:str|None=None, uid_path:str|None=None, logo_port:int|None=None, serial:str=CLIENT_SERIAL, version:str|None=None, mesh_device:bool=False) -> None:
         '''Initialise the remote controller.
 
-        :param target_ip: multicast/broadcast IP to use, or None for the default
-        :param port: UDP port to use, or None for the default
+        :param target_ip: for tests and development only: replaces both
+            endpoints with one on this address, so a test runs on a scratch
+            address rather than a live network. Leave it unset to run both
+            endpoints a unit has.
+        :param port: the port of the one endpoint target_ip opens, 8812 when
+            unset. Ignored without target_ip.
         :param http_session: shared aiohttp session for API calls, or None to create one
         :param open_connection: open the UDP connection immediately when True
         :param callbacks: event callbacks for device state changes
         :param name: human-readable name advertised on the network
         :param local_ip: local interface IP to bind to, or None for any
-        :param broadcast: use broadcast instead of multicast when True
+        :param broadcast: deprecated and ignored: both endpoints always run
         :param addr_filter: only log frames from this IP address when set
         :param uid_path: file holding this client's uid, or None for ~/.mxr-uid.
             Give concurrent clients on one host separate paths - see _load_uid
@@ -135,6 +168,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         '''
         DeviceRegistry.__init__(self)
         ConnectionCallbacks.__init__(self)
+        if (broadcast is not None):
+            warnings.warn("Remote(broadcast=...) is deprecated and ignored: both endpoints a unit has always run",
+                          DeprecationWarning, stacklevel=2)
         self._name = name
         self._serial = serial
         self._version = version if (version is not None) else __version__
@@ -151,7 +187,6 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._uid:bytes|None = None
         self._uid_path = uid_path
         self._local_ip = local_ip
-        self._broadcast = broadcast
         self._target_ip = target_ip
         self._port = port
         self._discover_timeout = 0
@@ -165,8 +200,17 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._osd_queued = asyncio.Event()
         self._logos = LogoServer()
         self._logo_port = logo_port
+        # Whether some peer has to be reached by broadcast as well, whether this
+        # client's own multicast fails, and when a hello last went to the
+        # broadcast endpoint, None since the sockets opened.
+        self._broadcast_needed = False
+        self._multicast_fault = False
+        self._hello_on_broadcast:float|None = None
+        # The digest and arrival time of each recent datagram.
+        self._recent:deque[tuple[int, float]] = deque()
         if open_connection:
-            self.conn = ConnectionAsync(callbacks=self, target_ip=self.target_ip, port=self.port, local_ip=self._local_ip)
+            self.conn:ConnectionAsync|None = ConnectionAsync(callbacks=self, local_ip=self._local_ip,
+                                                             target_ip=self._target_ip, port=self._port)
         else:
             self.conn = None
 
@@ -200,15 +244,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
 
     @cached_property
     def target_ip(self) -> str:
-        if self._target_ip is None:
-            if self._broadcast is None or not self._broadcast:
-                return MX_MCAST_UDP_IP
-            bcast = mxr_broadcast_address(self._local_ip)
-            if bcast is not None:
-                return bcast
-            _LOGGER.warning("failed to determine broadcast address, using multicast")
-            return MX_MCAST_UDP_IP
-        return self._target_ip
+        '''The address of the one endpoint a test setup named, else the
+        multicast group, which is one of the two endpoints that run.'''
+        return self._target_ip if (self._target_ip is not None) else MX_MCAST_UDP_IP
 
     @property
     def local_ip(self) -> str|None:
@@ -216,13 +254,21 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
 
     @property
     def broadcast(self) -> bool:
-        return ((self._broadcast is not None) and self._broadcast)
+        '''Deprecated: always False. Both endpoints a unit has always run.'''
+        warnings.warn("Remote.broadcast is deprecated: both endpoints a unit has always run",
+                      DeprecationWarning, stacklevel=2)
+        return False
 
     @property
     def port(self) -> int:
-        if self._port is None:
-            return MX_MCAST_UDP_PORT if (self._broadcast is None or not self._broadcast) else MX_BCAST_UDP_PORT
-        return self._port
+        return self._port if ((self._target_ip is not None) and (self._port is not None)) else MX_MCAST_UDP_PORT
+
+    @property
+    def multicast_fault(self) -> bool:
+        '''Whether this client's own multicast fails: a peer, not about to
+        reboot, is heard by broadcast but not by multicast. The hello announces
+        it as DeviceFeature.STATUS_MCAST_FAULT.'''
+        return self._multicast_fault
 
     async def _load_uid(self) -> None:
         '''Load this client's uid, generating and persisting one if absent.
@@ -313,12 +359,17 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         return self._svd
 
     async def update_config(self, callbacks:MxrCallbacks|None=None, name:str|None=None, target_ip:str|None=None, port:int|None=None, local_ip:str|None=None, broadcast:bool|None=None) -> None:
-        '''Update runtime configuration, reconnecting if network parameters changed.'''
+        '''Update runtime configuration, reconnecting if network parameters changed.
+
+        broadcast is deprecated and ignored: both endpoints a unit has always run.'''
+        if (broadcast is not None):
+            warnings.warn("update_config(broadcast=...) is deprecated and ignored: both endpoints a unit has always run",
+                          DeprecationWarning, stacklevel=2)
         if (callbacks is not None):
             self._callbacks = State(callbacks, self.http_session)
         if (name is not None):
             self._name = name
-        if (target_ip is not None) or (port is not None) or (local_ip is not None) or (broadcast is not None):
+        if (target_ip is not None) or (port is not None) or (local_ip is not None):
             changed = False
             if (target_ip is not None) and (self._target_ip != target_ip):
                 _LOGGER.debug(f"updating target ip to {target_ip}")
@@ -333,16 +384,14 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 _LOGGER.debug(f"updating target ip to {local_ip}")
                 self._local_ip = local_ip
                 changed = True
-            if (broadcast is not None) and (self._broadcast != broadcast):
-                _LOGGER.debug(f"updating target ip to {broadcast}")
-                self._broadcast = broadcast
-                changed = True
             if changed:
                 if (self.conn is not None):
                     _LOGGER.debug(f"closing connection")
                     self.conn.close()
-                _LOGGER.debug(f"opening new mx_remote listener on target={self.target_ip} listener={self._local_ip}:{self.port}")
-                self.conn = ConnectionAsync(callbacks=self, target_ip=self.target_ip, port=self.port, local_ip=self._local_ip)
+                _LOGGER.debug(f"opening new mx_remote listener on {self._local_ip}")
+                self.conn = ConnectionAsync(callbacks=self, local_ip=self._local_ip, target_ip=self._target_ip, port=self._port)
+                # The first hello on new sockets goes to both endpoints.
+                self._hello_on_broadcast = None
                 await self.conn.start_srv()
 
     def has_completed_devices(self) -> bool:
@@ -395,7 +444,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         A discover to every device costs every unit a full resend, so it goes
         out at most once a minute, and only until a device answers: every unit
         heard that discover, and one still owing something is asked by name.'''
-        if (time.time() >= self._hello_due):
+        fault_changed = self._judge_paths(time.time())
+        if fault_changed or (time.time() >= self._hello_due):
             self.tx_hello()
         # Every registered device, whatever any of them has finished. A device
         # stops pinging whether or not it ever described itself, and this is the
@@ -426,6 +476,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         if (self.conn is None):
             raise Exception("connection not open")
         await self._load_uid()
+        # The first hello on new sockets goes to both endpoints.
+        self._hello_on_broadcast = None
         await self.conn.start_srv()
         # Announce before anything else can be sent. A device drops every frame
         # from a uid it has no record of, except hello and discover, so a
@@ -523,11 +575,67 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
     def links(self) -> BayLinks:
         return self._links
 
-    def transmit(self, data: bytes) -> int:
-        '''Transmit raw data over the UDP connection. Returns bytes sent.'''
+    @override
+    def transmit(self, data: bytes, to:DeviceBase|None=None) -> int:
+        '''Transmit a frame over the UDP connection. Returns bytes sent.
+
+        It leaves by the endpoints a unit picks: by the one to is heard by when
+        it is for that device alone, to both when it is for every unit at once,
+        and otherwise to the group, and to the broadcast address as well while
+        some peer needs it. The hello goes to both at least every 30 s.'''
         if (self.conn is None):
             raise Exception("connection closed")
-        return self.conn.transmit(data=data)
+        return self.conn.transmit(data, self._endpoints_for(data, to, time.time()))
+
+    def _endpoints_for(self, data:bytes, to:DeviceBase|None, now:float) -> Endpoints:
+        '''The endpoints a frame leaves by, as a unit picks them.'''
+        if isinstance(to, Device):
+            return to.heard_path(now)
+        opcode = int.from_bytes(data[20:22], 'little')
+        if (opcode == 0x00):    # SYS_HELLO
+            if (self._hello_on_broadcast is None) or ((now - self._hello_on_broadcast) >= _HELLO_BROADCAST) \
+                    or self._broadcast_needed:
+                self._hello_on_broadcast = now
+                return Endpoints.BOTH
+            return Endpoints.MULTICAST
+        if self._broadcast_needed or _for_every_unit(opcode, data[24:]):
+            return Endpoints.BOTH
+        return Endpoints.MULTICAST
+
+    def _is_duplicate(self, data:bytes, now:float) -> bool:
+        '''Whether data repeats a datagram received within _DUPLICATE_WINDOW of
+        now, recording it when it does not. A frame sent to both endpoints
+        arrives once by each, and the first copy is the one acted on.'''
+        digest = hash(data)
+        while self._recent and ((now - self._recent[0][1]) >= _DUPLICATE_WINDOW):
+            self._recent.popleft()
+        if any(d == digest for d, _ in self._recent):
+            return True
+        if (len(self._recent) == _DUPLICATE_RING):
+            self._recent.popleft()
+        self._recent.append((digest, now))
+        return False
+
+    def _judge_paths(self, now:float) -> bool:
+        '''Re-judge whether frames must reach some peer by broadcast too, and
+        whether this client's own multicast fails, returning whether the second
+        changed: a unit announces a change to its features at once.
+
+        Every registered peer counts, one gone silent included, as a unit
+        judges by every peer it knows. A client on one endpoint judges nothing,
+        as it has no second one to fall back on.'''
+        if (self.conn is None) or not self.conn.is_dual:
+            return False
+        peers = [d for d in self.remotes.values() if (d.remote_id != self.uid)]
+        def flagged(d:Device, flag:DeviceFeature) -> bool:
+            return (d.features is not None) and (flag in d.features)
+        self._broadcast_needed = any(d.broadcast_only(now) or flagged(d, DeviceFeature.STATUS_MCAST_FAULT)
+                                     for d in peers)
+        fault = any(not flagged(d, DeviceFeature.STATUS_REBOOTING) and d.broadcast_only(now)
+                    and d.heard_broadcast_lately(now) for d in peers)
+        changed = (fault != self._multicast_fault)
+        self._multicast_fault = fault
+        return changed
 
     def tx_discover(self) -> int:
         '''Transmit a discover frame. All remotes will respond with a hello frame.'''
@@ -555,6 +663,27 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         _LOGGER.debug(f"asking {self.uid_to_user_string(device)} for its state")
         self.transmit(pkt.frame)
         return True
+
+    async def reboot_all(self) -> bool:
+        '''Ask every unit to reboot, as a unit's own reboot of every unit does
+        before it reboots itself: 0x28 with the single byte 0xFF, to both
+        endpoints. True when all of it was written.
+
+        A unit takes it only from its mesh controller or a management
+        application.'''
+        return self._send_to_all(FrameReboot.construct_all(mxr=self))
+
+    async def reboot_mesh(self) -> bool:
+        '''Ask every unit of the mesh to reboot, as a mesh controller's mesh
+        reboot does before it reboots itself: 0x28 with no payload, to both
+        endpoints. Otherwise as reboot_all().'''
+        return self._send_to_all(FrameReboot.construct_all(mxr=self, mesh=True))
+
+    async def factory_reset_all(self) -> bool:
+        '''Ask every unit to factory-reset and reboot, as a unit's own factory
+        reset of every unit does before it resets itself: 0x3A with the single
+        byte 0xFF, to both endpoints. Otherwise as reboot_all().'''
+        return self._send_to_all(FrameFactoryReset.construct_all(mxr=self))
 
     def _send_to_all(self, frame:FrameBase|None) -> bool:
         '''Send a frame to every device, True when all of it was written.'''
@@ -775,12 +904,18 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self.tx_hello()
         self.tx_discover()
 
-    def process_frame(self, timestamp:float, data: bytes, addr: tuple[str, int]) -> None:
+    def process_frame(self, timestamp:float, data: bytes, addr: tuple[str, int], path:Endpoints|None=None) -> None:
         '''Decode and process a received mx_remote frame.
 
         A device that may hold state this client missed is left in
         _state_request rather than asked here, so replaying a capture sends
-        nothing; on_datagram_received does the asking.'''
+        nothing; on_datagram_received does the asking.
+
+        path is the endpoint it arrived by, when two are open. A known sender
+        is then recorded as heard by that path, which is what decides whether
+        frames must reach it by broadcast too, and that happens before the
+        duplicate check, so the copy that loses the race still proves its path.
+        A datagram repeating one received within _DUPLICATE_WINDOW is dropped.'''
         proc = False
         self._state_request = None
         try:
@@ -806,6 +941,11 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 _LOGGER.debug(f"rx {addr[0]}: opcode {frame.header.opcode:02X} dropped: {len(data)} bytes "
                               f"declaring {frame.header.payload_len}, stamped {frame.header.protocol:02X}")
                 frame = None
+            if (frame is not None) and (frame.header.remote_id != self.uid) and (path is not None):
+                if ((known := self.remotes.get(frame.remote_id)) is not None):
+                    known.heard_on(path, timestamp)
+                if self._is_duplicate(data, timestamp):
+                    frame = None
             if (frame is not None) and (frame.header.remote_id != self.uid):
                 # A device announces itself before it sends anything else, so a
                 # frame from a uid with no record is one no device would act on.
@@ -836,12 +976,16 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             _LOGGER.warning(f"failed to process frame: {traceback.format_exc()}")
             raise
 
-    def on_datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
-        '''Called when a UDP frame was received.'''
+    @override
+    def on_datagram_received(self, data: bytes, addr: tuple[str, int], path:Endpoints|None=None) -> None:
+        '''Called when a UDP frame was received, by path when two endpoints are
+        open.'''
         timestamp = time.time()
-        self.process_frame(timestamp=timestamp, data=data, addr=addr)
+        self.process_frame(timestamp=timestamp, data=data, addr=addr, path=path)
         if (self._state_request is not None):
             self._request_state(self._state_request)
+        if self._judge_paths(timestamp):
+            self.tx_hello()
 
     # ---- overlay sync ----
 
@@ -925,7 +1069,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         seq, what, http_port, records, slots = sync
         frame = FrameV2IPOsdSync.construct_sync(mxr=self, target=target, seq=seq, what=what, http_port=http_port,
                                                 records=records, slots=slots, to=to)
-        if (frame is None) or (self.transmit(frame.frame) != len(frame.frame)):
+        if (frame is None) or (self.transmit(frame.frame, to=to) != len(frame.frame)):
             return None
         return seq
 
@@ -945,7 +1089,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             frame = FrameV2IPOsdSync.construct_setting(mxr=self, target=unit, seq=seq, index=index,
                                                        records=records, entry=entry, to=self.get_by_uid(unit))
             if (frame is not None):
-                self.transmit(frame.frame)
+                self.transmit(frame.frame, to=self.get_by_uid(unit))
                 sent += 1
         return sent
 

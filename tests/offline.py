@@ -44,7 +44,7 @@ def nm(s, sz=16):
 
 mx = mx_remote.Remote(open_connection=False, callbacks=Watching())
 mx._uid = bytes(range(100, 116))
-mx.transmit = lambda data: len(data)  # no socket; the loop's sends are not the subject
+mx.transmit = lambda data, to=None: len(data)  # no socket; the loop's sends are not the subject
 
 # Protocol 0x28, so the 15s ping window applies rather than the 180s one.
 mx.process_frame(time.time(), create_mxr_frame(

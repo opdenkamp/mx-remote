@@ -22,7 +22,7 @@ ADDR = ('192.0.2.9', 8812)
 mx = mx_remote.Remote(open_connection=False)
 mx._uid = bytes(range(0x20, 0x30))
 sent = []
-mx.transmit = lambda data: (sent.append(bytes(data)), len(data))[1]
+mx.transmit = lambda data, to=None: (sent.append(bytes(data)), len(data))[1]
 
 def uid(n):
     return bytes([n]) * 16

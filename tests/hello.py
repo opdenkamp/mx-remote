@@ -36,7 +36,7 @@ async def run(seconds, wire_ok=True):
     mx = mx_remote.Remote(open_connection=False)
     mx._uid = bytes(range(0x20, 0x30))
     sent = []
-    mx.transmit = lambda data: (sent.append(data), len(data) if wire_ok else 0)[1]
+    mx.transmit = lambda data, to=None: (sent.append(data), len(data) if wire_ok else 0)[1]
     task = asyncio.ensure_future(mx._background_probe())
     await asyncio.sleep(seconds)
     mx._closing = True
@@ -61,7 +61,7 @@ def announces_on_receipt():
     mx._uid = bytes(range(0x20, 0x30))
     mx._hello_due = time.time() + 3600          # nothing is due on the clock
     sent = []
-    mx.transmit = lambda data: (sent.append(data), len(data))[1]
+    mx.transmit = lambda data, to=None: (sent.append(data), len(data))[1]
     peer = bytes(range(1, 17))
     for _ in range(20):
         mx.on_datagram_received(create_mxr_frame(peer, 0x15, bytes([1, 40])), ('192.0.2.9', 8812))
@@ -79,7 +79,7 @@ assert len(hellos) >= 2, 'a send that wrote nothing must be retried, not treated
 # ---- the interval is re-drawn per send rather than fixed
 mx2 = mx_remote.Remote(open_connection=False)
 mx2._uid = bytes(range(0x20, 0x30))
-mx2.transmit = lambda data: len(data)
+mx2.transmit = lambda data, to=None: len(data)
 # Measure the interval, not the due timestamp: _hello_due moves every call because
 # the clock advances, so counting distinct timestamps says nothing about whether
 # anything was drawn.
@@ -103,7 +103,7 @@ async def survives_raising_transmit():
     mx._uid = bytes(range(0x20, 0x30))
     sent = []
     state = {'raise': True}
-    def wire(data):
+    def wire(data, to=None):
         if state['raise']:
             raise OSError('network is unreachable')
         sent.append(data)
@@ -135,11 +135,12 @@ class Boom(BaseException):
     """Not an Exception, so the loop's own guard does not catch it."""
 
 class FakeConn:
+    is_dual = False
     def __init__(self):
         self.sent = []
     async def start_srv(self):
         return (None, None)
-    def transmit(self, data):
+    def transmit(self, data, endpoints=None):
         self.sent.append(data)
         return len(data)
     def close(self):
@@ -217,7 +218,7 @@ async def one_traceback_then_quiet():
     try:
         mx = mx_remote.Remote(open_connection=False)
         mx._uid = bytes(range(0x20, 0x30))
-        mx.transmit = lambda data: (_ for _ in ()).throw(OSError('network is unreachable'))
+        mx.transmit = lambda data, to=None: (_ for _ in ()).throw(OSError('network is unreachable'))
         task = asyncio.ensure_future(mx._background_probe())
         await asyncio.sleep(3.2)
         mx._closing = True

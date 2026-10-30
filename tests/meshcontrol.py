@@ -44,7 +44,7 @@ def client(uid_bytes, **kwargs):
     mx = mx_remote.Remote(open_connection=False, callbacks=kwargs.pop('callbacks', None), **kwargs)
     mx._uid = uid_bytes
     mx.sent = []
-    mx.transmit = lambda data, mx=mx: (mx.sent.append(bytes(data)), len(data))[1]
+    mx.transmit = lambda data, mx=mx, to=None: (mx.sent.append(bytes(data)), len(data))[1]
     return mx
 
 mx = client(OURS, callbacks=seen)

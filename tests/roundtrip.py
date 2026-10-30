@@ -121,7 +121,7 @@ short[22:24] = (34).to_bytes(2, 'little')
 assert decode(Raw(short)).name is None, 'a 34-byte rename was taken'
 
 # What a rename caches is what the unit stores.
-mx.transmit = lambda data: len(data)
+mx.transmit = lambda data, to=None: len(data)
 import asyncio
 assert asyncio.run(out_bay.set_name('ABCDEFGHIJKLMNOPQR')) is True
 assert out_bay.user_name == 'ABCDEFGHIJKLMNO', repr(out_bay.user_name)

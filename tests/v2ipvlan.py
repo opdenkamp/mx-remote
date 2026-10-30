@@ -100,7 +100,7 @@ print('ctrl write  : not what the device runs')
 # --------------------------------------------------------------------- writing
 
 sent = []
-mx.transmit = lambda data: (sent.append(data), len(data))[1]
+mx.transmit = lambda data, to=None: (sent.append(data), len(data))[1]
 
 def call(coro):
     return asyncio.new_event_loop().run_until_complete(coro)

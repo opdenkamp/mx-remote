@@ -67,7 +67,9 @@ def mxr_main( extra_args_callback:Callable[[Any,argparse.ArgumentParser],None]|N
     argparser.add_argument("-f", dest='filter', help='only log frames from this ip address')
     argparser.add_argument("-o", dest='output', help='write output to a file')
     argparser.add_argument("-l", dest='local_ip', help='local ip address of the network interface to use')
-    argparser.add_argument("-b", dest='broadcast', help='use broadcast mode instead of multicast', action='store_true')
+    # Accepted and ignored, so a script passing it still runs: a unit always runs
+    # both its multicast and its broadcast endpoint, and so does this client.
+    argparser.add_argument("-b", dest='broadcast', help=argparse.SUPPRESS, action='store_true')
     if (extra_args_callback is not None):
         extra_args_callback(callback_param, argparser)
     args = argparser.parse_args()
@@ -105,7 +107,9 @@ def mxr_main( extra_args_callback:Callable[[Any,argparse.ArgumentParser],None]|N
 
             # run the console app
             async def _run() -> None:
-                mx = mx_remote.Remote(local_ip=args.local_ip, broadcast=args.broadcast, addr_filter=args.filter)
+                if args.broadcast:
+                    _LOGGER.warning("-b is ignored: both the multicast and the broadcast endpoint always run")
+                mx = mx_remote.Remote(local_ip=args.local_ip, addr_filter=args.filter)
                 await mx.start_async()
                 try:
                     await asyncio.Event().wait()
