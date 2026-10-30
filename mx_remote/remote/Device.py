@@ -6,7 +6,7 @@
 ######################################################
 '''Device implementation for MX Remote network devices (matrix, OneIP, amplifier).'''
 
-from .Bay import Bay
+from .Bay import Bay, _AUDIO_FOLLOWS_SINCE
 from ..Interface import (
 	MxrCallbacks,
 	OneIPStreamSources,
@@ -45,6 +45,7 @@ from ..Interface import (
 	MeshControllerReport,
 	BayMirrorStatus,
 	FilteredDevices,
+	oneip_stream_valid,
 )
 from ..proto.BayConfig import BayConfig
 from ..proto.FrameHello import FrameHello
@@ -52,6 +53,7 @@ from ..proto.FrameMeshOperation import AUTO_ADDRESSES_PROTOCOL, MeshOperation, F
 from ..proto.FrameMirrorStatus import FrameMirrorStatus
 from ..proto.FrameFilterStatus import FrameFilterStatus
 from ..proto.FrameV2IPTiling import FrameV2IPTiling
+from ..proto.FrameV2IPSourceSwitch import FrameV2IPSourceSwitch
 from ..proto.FrameRCSettings import FrameRCSettings
 from ..proto.FrameV2IPStats import FrameV2IPStats
 from ..proto.FrameNetworkStatus import NetworkPortStatus, NetworkPortStatusImpl
@@ -1637,6 +1639,95 @@ class Device(DeviceBase):
 		if (frame is None):
 			return False
 		return (self.registry.transmit(frame.frame) == len(frame.frame))
+
+	def _own_source_streams(self, what:str) -> OneIPStreamSources|None:
+		'''The streams this unit advertises for an input of its own, rather
+		than for a mesh bay standing for another unit's, or None with a warning
+		when it has none or has not reported them.'''
+		if ((bay := self.first_input) is None) or not bay.is_local:
+			_LOGGER.warning(f"not {what} {self}: it has no input of its own")
+			return None
+		if ((streams := self.oneip_source(bay)) is None):
+			_LOGGER.warning(f"not {what} {self}: it has not reported its stream addresses")
+			return None
+		return streams
+
+	def _send_source_switch(self, video:str, audio:str, power_on:bool) -> bool:
+		'''Send this OneIP output a source switch naming the given groups.'''
+		frame = FrameV2IPSourceSwitch.construct(mxr=self.registry, target=self, video=video, audio=audio,
+		                                        power_on=power_on)
+		if (frame is None):
+			return False
+		return (self.registry.transmit(frame.frame) == len(frame.frame))
+
+	@override
+	async def route_oneip_unit(self, video:DeviceBase, audio:DeviceBase|None=None, power_on:bool=True) -> bool:
+		'''Route this OneIP output to the streams a source unit advertises for
+		its own input, as a mesh controller does.
+
+		The frame names the stream addresses, so the output plays them whether
+		or not it lists the source. With audio, the audio comes from that
+		unit's own input in the same frame; without, it follows the video as
+		for Bay.select_video_source. power_on has the output power its display
+		on with the switch. Refused unless this is a OneIP output and each
+		source has reported the streams of an input of its own.
+		'''
+		if not self.is_oneip_sink:
+			_LOGGER.warning(f"not routing {self}: not a OneIP output")
+			return False
+		if not isinstance(video, Device) or ((streams := video._own_source_streams("routing from")) is None):
+			return False
+		if (audio is not None):
+			if not isinstance(audio, Device) or ((audio_streams := audio._own_source_streams("taking audio from")) is None):
+				return False
+			audio_ip = audio_streams.audio.ip
+		elif (self.protocol < _AUDIO_FOLLOWS_SINCE):
+			# see Bay.select_video_source: these units route no audio otherwise
+			audio_ip = streams.audio.ip
+		else:
+			audio_ip = '0.0.0.0'
+		return self._send_source_switch(video=streams.video.ip, audio=audio_ip, power_on=power_on)
+
+	@override
+	async def route_oneip_unit_with_arc(self, video:DeviceBase, arc_owner:DeviceBase, power_on:bool=True) -> bool:
+		'''Route this OneIP output to a source unit's own video, with the audio
+		another unit's output returns to the mesh (its audio return group), as
+		a mesh controller sends a route whose audio is an output.
+
+		The frame is the one route_oneip_unit sends, with the audio address set
+		to the audio return group arc_owner last reported for its output
+		(oneip_details.arc).
+
+		No unit maps that group to a bay, as only inputs are looked up, so the
+		output plays it as a manual stream on the default audio port, 50022,
+		while the other output sends its audio return on 50023: such a route
+		plays no audio on current firmware. This sends exactly what a
+		controller does all the same.
+
+		Refused unless this is a OneIP output, the source has reported the
+		streams of an input of its own, and arc_owner has reported a usable
+		audio return group.
+		'''
+		if not self.is_oneip_sink:
+			_LOGGER.warning(f"not routing {self}: not a OneIP output")
+			return False
+		if not isinstance(video, Device) or ((streams := video._own_source_streams("routing from")) is None):
+			return False
+		details = arc_owner.oneip_details
+		arc = details.arc if (details is not None) else None
+		if not oneip_stream_valid(arc):
+			_LOGGER.warning(f"not routing {self}: {arc_owner} has not reported a usable audio return group")
+			return False
+		return self._send_source_switch(video=streams.video.ip, audio=arc.ip, power_on=power_on) # pyright: ignore[reportOptionalMemberAccess]
+
+	@override
+	async def unroute_oneip_unit(self) -> bool:
+		'''Unroute this OneIP output, as a mesh controller does: the frame names
+		no streams. Refused unless this is a OneIP output.'''
+		if not self.is_oneip_sink:
+			_LOGGER.warning(f"not unrouting {self}: not a OneIP output")
+			return False
+		return self._send_source_switch(video='0.0.0.0', audio='0.0.0.0', power_on=True)
 
 	async def set_rc_settings(self, rc_target:RCType|int, ip:str|None, cec_enabled:bool, cec_auto_on:bool,
 	                          forward_rc:bool, forward_ir:bool, rc_status:int=0, status_name:str='') -> bool:

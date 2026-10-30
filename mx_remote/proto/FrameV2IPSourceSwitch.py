@@ -20,8 +20,12 @@ _LOGGER = logging.getLogger(__name__)
 class FrameV2IPSourceSwitch(FrameBase):
     '''OneIP source switch command for routing video and audio streams.'''
     @staticmethod
-    def construct(mxr:DeviceRegistry, target:BayBase, video:BayBase|str|None=None, audio:BayBase|str|None=None) -> FrameBase|None:
-        '''Build a OneIP source switch frame for transmission.'''
+    def construct(mxr:DeviceRegistry, target:BayBase|DeviceBase, video:BayBase|str|None=None, audio:BayBase|str|None=None,
+                  power_on:bool=True) -> FrameBase|None:
+        '''Build a OneIP source switch frame for transmission.
+
+        target is the sink's output bay or the sink itself. power_on has the
+        sink power its display on with the switch.'''
         if video is not None:
             if isinstance(video, BayBase):
                 if BayFeaturesMask.ONEIP_SOURCE_LOCAL not in video.features and BayFeaturesMask.ONEIP_SOURCE_REMOTE not in video.features:
@@ -36,7 +40,8 @@ class FrameV2IPSourceSwitch(FrameBase):
                 if audio.oneip_source is None:
                     raise Exception(f"{audio} v2ip addresses not known")
 
-        payload = target.device.remote_id.byte_value
+        sink = target if isinstance(target, DeviceBase) else target.device
+        payload = sink.remote_id.byte_value
         if video is not None:
             video_ip = video.oneip_source.video.ip if isinstance(video, BayBase) else video.split(':', 1)[0] # pyright: ignore[reportOptionalMemberAccess]
             ip = socket.inet_aton(video_ip)
@@ -49,6 +54,8 @@ class FrameV2IPSourceSwitch(FrameBase):
             payload += bytes([int(ip[0]), int(ip[1]), int(ip[2]), int(ip[3])])
         else:
             payload += bytes([0, 0, 0, 0])
+        # mxr_v2ip_switch_options is ALIGN(8), rounding its 1 byte up to 8
+        payload += bytes([1 if power_on else 0]) + bytes(7)
         return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x1F, payload=payload)
 
     @cached_property

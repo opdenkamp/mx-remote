@@ -140,7 +140,7 @@ GATES = [
     (0x0C, 'mxr_tx_key_data',           20, lambda: FrameTXRCKey.construct(mxr=mx, target=out, key=RCKey(10))),
     (0x0E, 'mxr_tx_action_data',        20, lambda: FrameTXRCAction.construct(mxr=mx, target=out, action=RCAction(1))),
     (0x14, 'mxr_set_volume_request',    24, lambda: FrameVolumeSet.construct(mxr=mx, target=out, volume=VolumeMuteStatus(50, 50, False, False))),
-    (0x1F, 'mxr_v2ip_switch_data',      24, lambda: FrameV2IPSourceSwitch.construct(mxr=mx, target=out, video='239.1.1.1:5000', audio='239.1.1.2:5000')),
+    (0x1F, 'mxr_v2ip_switch_options',   32, lambda: FrameV2IPSourceSwitch.construct(mxr=mx, target=out, video='239.1.1.1:5000', audio='239.1.1.2:5000')),
     (0x22, 'mxr_bay_name_data',         40, lambda: FrameSetName.construct(mxr=mx, target=out, name='Kitchen')),
     (0x24, 'mxr_v2ip_full_switch_data', 40, lambda: FrameV2IPManualSourceSwitch.construct(mxr=mx, target=dev,
                 video_ip='239.1.1.1', video_port=5000, audio_ip='239.1.1.2', audio_port=5000,

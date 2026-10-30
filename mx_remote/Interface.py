@@ -3785,6 +3785,18 @@ class DeviceBase(ABC):
         '''set the part of a video wall this OneIP output shows'''
 
     @abstractmethod
+    async def route_oneip_unit(self, video:'DeviceBase', audio:'DeviceBase|None'=None, power_on:bool=True) -> bool:
+        '''route this OneIP output to a source unit's own streams, as a mesh controller does'''
+
+    @abstractmethod
+    async def route_oneip_unit_with_arc(self, video:'DeviceBase', arc_owner:'DeviceBase', power_on:bool=True) -> bool:
+        '''route this OneIP output to a source unit's own video with another output's audio return'''
+
+    @abstractmethod
+    async def unroute_oneip_unit(self) -> bool:
+        '''unroute this OneIP output, as a mesh controller does'''
+
+    @abstractmethod
     async def set_rc_settings(self, rc_target:RCType|int, ip:str|None, cec_enabled:bool, cec_auto_on:bool,
                               forward_rc:bool, forward_ir:bool, rc_status:int=0, status_name:str='') -> bool:
         '''change this OneIP unit's remote control and CEC settings'''

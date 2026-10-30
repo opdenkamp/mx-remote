@@ -63,6 +63,7 @@ SUITES = [
     'meshcontrol',  # the mesh controller role and what a controller sends
     'endpoints',    # both endpoints a unit has, and each frame's endpoints
     'registry',     # the device registry kept as a unit keeps it
+    'oneiproute',   # a OneIP output unit routed and unrouted as a controller does
     'baycontent',   # what the source on an input is showing
     'osdsync',      # overlay sync, watched and sent
     'osdmessage',   # the message on a unit's output, read and written
