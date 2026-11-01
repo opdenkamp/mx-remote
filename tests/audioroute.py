@@ -416,4 +416,54 @@ assert addressed.audio_endpoints.address is None, 'only an address entry names o
 assert len(acalls) == 1, 'a report changing only the address was not a change'
 print('address     : the device\'s own address from its 0xFF entry')
 
+# A bay holds the endpoint its unit last reported. Every report is a new tree,
+# so a bay still holding an equal endpoint from an earlier one would hold state
+# nothing updates, and an endpoint whose bay is unset drops its source changes.
+#
+# A multiviewer sends a stream and receives none of its own: its tree has no
+# receiving root, and its outputs are the remote sinks it shows, which belong
+# to other units. Its own input still maps.
+MVW = 0x48
+rx(uid(MVW), 0x00, struct.pack('<H', 0x2F) + name('ONEIP') + name(f'P8SN{MVW:08X}') + name('5.0.0')
+                   + struct.pack('<I', int(DeviceFeature.ONEIP_SOURCE)))
+rx(uid(MVW), 0x02, rec(0, 0, 'Input 1', F.HDMI_IN | F.ONEIP_SOURCE_LOCAL))
+# Its mesh outputs come from a bay mapping page: the count above the direction
+# bit, the first port, four poisoned bytes, then one owner uid per port.
+rx(uid(MVW), 0x44, struct.pack('<HH', 1 << 1, 128) + bytes([0xA5] * 4) + uid(BDEC))
+mvw = mx.get_by_uid(U(MVW))
+assert mvw.is_oneip_tx and (mvw.first_output is not None) and not mvw.first_output.is_local, \
+    'the fixture is no multiviewer'
+mcalls = []
+mvw.register_callback(lambda d: mcalls.append(d))
+rx(uid(MVW), 0x43, transceiver_tree(MVW))
+assert mvw.first_output._audio_endpoint is None, 'a remote sink took the unit\'s own endpoint'
+assert mvw.first_input.audio_endpoint is mvw.audio_endpoint_by_id(0), mvw.first_input.audio_endpoint
+assert len(mcalls) > 0, 'the report was not announced'
+del mcalls[:]
+rx(uid(MVW), 0x43, encoder_tree(MVW))
+assert mvw.first_input.audio_endpoint is mvw.audio_endpoint_by_id(0), 'a bay kept an earlier, equal report\'s endpoint'
+assert mx.get_audio_endpoint(U(MVW), 0).bay is mvw.first_input, 'the reported endpoint does not know its bay'
+assert len(mcalls) > 0, 'a tree without a receiving root was not announced'
+
+# A transceiver's tree that loses its receiving root leaves its output bay
+# without an endpoint.
+LOST = 0x49
+lost = transceiver(LOST)
+rx(uid(LOST), 0x43, transceiver_tree(LOST))
+assert lost.first_output.audio_endpoint is lost.audio_endpoint_by_id(1), lost.first_output.audio_endpoint
+lcalls, bcalls = [], []
+lost.register_callback(lambda d: lcalls.append(d))
+lost.first_output.register_callback(lambda b: bcalls.append(b))
+lost.first_input.register_callback(lambda b: bcalls.append(b))
+rx(uid(LOST), 0x43, encoder_tree(LOST))
+assert lost.first_output.audio_endpoint is None, 'an output bay kept an endpoint its unit no longer reports'
+assert lost.first_input.audio_endpoint is lost.audio_endpoint_by_id(0), lost.first_input.audio_endpoint
+assert len(lcalls) > 0, 'a tree that lost its receiving root was not announced'
+assert bcalls == [lost.first_output], 'the bays announced were %s' % bcalls
+del lcalls[:], bcalls[:]
+rx(uid(LOST), 0x43, encoder_tree(LOST))
+assert (lcalls, bcalls) == ([], []), 'an equal report was announced'
+assert lost.first_input.audio_endpoint is lost.audio_endpoint_by_id(0), 'a bay kept an earlier, equal report\'s endpoint'
+print('bay mapping : a unit\'s own bays hold its latest endpoints, or none')
+
 print('ALL OK')

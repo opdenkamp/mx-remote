@@ -1399,9 +1399,11 @@ class Device(DeviceBase):
 				first_ep = data.tree_first_output
 				if (first_input is not None):
 					first_input.audio_endpoint = first_ep # pyright: ignore[reportAttributeAccessIssue]
+				# A OneIP unit's own input is its first, but a multiviewer's
+				# outputs are all mesh sinks it shows, owned by other units.
 				first_output = self.first_output
 				first_ep = data.tree_first_input
-				if (first_output is not None):
+				if (first_output is not None) and first_output.is_local:
 					first_output.audio_endpoint = first_ep # pyright: ignore[reportAttributeAccessIssue]
 			elif self.is_amp:
 				for id, ep in data.endpoints.items():

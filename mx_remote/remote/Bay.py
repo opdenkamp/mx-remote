@@ -624,10 +624,14 @@ class Bay(BayBase):
         return self._audio_endpoint
 
     @audio_endpoint.setter
-    def audio_endpoint(self, endpoint:AudioEndpoint) -> None:
-        if (self._audio_endpoint is None) or (self._audio_endpoint != endpoint):
-            self._audio_endpoint = endpoint
-            self._audio_endpoint.bay = self
+    def audio_endpoint(self, endpoint:AudioEndpoint|None) -> None:
+        # Every report is a new tree, so an equal endpoint is still taken: the
+        # one held before is no longer updated by anything.
+        changed = (self._audio_endpoint != endpoint)
+        self._audio_endpoint = endpoint
+        if (endpoint is not None):
+            endpoint.bay = self
+        if changed:
             self.call_callbacks()
 
     @property
