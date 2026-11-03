@@ -1777,11 +1777,9 @@ class Device(DeviceBase):
 		to the audio return group arc_owner last reported for its output
 		(oneip_details.arc).
 
-		No unit maps that group to a bay, as only inputs are looked up, so the
-		output plays it as a manual stream on the default audio port, 50022,
-		while the other output sends its audio return on 50023: such a route
-		plays no audio on current firmware. This sends exactly what a
-		controller does all the same.
+		Such a route plays no audio: the output resolves the group to
+		arc_owner's audio return, but audio return is compiled out of OneIP
+		firmware. This sends exactly what a controller does all the same.
 
 		Refused unless this is a OneIP output, the source has reported the
 		streams of an input of its own, and arc_owner has reported a usable

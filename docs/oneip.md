@@ -725,10 +725,10 @@ await output.unroute_oneip_unit()                        # names no streams
 Each powers the output's display on with the switch unless `power_on=False`. An
 output below protocol 0x27 is told the source's own audio rather than none, as
 `select_video_source()` does. `route_oneip_unit_with_arc()` names the audio
-return group the other unit last reported in `oneip_details.arc`; no unit maps
-that group to a bay, so on current firmware the output plays it on the default
-audio port, 50022, while the audio return is sent on 50023, and such a route
-plays no audio. It is what a controller sends all the same. A route is refused
+return group the other unit last reported in `oneip_details.arc`. The output
+resolves that group to the other unit's audio return, but audio return is
+compiled out of OneIP firmware, so such a route plays no audio. It is what a
+controller sends all the same. A route is refused
 before anything is sent where the device is not a OneIP output, a source has no
 input of its own or has not reported its stream addresses, or the other unit has
 not reported a usable audio return group.
