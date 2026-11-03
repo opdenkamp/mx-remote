@@ -45,8 +45,10 @@ class FrameHello(FrameBase):
         grow its own.'''
         payload = [ (MXR_PROTOCOL_VERSION & 0xFF), ((MXR_PROTOCOL_VERSION >> 8) & 0xFF) ]
         payload = append_payload_str(payload=payload, value=mxr.name, sz=16)
-        payload = append_payload_str(payload=payload, value=getattr(mxr, 'serial', CLIENT_SERIAL), sz=16)
-        payload = append_payload_str(payload=payload, value=getattr(mxr, 'version', __version__), sz=16)
+        # A unit reads the serial and version up to their first zero byte, so
+        # one filling its 16 bytes would run on into the field after it.
+        payload = append_payload_str(payload=payload, value=getattr(mxr, 'serial', CLIENT_SERIAL), sz=15) + [0]
+        payload = append_payload_str(payload=payload, value=getattr(mxr, 'version', __version__), sz=15) + [0]
         features = FrameHello.announced_features(mxr)
         payload += [ (features >> 0) & 0xFF, (features >> 8) & 0xFF, (features >> 16) & 0xFF, (features >> 24) & 0xFF ]
         return FrameBase.construct_base(mxr=mxr, opcode=0, payload=bytes(payload))

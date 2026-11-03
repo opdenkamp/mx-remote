@@ -175,13 +175,16 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             Give concurrent clients on one host separate paths - see _load_uid
         :param logo_port: TCP port to serve overlay sync logo images on, or None
             for a free one
-        :param serial: serial number advertised on the network
-        :param version: firmware version advertised on the network, or None for
-            this library's version
+        :param serial: serial number advertised on the network, at most 15
+            bytes
+        :param version: firmware version advertised on the network, at most 15
+            bytes, or None for this library's version
         :param mesh_device: announce this client as a mesh device rather than a
             management application. A mesh takes a mesh device as a member and
             can hand it its controller role; units then take writes from it only
-            while they follow it as their controller.
+            while they follow it as their controller. Units count a mesh device
+            without bays as a member only when its serial is P9SN00000000 or
+            does not start P9SN0000.
         '''
         DeviceRegistry.__init__(self)
         ConnectionCallbacks.__init__(self)

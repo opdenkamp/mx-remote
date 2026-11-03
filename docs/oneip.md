@@ -671,7 +671,8 @@ the source's next configuration report carries the addresses it ends up with, in
 A client can stand in for a unit as mesh controller. It announces itself as a
 mesh device rather than a management application, so a mesh takes it as a
 member, and under a serial and version of its own so the device list tells it
-apart from the unit it replaces:
+apart from the unit it replaces. A unit counts a mesh device without bays as a
+member only under a serial that is `P9SN00000000` or does not start `P9SN0000`:
 
 ```python
 from mx_remote import MeshOperationMessage

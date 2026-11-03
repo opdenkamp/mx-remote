@@ -616,6 +616,20 @@ announced = DeviceFeature(struct.unpack_from('<I', hello_frame.frame, 24 + 50)[0
 assert DeviceFeature.CONFIG_INITIALISED in announced and DeviceFeature.MANAGER in announced, announced
 print('hello       : announces MANAGER and CONFIG_INITIALISED')
 
+# A unit reads the serial and version up to their first zero byte, so each
+# keeps one at its last byte however long it is given; the name may fill its
+# field.
+LONG = '0123456789ABCDEFGH'
+long_mx = mx_remote.Remote(open_connection=False, name=LONG, serial=LONG, version=LONG)
+long_mx._uid = mx._uid
+long_hello = FrameHello.construct(mxr=long_mx)
+p = long_hello.frame[24:]
+assert len(p) == 54, len(p)
+assert p[2:18] == LONG.encode()[:16], p[2:18]
+assert p[18:34] == b'0123456789ABCDE\0', p[18:34]
+assert p[34:50] == b'0123456789ABCDE\0', p[34:50]
+print('hello       : the serial and version keep a terminator')
+
 # ------------------------------------------- a stranger's frame is not acted on
 # A device announces itself before it sends anything else. A frame from a uid
 # that has not announced is one that should not exist, so it is decoded and
