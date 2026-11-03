@@ -190,6 +190,13 @@ assert found.unit_status.flags == UnitFlag.LOCATE_SUPPORTED, found.unit_status.f
 rx(uid(0x23), 0x4F, report_flags(1 << 17))
 assert found.unit_status.flags == UnitFlag.LOCATE, found.unit_status.flags
 
+# A unit says it was offered a firmware upgrade in bit 18 of its status flags,
+# and that it is writing one in bit 19.
+rx(uid(0x23), 0x4F, report_flags(1 << 18))
+assert found.unit_status.flags == UnitFlag.FIRMWARE_UPGRADE, found.unit_status.flags
+rx(uid(0x23), 0x4F, report_flags(1 << 19))
+assert found.unit_status.flags == UnitFlag.UPGRADE_INSTALLING, found.unit_status.flags
+
 # A unit is located for 30 s or until stopped, only once it has reported that it
 # can be, and the cached status says so at once.
 located = hello(uid(0x24), 0x2C, UNIT)

@@ -536,6 +536,11 @@ save then takes this content rather than the controller's. Logo images are
 served over HTTP from this client, on `logo_port` or a free port. Content a unit
 would refuse is refused before anything is sent; see `send_osd_sync`.
 
+A caption setting with `OsdCaptionField.DEFAULT_TEXT` in place of
+`OsdCaptionField.TEXT`, and no text, sends a unit back to its layout's default
+caption, drawn in its own locale. A unit whose firmware predates it keeps the
+text it has.
+
 ### Overlay messages
 
 A unit shows a message on its output, over the picture, until it restarts. The
@@ -639,6 +644,9 @@ await device.stop_locating_unit()
 A unit is located only once its status carries `UnitFlag.LOCATE_SUPPORTED`. Its
 board-ID LED flashes and an output shows "Locate Device"; `UnitFlag.LOCATE` in
 the cached status says so from the moment the command is sent.
+`UnitFlag.FIRMWARE_UPGRADE` says the update service offered the unit a firmware
+upgrade, and `UnitFlag.UPGRADE_INSTALLING` that it is writing one to its flash,
+with its picture gone until it restarts.
 
 A changed IP configuration applies at once and reverts unless the mesh
 controller confirms it in time; `status.network_pending` says whether it still
