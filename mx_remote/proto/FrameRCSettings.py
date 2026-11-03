@@ -9,7 +9,7 @@
 from functools import cached_property
 from .FrameBase import FrameBase, append_payload_str
 from .Constants import RCStatus, RCType, MXR_RC_STATUS_NAME_LEN
-from ..Interface import DeviceBase, DeviceRegistry
+from ..Interface import DeviceBase, DeviceRegistry, RCSettings
 from ..Uid import MxrDeviceUid
 import socket
 import struct
@@ -39,7 +39,7 @@ _STATUS_NAME_SIZE = MXR_RC_STATUS_NAME_LEN + 1
 _WIRE_SIZE = 48
 
 class FrameRCSettings(FrameBase):
-    '''Remote control settings for one device, forwarded from a source to the master.'''
+    '''A unit's remote control settings: its own report, or a write naming it.'''
     @staticmethod
     def construct(mxr:DeviceRegistry, target:DeviceBase, rc_target:int, ip:str|None, cec_enabled:bool,
                   cec_auto_on:bool, forward_rc:bool, forward_ir:bool, rc_status:int, status_name:str) -> FrameBase|None:
@@ -146,9 +146,27 @@ class FrameRCSettings(FrameBase):
             return None
         return name
 
+    @cached_property
+    def settings(self) -> RCSettings|None:
+        '''The settings the frame carries, None when it is too short to carry them.'''
+        if (self._flags is None) or (self.rc_status is None):
+            return None
+        return RCSettings(rc_type=self.rc_target, ip=self.ip,
+                          cec_enabled=bool(self.cec_enabled), cec_auto_on=bool(self.cec_auto_on),
+                          forward_rc=bool(self.rc_forward), forward_ir=bool(self.ir_forward),
+                          rc_status=self.rc_status, status_name=self.status_name)
+
     def process(self) -> None:
-        '''No-op: settings for a target, reported for visibility rather than cached.'''
-        pass
+        '''Keep the settings a unit reports for itself.
+
+        A write names another unit, and that unit reports what it applied, so
+        only a unit's own report is kept.
+        '''
+        if (self.target_uid is None) or (self.target_uid != self.remote_id):
+            return
+        if ((dev := self.remote_device) is None) or ((settings := self.settings) is None):
+            return
+        dev.on_mxr_update(settings)
 
     def __str__(self) -> str:
         target = self.target_device if (self.target_device is not None) else self.target_uid

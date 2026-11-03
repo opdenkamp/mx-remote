@@ -8,7 +8,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from enum import IntEnum
+from enum import Enum, IntEnum
 import time
 import warnings
 from functools import cached_property
@@ -2322,6 +2322,48 @@ class OneIPDownmix:
                   if (self.status is not None) else "status unknown")
         return f"{mode} {level} lfe {self.lfe}% {status}"
 
+class KeepReported(Enum):
+    '''The type of KEEP_REPORTED.'''
+    KEEP = 'keep'
+
+KEEP_REPORTED = KeepReported.KEEP
+'''Keep the value the device reported, for an argument where None is a value
+of its own.'''
+
+@dataclass(frozen=True)
+class RCSettings:
+    """
+    A unit's remote control and CEC settings, as the unit reports them.
+
+    The unit reports what runs, which is not always what it stores: rc_type is
+    the driver in use, and the CEC switches read False while its CEC module is
+    not loaded.
+    """
+    rc_type: RCType|None
+    """How the controlled device is driven; None for a driver this library
+    does not name."""
+    ip: str|None
+    """The controlled device's IPv4 address, None for none."""
+    cec_enabled: bool
+    """Whether the controlled device is driven over CEC."""
+    cec_auto_on: bool
+    """Whether the controlled device is powered on over CEC."""
+    forward_rc: bool
+    """Whether remote control commands are forwarded to the controlled
+    device."""
+    forward_ir: bool
+    """Whether IR commands are forwarded to the controlled device."""
+    rc_status: RCStatus|int
+    """The driver's state; a raw int for a state this library does not name."""
+    status_name: str|None
+    """The driver's status text, None for none."""
+
+    def __str__(self) -> str:
+        rc_type = self.rc_type.name if (self.rc_type is not None) else 'unknown'
+        flags = [n for n, v in (("cec", self.cec_enabled), ("cec auto-on", self.cec_auto_on),
+                                ("rc forward", self.forward_rc), ("ir forward", self.forward_ir)) if v]
+        return f"{rc_type} ip {self.ip} status {self.rc_status} '{self.status_name or ''}' [{', '.join(flags)}]"
+
 @dataclass(frozen=True)
 class OneIPVlan:
     """
@@ -3676,6 +3718,12 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
+    def rc_settings(self) -> RCSettings|None:
+        '''This unit's remote control and CEC settings as it last reported
+        them, None until it reports.'''
+
+    @property
+    @abstractmethod
     def oneip_preview(self) -> str|None:
         '''The multicast group this OneIP device sends its live preview to, on
         ONEIP_PREVIEW_PORT as RFC 2435 RTP/JPEG, as the device last reported it
@@ -3967,9 +4015,11 @@ class DeviceBase(ABC):
         '''unroute this OneIP output, as a mesh controller does'''
 
     @abstractmethod
-    async def set_rc_settings(self, rc_target:RCType|int, ip:str|None, cec_enabled:bool, cec_auto_on:bool,
-                              forward_rc:bool, forward_ir:bool, rc_status:int=0, status_name:str='') -> bool:
-        '''change this OneIP unit's remote control and CEC settings'''
+    async def set_rc_settings(self, rc_target:RCType|int|None=None, ip:str|None|KeepReported=KEEP_REPORTED,
+                              cec_enabled:bool|None=None, cec_auto_on:bool|None=None,
+                              forward_rc:bool|None=None, forward_ir:bool|None=None,
+                              rc_status:int=0, status_name:str='') -> bool:
+        '''change this OneIP unit's remote control and CEC settings; a setting left out keeps the value the unit reported'''
 
     @abstractmethod
     async def read_stats(self, enable:bool) -> bool:

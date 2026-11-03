@@ -128,6 +128,15 @@ The key and action codes a bay reports, and the target a key was aimed at.
    :members:
    :undoc-members:
 
+.. autoclass:: mx_remote.proto.Constants.RCStatus
+   :members:
+   :undoc-members:
+
+.. autoclass:: mx_remote.RCSettings
+   :members:
+
+.. autodata:: mx_remote.KEEP_REPORTED
+
 .. autodata:: mx_remote.proto.Constants.MXR_PROTOCOL_VERSION
 ```
 

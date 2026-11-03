@@ -688,6 +688,7 @@ await output.set_oneip_source_filter([source.remote_id])
 await output.set_oneip_tiling(pos_x=0, pos_y=0, width=1920, height=1080)
 await unit.set_rc_settings(rc_target=RCType.CEC, ip=None, cec_enabled=True, cec_auto_on=True,
                            forward_rc=True, forward_ir=False)
+await unit.set_rc_settings(forward_ir=True)      # the rest as the unit reported
 ```
 
 The tiling window is in pixels of the decoded source picture: the output crops
@@ -698,6 +699,14 @@ output ignores, without a word, a window whose `pos_x` is not a multiple of
 so the library refuses those before sending. The output keeps a window in
 memory only and does not report it: a reboot, a stream restart or a change of
 source format drops it.
+
+Every unit reports its remote control settings itself, periodically and right
+after a change, and `unit.rc_settings` holds the last report (an `RCSettings`).
+A report is what runs, not what is stored: `rc_type` is the driver in use, and
+the CEC switches read False while the unit's CEC module is not loaded. A
+setting `set_rc_settings()` is not given, or `ip` left at `KEEP_REPORTED`, is
+sent as last reported, so it can store what runs; it is refused until the unit
+has reported.
 
 `set_mesh_controller()` changes only the announcement, at once: membership
 while there is a controller, and the controller role while it is this client

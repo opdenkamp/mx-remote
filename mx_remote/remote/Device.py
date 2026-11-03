@@ -32,6 +32,9 @@ from ..Interface import (
 	OneIPDeviceSettings,
 	OneIPPowerSaveSchedule,
 	OneIPVlan,
+	KEEP_REPORTED,
+	KeepReported,
+	RCSettings,
 	OneIPTestcard,
 	OneIPSinkSdp,
 	OneIPPrivacy,
@@ -214,6 +217,7 @@ class Device(DeviceBase):
 		self._v2ip_ptp:OneIPPtpState|None = None
 		self._v2ip_downmix:OneIPDownmix|None = None
 		self._v2ip_locale:int|None = None
+		self._rc_settings:RCSettings|None = None
 		self._v2ip_preview:str|None = None
 		self._unit_status:UnitStatus|None = None
 		self._v2ip_testcard:OneIPTestcard|None = None
@@ -616,6 +620,11 @@ class Device(DeviceBase):
 	@override
 	def oneip_locale(self) -> int|None:
 		return self._v2ip_locale
+
+	@property
+	@override
+	def rc_settings(self) -> RCSettings|None:
+		return self._rc_settings
 
 	@property
 	@override
@@ -1287,6 +1296,10 @@ class Device(DeviceBase):
 			self.oneip_features = data
 		elif isinstance(data, OneIPDeviceSettings):
 			self._merge_v2ip_settings(data)
+		elif isinstance(data, RCSettings):
+			if (self._rc_settings != data):
+				self._rc_settings = data
+				self.call_callbacks()
 		elif isinstance(data, OneIPVlan):
 			if (self._v2ip_vlan != data):
 				self._v2ip_vlan = data
@@ -1824,18 +1837,42 @@ class Device(DeviceBase):
 			return False
 		return self._send_source_switch(video='0.0.0.0', audio='0.0.0.0', power_on=True)
 
-	async def set_rc_settings(self, rc_target:RCType|int, ip:str|None, cec_enabled:bool, cec_auto_on:bool,
-	                          forward_rc:bool, forward_ir:bool, rc_status:int=0, status_name:str='') -> bool:
+	async def set_rc_settings(self, rc_target:RCType|int|None=None, ip:str|None|KeepReported=KEEP_REPORTED,
+	                          cec_enabled:bool|None=None, cec_auto_on:bool|None=None,
+	                          forward_rc:bool|None=None, forward_ir:bool|None=None,
+	                          rc_status:int=0, status_name:str='') -> bool:
 		'''Change this OneIP unit's remote control and CEC settings.
 
 		The unit applies the control method, the controlled device's address
 		(None for none) and the four switches, then reports its settings; the
 		driver state and status text are its own to report and it ignores them
 		here. It takes the change only from its mesh controller or a management
-		application. Refused unless this is a OneIP unit, rc_status fits
-		MXR_RC_STATUS_MAX, and status_name is at most MXR_RC_STATUS_NAME_LEN
-		ASCII bytes without a NUL.
+		application.
+
+		A setting left out, or ip left at KEEP_REPORTED, is sent as rc_settings
+		last reported it. That report is what runs rather than what is stored
+		(see RCSettings), so a setting left out can store what runs: the driver
+		in use, or CEC off while the CEC module is not loaded.
+
+		Refused unless this is a OneIP unit, every setting left out has been
+		reported, rc_status fits MXR_RC_STATUS_MAX, and status_name is at most
+		MXR_RC_STATUS_NAME_LEN ASCII bytes without a NUL.
 		'''
+		if (None in (rc_target, cec_enabled, cec_auto_on, forward_rc, forward_ir)) or (ip is KEEP_REPORTED):
+			if ((reported := self._rc_settings) is None):
+				_LOGGER.warning(f"not setting remote control settings on {self}: it has not reported the settings left out")
+				return False
+			if (rc_target is None):
+				if (reported.rc_type is None):
+					_LOGGER.warning(f"not setting remote control settings on {self}: it reported a method this library does not name")
+					return False
+				rc_target = reported.rc_type
+			ip = reported.ip if (ip is KEEP_REPORTED) else ip
+			cec_enabled = reported.cec_enabled if (cec_enabled is None) else cec_enabled
+			cec_auto_on = reported.cec_auto_on if (cec_auto_on is None) else cec_auto_on
+			forward_rc = reported.forward_rc if (forward_rc is None) else forward_rc
+			forward_ir = reported.forward_ir if (forward_ir is None) else forward_ir
+		assert not isinstance(ip, KeepReported)
 		if not (0 <= rc_status <= MXR_RC_STATUS_MAX) or (len(status_name) > MXR_RC_STATUS_NAME_LEN) \
 				or ('\0' in status_name) or not status_name.isascii() or not (0 <= int(rc_target) <= 0xFF):
 			_LOGGER.warning(f"not setting remote control settings on {self}: "
