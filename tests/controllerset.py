@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logging.disable(logging.CRITICAL)
 import mx_remote
 from mx_remote import DeviceFeature as D, MxrDeviceUid, OneIPDscpConfig, OneIPDeviceSetting as S
-from mx_remote.proto.Constants import (ONEIP_LOCALE_UNKNOWN, OneIPVlanFlag as F, MXR_ONEIP_DSCP_SET,
+from mx_remote.proto.Constants import (OneIPVlanFlag as F, MXR_ONEIP_DSCP_SET,
                                        MXR_SCALING_FLAG_OPTIONS2_VALID as OPTIONS2,
                                        MXR_SCALING_FLAG_MATCH_SOURCE as MATCH, MXR_SCALING_FLAG_SKIP_420 as SKIP,
                                        ONEIP_SOURCE_RATE_MIN, ONEIP_SOURCE_RATE_MAX)
@@ -60,16 +60,17 @@ def last(opcode):
     assert int.from_bytes(f[20:22], 'little') == opcode, f[:24].hex()
     return f[24:]
 
-def settings_cfg(subject, ext=None, locale=0xA5, size=248, valid=S.STATUS_LED):
+def settings_cfg(subject, ext=None, locale='', size=256, valid=S.STATUS_LED):
     '''A configuration about subject reporting the settings of valid, with the
-    second valid word ext at 232, a downmix behind it and locale at 241, cut to
-    size.'''
+    second valid word ext at 232, a downmix and preview behind it and the
+    locale's name at 248, cut to size.'''
     out = bytearray(subject + bytes(24) + bytes([0xFF]) + bytes(87))
     out += struct.pack('<II', int(valid), int(valid)) + bytes(40)    # 128..176 settings
     out += bytes(16) + bytes(24) + bytes(16)                         # VLAN, PTP state, own block
     assert len(out) == 232, len(out)
     if ext is not None:
-        out += struct.pack('<IBBBBBB', ext, 2, 1, 77, 9, 6, locale) + bytes([0xA5] * 6)
+        out += struct.pack('<IBBBBB', ext, 2, 1, 77, 9, 6) + bytes([0xA5] * 3) + bytes([239, 1, 2, 3])
+        out += locale.encode('ascii').ljust(8, b'\0')
     return bytes(out[:size])
 
 EXT_DOWNMIX, EXT_LOCALE = 1 << 0, 1 << 1
@@ -77,29 +78,29 @@ SINK = D.ONEIP_SINK | D.CONFIG_INITIALISED
 
 # --------------------------------------------------------------- locale: read
 dev = hello(uid(0x10), SINK)
-rx(uid(0x10), 0x3C, settings_cfg(uid(0x10), EXT_LOCALE, 1, size=241))
-assert dev.oneip_locale is None, 'a block too short for the locale'
-rx(uid(0x10), 0x3C, settings_cfg(uid(0x10), EXT_LOCALE, 1, size=242))
-assert dev.oneip_locale == 1, dev.oneip_locale
-rx(uid(0x10), 0x3C, settings_cfg(uid(0x10), EXT_LOCALE, 0, size=241))
-assert dev.oneip_locale == 1, 'a block too short to say changed it'
-rx(uid(0x10), 0x3C, settings_cfg(uid(0x10), EXT_LOCALE, ONEIP_LOCALE_UNKNOWN))
-assert dev.oneip_locale == ONEIP_LOCALE_UNKNOWN, dev.oneip_locale
-rx(uid(0x10), 0x3C, settings_cfg(uid(0x10), EXT_DOWNMIX, 1))
+rx(uid(0x10), 0x3C, settings_cfg(uid(0x10), EXT_LOCALE, 'NL_NL', size=255))
+assert dev.oneip_locale is None, 'a block too short for the whole name'
+rx(uid(0x10), 0x3C, settings_cfg(uid(0x10), EXT_LOCALE, 'NL_NL'))
+assert dev.oneip_locale == 'NL_NL', dev.oneip_locale
+rx(uid(0x10), 0x3C, settings_cfg(uid(0x10), EXT_LOCALE, 'EN_US', size=255))
+assert dev.oneip_locale == 'NL_NL', 'a block too short to say changed it'
+rx(uid(0x10), 0x3C, settings_cfg(uid(0x10), EXT_LOCALE, 'ABCDEFGH'))
+assert dev.oneip_locale == 'ABCDEFGH', 'a name filling its field'
+rx(uid(0x10), 0x3C, settings_cfg(uid(0x10), EXT_DOWNMIX, 'NL_NL'))
 assert dev.oneip_locale is None, 'a report without the bit kept the locale'
 assert dev.oneip_downmix is not None, 'the downmix beside it was not read'
-print('read        : behind its bit, from a block that holds it')
+print('read        : by name behind its bit, from a block that holds it')
 
 # Another sender's frame is a write, which a device without locales ignores.
 ctrl = hello(uid(0x11), D.MANAGER, model='Ctrl')
-rx(uid(0x10), 0x3C, settings_cfg(uid(0x10), 0, 0))
-rx(uid(0x11), 0x3C, settings_cfg(uid(0x10), EXT_LOCALE, 1))
+rx(uid(0x10), 0x3C, settings_cfg(uid(0x10), 0, ''))
+rx(uid(0x11), 0x3C, settings_cfg(uid(0x10), EXT_LOCALE, 'NL_NL'))
 assert dev.oneip_locale is None, 'a write gave a locale to a device with none'
-rx(uid(0x10), 0x3C, settings_cfg(uid(0x10), EXT_LOCALE, 0))
-rx(uid(0x11), 0x3C, settings_cfg(uid(0x10), 0, 1))
-assert dev.oneip_locale == 0, 'a write without the bit was applied'
-rx(uid(0x11), 0x3C, settings_cfg(uid(0x10), EXT_LOCALE, 1))
-assert dev.oneip_locale == 1, 'a write to a device with locales was not applied'
+rx(uid(0x10), 0x3C, settings_cfg(uid(0x10), EXT_LOCALE, 'EN_UK'))
+rx(uid(0x11), 0x3C, settings_cfg(uid(0x10), 0, 'EN_US'))
+assert dev.oneip_locale == 'EN_UK', 'a write without the bit was applied'
+rx(uid(0x11), 0x3C, settings_cfg(uid(0x10), EXT_LOCALE, 'NL_NL'))
+assert dev.oneip_locale == 'NL_NL', 'a write to a device with locales was not applied'
 assert ctrl.oneip_locale is None, 'the write was taken as the controller\'s own'
 print('writes      : reach only a device that has a locale')
 
@@ -107,28 +108,30 @@ print('writes      : reach only a device that has a locale')
 # A device takes a locale before it reports its settings, so one that has not
 # is written too.
 reported = hello(uid(0x12), SINK)
-rx(uid(0x12), 0x3C, settings_cfg(uid(0x12), EXT_LOCALE | EXT_DOWNMIX, 0))
+rx(uid(0x12), 0x3C, settings_cfg(uid(0x12), EXT_LOCALE | EXT_DOWNMIX, 'EN_UK'))
 pending = hello(uid(0x13), SINK)
 for d, u in ((reported, uid(0x12)), (pending, uid(0x13))):
     sent.clear()
-    assert call(d.set_oneip_locale(1)) is True, u.hex()
+    assert call(d.set_oneip_locale('NL_NL')) is True, u.hex()
     p = last(0x3C)
-    assert len(p) == 248, len(p)
+    assert len(p) == 256, len(p)
     assert p[:16] == u and p[40] == 0xFF, p[:41].hex()
     assert p[128:132] == bytes(4), 'a setting of the first valid word'
-    assert p[232:] == bytes([2, 0, 0, 0, 0, 0, 0, 0, 0, 1]) + bytes(6), p[232:].hex()
-    assert d.oneip_locale == 1, d.oneip_locale
+    assert p[232:236] == bytes([2, 0, 0, 0]), p[232:236].hex()
+    assert p[236:248] == bytes(12), 'the downmix or the preview'
+    assert p[248:] == b'NL_NL\0\0\0', p[248:]
+    assert d.oneip_locale == 'NL_NL', d.oneip_locale
 print('write       : the locale alone, cached once sent')
 
 lacks = hello(uid(0x14), SINK)
-rx(uid(0x14), 0x3C, settings_cfg(uid(0x14), 0, 0))
+rx(uid(0x14), 0x3C, settings_cfg(uid(0x14), 0, ''))
 assert lacks.oneip_settings is not None and lacks.oneip_locale is None
-refused(lacks.set_oneip_locale(0), 'a device whose firmware has no locales')
-refused(reported.set_oneip_locale(ONEIP_LOCALE_UNKNOWN), 'the unknown locale')
-refused(reported.set_oneip_locale(-1), 'a negative locale')
-refused(reported.set_oneip_locale(0x100), 'a locale wider than a byte')
-assert call(reported.set_oneip_locale(0)) is True, 'locale 0 is a locale'
-print('refusals    : nothing a unit would ignore is sent')
+refused(lacks.set_oneip_locale('NL_NL'), 'a device whose firmware has no locales')
+for name_ in ('', 'ABCDEFGHI', 'NL NL', 'NL_\u00e9', 'NL_\x7f'):
+    refused(reported.set_oneip_locale(name_), repr(name_))
+assert call(reported.set_oneip_locale('ABCDEFGH')) is True, 'a whole field'
+assert last(0x3C)[248:] == b'ABCDEFGH'
+print('refusals    : nothing a unit could not hold is sent')
 
 # ----------------------------------------------------------------- skip 4:2:0
 def scaling_cfg(subject, flags):

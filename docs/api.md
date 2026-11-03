@@ -198,10 +198,10 @@ How a device's output mixes 5.1 and 7.1 PCM down to stereo.
 
 ## OneIP locale
 
-The locale a device runs, by its number.
+The locale a device runs, by its name, such as `NL_NL`.
 
 ```{eval-rst}
-.. autodata:: mx_remote.proto.Constants.ONEIP_LOCALE_UNKNOWN
+.. autodata:: mx_remote.proto.Constants.ONEIP_LOCALE_MAX
 ```
 
 ## OneIP tiling

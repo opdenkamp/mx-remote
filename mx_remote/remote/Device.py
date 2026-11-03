@@ -97,7 +97,7 @@ import time
 
 from ..Interface import DeviceBase, BayBase, DeviceRegistry
 from ..proto.FrameBase import FrameBase
-from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, ONEIP_DOWNMIX_LFE_MAX, ONEIP_LOCALE_UNKNOWN, ONEIP_TILING_MIN, ONEIP_TILING_WIDTH_STEP, ONEIP_TILING_X_STEP, OSD_MESSAGE_TEXT_MAX, OsdMessageFlag, OsdMessagePriority, BayFeaturesMask, DeviceFeature, Endpoints, MxrSignalType, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag,
+from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, ONEIP_DOWNMIX_LFE_MAX, ONEIP_LOCALE_MAX, ONEIP_TILING_MIN, ONEIP_TILING_WIDTH_STEP, ONEIP_TILING_X_STEP, OSD_MESSAGE_TEXT_MAX, OsdMessageFlag, OsdMessagePriority, BayFeaturesMask, DeviceFeature, Endpoints, MxrSignalType, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag,
                               OneIPTestPattern, OneIPToneMode,
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                               MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_OPTIONS2_VALID,
@@ -216,7 +216,7 @@ class Device(DeviceBase):
 		self._v2ip_vlan:OneIPVlan|None = None
 		self._v2ip_ptp:OneIPPtpState|None = None
 		self._v2ip_downmix:OneIPDownmix|None = None
-		self._v2ip_locale:int|None = None
+		self._v2ip_locale:str|None = None
 		self._rc_settings:RCSettings|None = None
 		self._v2ip_preview:str|None = None
 		self._unit_status:UnitStatus|None = None
@@ -618,7 +618,7 @@ class Device(DeviceBase):
 
 	@property
 	@override
-	def oneip_locale(self) -> int|None:
+	def oneip_locale(self) -> str|None:
 		return self._v2ip_locale
 
 	@property
@@ -2252,7 +2252,7 @@ class Device(DeviceBase):
 			self._v2ip_downmix = downmix
 			self.call_callbacks()
 
-	def _on_oneip_locale(self, locale:int|None, reported:bool) -> None:
+	def _on_oneip_locale(self, locale:str|None, reported:bool) -> None:
 		'''Take the locale a configuration carries as the device takes it: a
 		report replaces the one held, None included, and another sender's write
 		is applied only to a device that reports a locale, since one without
@@ -2263,20 +2263,20 @@ class Device(DeviceBase):
 			self._v2ip_locale = locale
 			self.call_callbacks()
 
-	async def set_oneip_locale(self, locale:int) -> bool:
-		'''Set the locale this OneIP device runs, by its number: its position in
-		the list of locales the device's /system/locale names.
+	async def set_oneip_locale(self, locale:str) -> bool:
+		'''Set the locale this OneIP device runs, by its name, such as NL_NL.
 
 		A device stores and loads a locale it knows and ignores one it does not,
 		so a locale is sent also to a device that has not reported its settings
-		yet. Refused before anything is sent for ONEIP_LOCALE_UNKNOWN or a number
-		that is not a byte, and for a device whose settings arrived without a
-		locale, as its firmware has none. The locale is cached once the frame is
-		sent, and the device's next report replaces it.
+		yet. Refused before anything is sent for a name that is empty, longer
+		than ONEIP_LOCALE_MAX bytes or not printable ASCII, and for a device
+		whose settings arrived without a locale, as its firmware has none. The
+		locale is cached once the frame is sent, and the device's next report
+		replaces it.
 		'''
 		why = None
-		if not (0 <= locale < ONEIP_LOCALE_UNKNOWN):
-			why = 'no such locale'
+		if not (0 < len(locale) <= ONEIP_LOCALE_MAX) or not all(0x21 <= ord(c) <= 0x7E for c in locale):
+			why = f'a locale is 1 to {ONEIP_LOCALE_MAX} printable ASCII characters'
 		elif (self._v2ip_settings is not None) and (self._v2ip_locale is None):
 			why = "the device's firmware has no locales"
 		if (why is not None):

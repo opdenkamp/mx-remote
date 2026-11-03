@@ -377,27 +377,29 @@ runs on to 248 bytes and carries no other setting.
 
 ### Locale
 
-A device whose firmware has locales reports the one it runs by its number, its
-position in the list the device's `/system/locale` names, behind the downmix.
-`ONEIP_LOCALE_UNKNOWN` is a stored locale the firmware does not know.
+A device whose firmware has locales reports the one it runs by its name, such
+as `NL_NL`: up to `ONEIP_LOCALE_MAX` bytes, NUL padded, at the end of its
+settings block, behind the preview group.
 
 ```python
-print(device.oneip_locale)        # None: no report yet, or no locales
-await device.set_oneip_locale(1)
+print(device.oneip_locale)        # 'EN_UK', or None: no report yet, or no locales
+await device.set_oneip_locale('NL_NL')
 ```
 
 A device stores a locale it knows and ignores one it does not, so the write goes
 also to a device that has not reported its settings yet, and the locale is
-cached once sent until the device's next report. Refused before sending:
-`ONEIP_LOCALE_UNKNOWN`, a number that is not a byte, and a device whose settings
-arrived without a locale, as its firmware has none. Another controller's write
-reaches only a device that reports a locale.
+cached once sent until the device's next report. The write runs on to 256
+bytes, as a device takes a locale only from a block that holds the whole name.
+Refused before sending: a name that is empty, longer than `ONEIP_LOCALE_MAX`
+bytes or not printable ASCII, and a device whose settings arrived without a
+locale, as its firmware has none. Another controller's write reaches only a
+device that reports a locale.
 
 ### Live preview
 
 A device whose firmware sends a live preview names the multicast group it sends
 it to at the end of its settings block. The preview is RFC 2435 RTP/JPEG on
-UDP port `ONEIP_PREVIEW_PORT` (5880).
+UDP port `ONEIP_PREVIEW_PORT` (50024), after the stream ports.
 
 ```python
 from mx_remote.proto.Constants import ONEIP_PREVIEW_PORT

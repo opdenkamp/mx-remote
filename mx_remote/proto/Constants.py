@@ -636,10 +636,8 @@ class OneIPDownmixLevel(IntEnum):
 ONEIP_DOWNMIX_LFE_MAX = 100
 """The largest percent a OneIP output mixes its LFE channel in at."""
 
-ONEIP_LOCALE_UNKNOWN = 255
-"""The locale a OneIP device reports for a stored locale its firmware does not
-know. Every other value numbers a locale, and keeps its meaning across firmware
-versions."""
+ONEIP_LOCALE_MAX = 8
+"""The longest locale name a OneIP device reports or takes, in bytes."""
 
 ONEIP_TILING_X_STEP = 64
 """A OneIP output's tiling window starts at a multiple of this many pixels."""
@@ -648,9 +646,9 @@ ONEIP_TILING_WIDTH_STEP = 4
 ONEIP_TILING_MIN = 64
 """The fewest pixels a OneIP output's tiling window is wide and high."""
 
-ONEIP_PREVIEW_PORT = 5880
+ONEIP_PREVIEW_PORT = 50024
 """The UDP port a OneIP unit sends its live preview to, as RFC 2435 RTP/JPEG,
-on the group it reports as Device.oneip_preview."""
+on the group it reports as Device.oneip_preview, after its stream ports."""
 
 class UnitPowerSave(IntFlag):
 	'''What a unit offers at one power save level.'''

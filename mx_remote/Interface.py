@@ -3710,11 +3710,10 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
-    def oneip_locale(self) -> int|None:
-        '''The locale this OneIP device runs, by its number, as it last reported
-        or as it was last written; None while it reports none, and always for
-        one whose firmware has no locales. ONEIP_LOCALE_UNKNOWN is a stored
-        locale its firmware does not know.'''
+    def oneip_locale(self) -> str|None:
+        '''The locale this OneIP device runs, by its name, such as NL_NL, as it
+        last reported or as it was last written; None while it reports none,
+        and always for one whose firmware has no locales.'''
 
     @property
     @abstractmethod
@@ -4094,8 +4093,8 @@ class DeviceBase(ABC):
         '''confirm the VLAN configuration the device runs pending, so it keeps it'''
 
     @abstractmethod
-    async def set_oneip_locale(self, locale:int) -> bool:
-        '''set the locale the device runs, by its number'''
+    async def set_oneip_locale(self, locale:str) -> bool:
+        '''set the locale the device runs, by its name, such as NL_NL'''
 
     @abstractmethod
     async def set_oneip_skip_420(self, enabled:bool) -> bool:
