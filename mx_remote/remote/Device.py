@@ -94,7 +94,7 @@ import time
 
 from ..Interface import DeviceBase, BayBase, DeviceRegistry
 from ..proto.FrameBase import FrameBase
-from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, ONEIP_DOWNMIX_LFE_MAX, ONEIP_LOCALE_UNKNOWN, OSD_MESSAGE_TEXT_MAX, OsdMessageFlag, OsdMessagePriority, BayFeaturesMask, DeviceFeature, Endpoints, MxrSignalType, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag,
+from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, ONEIP_DOWNMIX_LFE_MAX, ONEIP_LOCALE_UNKNOWN, ONEIP_TILING_MIN, ONEIP_TILING_WIDTH_STEP, ONEIP_TILING_X_STEP, OSD_MESSAGE_TEXT_MAX, OsdMessageFlag, OsdMessagePriority, BayFeaturesMask, DeviceFeature, Endpoints, MxrSignalType, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag,
                               OneIPTestPattern, OneIPToneMode,
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                               MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_OPTIONS2_VALID,
@@ -1700,18 +1700,36 @@ class Device(DeviceBase):
 		return True
 
 	async def set_oneip_tiling(self, pos_x:int, pos_y:int, width:int, height:int) -> bool:
-		'''Set the part of a video wall this OneIP output shows: the window of
-		the picture it crops and scales up, each value 16 bits.
+		'''Set the part of the picture this OneIP output shows, for a video
+		wall: the window it crops out and scales up, in pixels of the decoded
+		source picture. A width or height of 0 shows the whole picture.
 
-		The output takes it only from its mesh controller or a management
-		application, and a video wall module loaded on it replaces it within a
-		second. Refused unless this is a OneIP output.
+		The output keeps the window in memory only, so a reboot, a restart of
+		its stream or a change of source format drops it, and it does not
+		report it. It takes the window only from a management application,
+		and a video wall module loaded on it replaces it within a second.
+
+		Refused before anything is sent unless this is a OneIP output and the
+		window is one the output takes: pos_x a multiple of
+		ONEIP_TILING_X_STEP, width a multiple of ONEIP_TILING_WIDTH_STEP, both
+		sides at least ONEIP_TILING_MIN, and each value 16 bits. The output
+		ignores any other window without a word.
 		'''
 		if not self.is_oneip_sink:
 			_LOGGER.warning(f"not setting tiling on {self}: not a OneIP output")
 			return False
+		why = None
 		if not all(0 <= v <= 0xFFFF for v in (pos_x, pos_y, width, height)):
-			_LOGGER.warning(f"not setting tiling on {self}: each value must fit 16 bits")
+			why = "each value must fit 16 bits"
+		elif (width != 0) and (height != 0):
+			if (pos_x % ONEIP_TILING_X_STEP) != 0:
+				why = f"pos_x must be a multiple of {ONEIP_TILING_X_STEP}"
+			elif (width % ONEIP_TILING_WIDTH_STEP) != 0:
+				why = f"width must be a multiple of {ONEIP_TILING_WIDTH_STEP}"
+			elif (width < ONEIP_TILING_MIN) or (height < ONEIP_TILING_MIN):
+				why = f"width and height must be at least {ONEIP_TILING_MIN}"
+		if (why is not None):
+			_LOGGER.warning(f"not setting tiling on {self}: {why}")
 			return False
 		frame = FrameV2IPTiling.construct(mxr=self.registry, target=self, pos_x=pos_x, pos_y=pos_y,
 		                                  width=width, height=height)

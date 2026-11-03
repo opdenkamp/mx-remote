@@ -641,6 +641,13 @@ ONEIP_LOCALE_UNKNOWN = 255
 know. Every other value numbers a locale, and keeps its meaning across firmware
 versions."""
 
+ONEIP_TILING_X_STEP = 64
+"""A OneIP output's tiling window starts at a multiple of this many pixels."""
+ONEIP_TILING_WIDTH_STEP = 4
+"""A OneIP output's tiling window is a multiple of this many pixels wide."""
+ONEIP_TILING_MIN = 64
+"""The fewest pixels a OneIP output's tiling window is wide and high."""
+
 ONEIP_PREVIEW_PORT = 5880
 """The UDP port a OneIP unit sends its live preview to, as RFC 2435 RTP/JPEG,
 on the group it reports as Device.oneip_preview."""

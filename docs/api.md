@@ -195,6 +195,18 @@ The locale a device runs, by its number.
 .. autodata:: mx_remote.proto.Constants.ONEIP_LOCALE_UNKNOWN
 ```
 
+## OneIP tiling
+
+The window a OneIP output takes for a video wall.
+
+```{eval-rst}
+.. autodata:: mx_remote.proto.Constants.ONEIP_TILING_X_STEP
+
+.. autodata:: mx_remote.proto.Constants.ONEIP_TILING_WIDTH_STEP
+
+.. autodata:: mx_remote.proto.Constants.ONEIP_TILING_MIN
+```
+
 ## OneIP PTP
 
 A device's PTP settings, which it reports and a controller writes, and the PTP

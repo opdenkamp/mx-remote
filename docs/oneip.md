@@ -690,6 +690,15 @@ await unit.set_rc_settings(rc_target=RCType.CEC, ip=None, cec_enabled=True, cec_
                            forward_rc=True, forward_ir=False)
 ```
 
+The tiling window is in pixels of the decoded source picture: the output crops
+it out and scales it up. A width or height of 0 shows the whole picture. An
+output ignores, without a word, a window whose `pos_x` is not a multiple of
+`ONEIP_TILING_X_STEP` (64), whose width is not a multiple of
+`ONEIP_TILING_WIDTH_STEP` (4), or whose sides are under `ONEIP_TILING_MIN` (64),
+so the library refuses those before sending. The output keeps a window in
+memory only and does not report it: a reboot, a stream restart or a change of
+source format drops it.
+
 `set_mesh_controller()` changes only the announcement, at once: membership
 while there is a controller, and the controller role while it is this client
 and `set_mesh_bays_mapped()` says it has bays, as a unit announces it.

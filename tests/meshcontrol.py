@@ -328,6 +328,11 @@ f = mx.sent[-1]
 assert opcode(f) == 0x40 and f[24:] == uid(0x60) + struct.pack('<4H', 960, 540, 1920, 1080), f[24:].hex()
 t = process_mxr_frame(mx, 0.0, f, ADDR)
 assert (t.target_uid, t.position_x, t.position_y, t.width, t.height) == (U(0x60), 960, 540, 1920, 1080), str(t)
+# the smallest window, and a zero side for the whole picture wherever it starts
+for window in ((64, 7, 64, 64), (0, 0, 0, 0), (32, 0, 0, 1080), (0, 0, 1920, 0)):
+    mx.sent.clear()
+    assert call(out.set_oneip_tiling(*window)) is True, window
+    assert mx.sent[-1][24:] == uid(0x60) + struct.pack('<4H', *window), window
 print('outputs     : mirroring, filter and tiling go out, are held, and decode back')
 
 # Remote control settings: the unit's 48-byte struct with every switch
@@ -373,6 +378,11 @@ assert call(out.set_oneip_source_filter([U(0x61)] * (ONEIP_SOURCE_FILTER_MAX + 1
 assert call(amp.set_oneip_source_filter([])) is False
 assert call(amp.set_oneip_tiling(0, 0, 0, 0)) is False
 assert call(out.set_oneip_tiling(0x10000, 0, 0, 0)) is False
+# a window the output ignores without a word
+assert call(out.set_oneip_tiling(32, 0, 1920, 1080)) is False, 'pos_x off the 64-pixel step'
+assert call(out.set_oneip_tiling(0, 0, 1922, 1080)) is False, 'width off the 4-pixel step'
+assert call(out.set_oneip_tiling(0, 0, 60, 1080)) is False, 'narrower than 64'
+assert call(out.set_oneip_tiling(0, 0, 1920, 63)) is False, 'lower than 64'
 rc = dict(rc_target=7, ip='192.168.7.21', cec_enabled=True, cec_auto_on=False, forward_rc=True, forward_ir=False)
 assert call(out.set_rc_settings(**rc, rc_status=MXR_RC_STATUS_MAX + 1)) is False
 assert call(out.set_rc_settings(**rc, status_name='N' * (MXR_RC_STATUS_NAME_LEN + 1))) is False

@@ -3952,7 +3952,7 @@ class DeviceBase(ABC):
 
     @abstractmethod
     async def set_oneip_tiling(self, pos_x:int, pos_y:int, width:int, height:int) -> bool:
-        '''set the part of a video wall this OneIP output shows'''
+        '''set the window of the source picture, in pixels, this OneIP output crops out and scales up for a video wall'''
 
     @abstractmethod
     async def route_oneip_unit(self, video:'DeviceBase', audio:'DeviceBase|None'=None, power_on:bool=True) -> bool:
