@@ -26,8 +26,8 @@ from ..const import MXR_HELLO_INTERVAL_MIN, MXR_HELLO_INTERVAL_RAND, __version__
 from .Device import Device
 from .Tree import DeviceTree
 from .AudioRoute import audio_path
-from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, AudioHop, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, OneIPStreamSources, DeviceTreeEntry
-from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat
+from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, AudioHop, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, MeshConfig, MeshReplaceable, MeshReplaceUnit, MeshSetting, OneIPStreamSources, DeviceTreeEntry
+from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat, MESH_REPLACE_NAME_MAX, MESH_REPLACE_UNITS_MAX, MeshReplaceResult
 from ..proto.FrameDiscover import FrameDiscover, constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
 from ..proto.FrameHello import FrameHello, constructFrameHello
@@ -36,6 +36,10 @@ from ..proto.FrameReboot import FrameReboot
 from ..proto.FrameFactoryReset import FrameFactoryReset
 from ..proto.FrameThirdParty import FrameThirdParty
 from ..proto.FrameMeshOperation import FrameMeshOperation
+from ..proto.FrameMeshReplace import FrameMeshReplace, KIND_QUERY, KIND_UNITS, KIND_REQUEST, KIND_RESULT
+from ..proto.FrameMeshConfig import (FrameMeshConfig, encode_settings, FLAG_COPY, KIND_DUMP, KIND_REQUEST as CONFIG_REQUEST,
+                                     KIND_SET)
+from .Mesh import MeshKeeper
 from ..proto.FrameSetInstaller import FrameSetInstaller
 from ..proto.FrameSetupStatus import FrameSetupStatus
 from ..proto.FrameV2IPSources import FrameV2IPSources, ONEIP_SOURCE_LIST_MAX
@@ -219,6 +223,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._addr_filter = addr_filter
         self._svd = SvdMap()
         self._osd = OsdSender()
+        self._mesh = MeshKeeper()
         self._osd_queued = asyncio.Event()
         self._logos = LogoServer()
         self._logo_port = logo_port
@@ -954,6 +959,169 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             return False
         return all(self._send_to_all(frame) for frame in frames)
 
+    # ---- replacing a unit of a mesh (0x56) ----
+
+    async def query_mesh_replaceable(self) -> bool:
+        '''Ask every device which units this client can replace. True when the
+        query was written, or was not due.
+
+        Every controller answers with its offline units, and every member whose
+        controller is offline with that controller; mesh_replaceable then reads
+        them. A unit lists none until its controller has been up 120 s, and a
+        device without the mesh module answers nothing. A call within 2 s of
+        the last sends nothing, as a unit asks no more often: the answers to
+        the last are still arriving.'''
+        if not self._mesh.query_due(time.time()):
+            return True
+        return self._send_to_all(FrameMeshReplace.construct_query(mxr=self))
+
+    @property
+    def mesh_replaceable(self) -> list[MeshReplaceable]:
+        '''The units this client can ask to replace, each with the device that
+        listed it, as listed in the last 30 s. A unit several members list
+        appears once.'''
+        return self._mesh.replaceable(time.time())
+
+    async def request_mesh_replace(self, lister:DeviceBase, unit:MxrDeviceUid) -> bool:
+        '''Ask lister to replace unit with this client: the device takes over
+        the unit's bays, their names and routes, and its kept settings. True
+        when the request was written; the device answers at
+        MxrCallbacks.on_mesh_replace_answered().
+
+        Asking a member to replace its offline controller makes it send the
+        controller's kept settings to this client, at
+        MxrCallbacks.on_mesh_config_received(). Taking over is then this
+        client's own: promoting itself to controller in place of the old one,
+        and having the members replace it (send_mesh_operation()).
+
+        Refused here for what the device would refuse: lister has not listed
+        unit in the last 30 s, this client follows a mesh controller, its
+        serial is a default one, or it lacks a ONEIP_SOURCE, ONEIP_SINK or
+        MULTIVIEWER feature unit has.'''
+        listed = self._mesh.listed(lister.remote_id, unit, time.time())
+        needed = DeviceFeature.ONEIP_SOURCE | DeviceFeature.ONEIP_SINK | DeviceFeature.MULTIVIEWER
+        why = None
+        if (self._mesh_controller is not None):
+            why = 'a unit in a mesh replaces no other'
+        elif self._serial.startswith('P9SN0000') and (self._serial != CLIENT_SERIAL):
+            why = 'a unit on a default serial replaces no other'
+        elif (listed is None):
+            why = 'the device has not listed it in the last 30 s'
+        elif (DeviceFeature(int(listed.features)) & needed) & ~FrameHello.announced_features(self):
+            why = 'this client lacks a feature of the unit'
+        if (why is not None):
+            _LOGGER.warning(f"not asking {lister} to replace {unit}: {why}")
+            return False
+        frame = FrameMeshReplace.construct_target(mxr=self, kind=KIND_REQUEST, unit=unit, to=lister)
+        if (frame is None) or (self.transmit(frame.frame, to=lister) != len(frame.frame)):
+            return False
+        self._mesh.pending = (lister.remote_id, unit)
+        return True
+
+    async def send_mesh_replaceable(self, to:DeviceBase, offline_controller:bool,
+                                    units:list[MeshReplaceUnit]|tuple[MeshReplaceUnit, ...]) -> bool:
+        '''Answer a unit's query with the units this client, as controller, can
+        have replaced, or with its offline controller, as a member. True when
+        every frame was written.
+
+        A controller lists a unit while it has bays on the controller, is not
+        the controller, and is offline. An empty list is sent all the same, so
+        the unit knows this client has none. Refused for more than
+        MESH_REPLACE_UNITS_MAX units, and for a bay name over
+        MESH_REPLACE_NAME_MAX bytes.'''
+        why = None
+        if (len(units) > MESH_REPLACE_UNITS_MAX):
+            why = f'a controller lists at most {MESH_REPLACE_UNITS_MAX} units'
+        elif any(len(name.encode('utf-8')) > MESH_REPLACE_NAME_MAX
+                 for u in units for name in (u.input_name, u.output_name)):
+            why = f"a replaceable unit's bay name is at most {MESH_REPLACE_NAME_MAX} bytes"
+        if (why is not None):
+            _LOGGER.warning(f"not listing replaceable units to {to}: {why}")
+            return False
+        frames = FrameMeshReplace.construct_units(mxr=self, units=units, offline_controller=offline_controller, to=to)
+        return bool(frames) and all(self.transmit(f.frame, to=to) == len(f.frame) for f in frames)
+
+    async def send_mesh_replace_result(self, to:DeviceBase, unit:MxrDeviceUid, result:MeshReplaceResult|int) -> bool:
+        '''Answer to's request to replace unit with it. True when it was
+        written.'''
+        frame = FrameMeshReplace.construct_target(mxr=self, kind=KIND_RESULT, unit=unit, result=result, to=to)
+        return (frame is not None) and (self.transmit(frame.frame, to=to) == len(frame.frame))
+
+    # ---- the settings a mesh keeps of its units (0x57) ----
+
+    def mesh_config(self, subject:MxrDeviceUid) -> MeshConfig|None:
+        '''The kept settings of subject, as a device last sent them whole to
+        this client, None until one has. Ask for them with
+        request_mesh_config(); a unit's announced length and crc32 are its
+        mesh_config_digest.'''
+        return self._mesh.configs.get(subject)
+
+    async def request_mesh_config(self, holder:DeviceBase, subject:MxrDeviceUid) -> bool:
+        '''Ask holder for the kept settings of subject: its own when subject is
+        holder, otherwise the copy it keeps. A controller keeps one of every
+        member, and a member one of its controller. True when the request was
+        written; they arrive at MxrCallbacks.on_mesh_config_received(), and
+        mesh_config() reads them. A device keeping no copy answers nothing.'''
+        frame = FrameMeshConfig.construct_request(mxr=self, subject=subject, to=holder)
+        return (frame is not None) and (self.transmit(frame.frame, to=holder) == len(frame.frame))
+
+    def _encoded_settings(self, settings:list[MeshSetting]|tuple[MeshSetting, ...], what:str) -> bytes|None:
+        '''Settings to send, None after a warning for what no unit takes.'''
+        if ((encoded := encode_settings(settings)) is None):
+            _LOGGER.warning(f"not sending {what}: kept settings are names and values of at most 255 bytes, "
+                            f"with no NUL, of at most 1984 bytes together")
+        return encoded
+
+    async def send_mesh_config_hello(self, settings:list[MeshSetting]|tuple[MeshSetting, ...]) -> bool:
+        '''Announce the length and crc32 of this client's own kept settings to
+        every device. True when it was written.
+
+        A unit announces its own every 60 s while it is in a mesh, and 2 s after
+        one of them changes. Its controller, or a member whose controller this
+        client is, then asks for them when they differ from its copy. Refused
+        while this client follows no mesh controller, as a unit in no mesh
+        announces none, and for settings no unit takes.'''
+        if (self._mesh_controller is None):
+            _LOGGER.warning("not announcing kept settings: a unit in no mesh announces none")
+            return False
+        if ((encoded := self._encoded_settings(settings, 'a kept settings hello')) is None):
+            return False
+        return self._send_to_all(FrameMeshConfig.construct_hello(mxr=self, own=self.uid, encoded=encoded))
+
+    async def send_mesh_config(self, to:DeviceBase, subject:MxrDeviceUid,
+                               settings:list[MeshSetting]|tuple[MeshSetting, ...]) -> bool:
+        '''Send to the kept settings of subject, as the answer to its request:
+        this client's own when subject is this client, otherwise the copy it
+        keeps. True when every frame was written. Refused for settings no unit
+        takes.'''
+        if ((encoded := self._encoded_settings(settings, f'kept settings to {to}')) is None):
+            return False
+        flags = 0 if (subject == self.uid) else FLAG_COPY
+        frames = FrameMeshConfig.construct_pages(mxr=self, kind=KIND_DUMP, flags=flags, subject=subject,
+                                                 encoded=encoded, to=to)
+        return bool(frames) and all(self.transmit(f.frame, to=to) == len(f.frame) for f in frames)
+
+    async def send_mesh_config_set(self, member:DeviceBase, settings:list[MeshSetting]|tuple[MeshSetting, ...]) -> bool:
+        '''Have a member of the mesh this client controls take settings as its
+        kept settings: it sets every one named, resets every other kept one to
+        its default, and answers with the settings it then has. A member whose
+        settings changed restarts 3 s later. True when every frame was written.
+
+        Refused unless the member has reported this client as its controller,
+        the one sender a unit takes them from, and for settings no unit
+        takes.'''
+        master = member.mesh_master_uid
+        if (master is None) or (master != self.uid):
+            why = "the member has not reported its controller" if (master is None) \
+                else 'a unit takes kept settings only from its controller'
+            _LOGGER.warning(f"not setting the kept settings of {member}: {why}")
+            return False
+        if ((encoded := self._encoded_settings(settings, f'kept settings to {member}')) is None):
+            return False
+        frames = FrameMeshConfig.construct_pages(mxr=self, kind=KIND_SET, flags=0, subject=member.remote_id,
+                                                 encoded=encoded, to=member)
+        return bool(frames) and all(self.transmit(f.frame, to=member) == len(f.frame) for f in frames)
+
     async def set_mesh_setup_completed(self, completed:bool) -> bool:
         '''Mark the setup of every unit that hears it completed, or not.
 
@@ -1269,6 +1437,10 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
     def on_mxr_update(self, data:Any) -> None:
         if isinstance(data, OsdSyncRequest):
             self._answer_osd_request(data)
+        elif isinstance(data, FrameMeshReplace):
+            self._on_mesh_replace(data)
+        elif isinstance(data, FrameMeshConfig):
+            self._on_mesh_config(data)
         elif isinstance(data, FrameHello):
             self._on_mxr_hello(data)
         elif isinstance(data, FrameTopology):
@@ -1280,6 +1452,42 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             # drops this client's frames until it has had a hello; the next
             # scheduled one can be seconds away.
             self.tx_hello()
+
+    def _on_mesh_replace(self, frame:FrameMeshReplace) -> None:
+        '''Keep a list, and hand a query, request or answer to the callbacks. An
+        answer is handed on only when it names the unit of this client's last
+        request.'''
+        if ((dev := self.remotes.get(frame.remote_id)) is None):
+            return
+        kind = frame.kind
+        if (kind == KIND_QUERY):
+            self.callbacks.on_mesh_replace_queried(dev)
+        elif (kind == KIND_UNITS):
+            self.callbacks.on_mesh_replace_units_received(dev, self._mesh.take_units(dev.remote_id, frame,
+                                                                                    frame.timestamp))
+        elif (kind == KIND_REQUEST) and (frame.unit is not None):
+            self.callbacks.on_mesh_replace_requested(dev, frame.unit)
+        elif (kind == KIND_RESULT) and (frame.unit is not None) and (frame.result is not None) \
+                and self._mesh.answered(frame.unit):
+            self.callbacks.on_mesh_replace_answered(dev, frame.unit, frame.result)
+
+    def _on_mesh_config(self, frame:FrameMeshConfig) -> None:
+        '''Hand a request to the callbacks, and put settings together. A dump is
+        kept and handed on once whole; a set is handed on only when it names
+        this client and comes from the controller this client follows, the one
+        sender a unit takes it from.'''
+        if ((dev := self.remotes.get(frame.remote_id)) is None) or (frame.subject is None):
+            return
+        if (frame.kind == CONFIG_REQUEST):
+            self.callbacks.on_mesh_config_requested(dev, frame.subject)
+        elif (frame.kind in (KIND_DUMP, KIND_SET)):
+            if ((settings := self._mesh.take_settings(dev.remote_id, frame)) is None):
+                return
+            if (frame.kind == KIND_DUMP) and ((config := self._mesh.configs.get(frame.subject)) is not None):
+                self.callbacks.on_mesh_config_received(dev, config)
+            elif (frame.kind == KIND_SET) and (frame.subject == self.uid) \
+                    and (dev.remote_id == self._mesh_controller):
+                self.callbacks.on_mesh_config_set_requested(dev, settings)
 
     def _on_mxr_hello(self, hello_frame:FrameHello) -> None:
         '''Hello frame received. Register or update the local device cache.'''

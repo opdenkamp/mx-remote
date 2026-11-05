@@ -2919,6 +2919,78 @@ class MeshControllerReport:
     """The installer id its members take, 0 for none."""
 
 @dataclass(frozen=True)
+class MeshReplaceUnit:
+    """A unit a controller can have replaced: it has bays on the controller, it
+    is not the controller, and it is offline."""
+    uid: MxrDeviceUid
+    """The unit."""
+    features: DeviceFeature|int = DeviceFeature(0)
+    """Its features. A unit replacing it must have its ONEIP_SOURCE, ONEIP_SINK
+    and MULTIVIEWER too."""
+    input: int = 0
+    """Its first input bay on the controller, 0 when it has none."""
+    output: int = 0
+    """Its first output bay on the controller, 0 when it has none."""
+    input_name: str = ''
+    """The name of that input, at most MESH_REPLACE_NAME_MAX bytes."""
+    output_name: str = ''
+    """The name of that output, at most MESH_REPLACE_NAME_MAX bytes."""
+
+@dataclass(frozen=True)
+class MeshReplaceUnits:
+    """The units one device listed as replaceable."""
+    offline_controller: bool
+    """The units are the sender's own controller, which is offline. A member
+    lists its controller this way; a controller lists its own offline units."""
+    units: tuple[MeshReplaceUnit, ...]
+    """The units, as many of the list as has arrived."""
+    total: int
+    """How many units the whole list holds."""
+
+@dataclass(frozen=True)
+class MeshReplaceable:
+    """A unit this client can ask to replace, and who to ask."""
+    lister: MxrDeviceUid
+    """The device that listed it, which a request to replace it goes to."""
+    offline_controller: bool
+    """The unit is the lister's own controller, which is offline."""
+    unit: MeshReplaceUnit
+    """The unit."""
+
+@dataclass(frozen=True)
+class MeshSetting:
+    """One setting a unit keeps for its mesh: an application configuration name
+    and its value, each at most 255 bytes. A unit carries only the settings
+    that differ from their default."""
+    name: str
+    """The configuration name, such as led.status."""
+    value: str
+    """The value, as text."""
+
+@dataclass(frozen=True)
+class MeshConfigDigest:
+    """The length and crc32 of the settings a unit keeps for its mesh, as the
+    unit announces them: every 60 seconds while it is in a mesh, and shortly
+    after one of them changes."""
+    length: int
+    """The settings' length in bytes, as they are carried."""
+    crc32: int
+    """The crc32 of those bytes."""
+
+@dataclass(frozen=True)
+class MeshConfig:
+    """A unit's kept settings, as a device sent them."""
+    subject: MxrDeviceUid
+    """The unit the settings belong to."""
+    holder: MxrDeviceUid
+    """The device that sent them."""
+    copy: bool
+    """They are a copy holder keeps of subject, not its own: the controller
+    keeps one of every member, and a member one of its controller."""
+    settings: tuple[MeshSetting, ...]
+    """The settings, in the order they were sent."""
+
+@dataclass(frozen=True)
 class ThirdPartyMessage:
     """
     A message an application sent to every device, under its own vendor id.
@@ -3808,6 +3880,12 @@ class DeviceBase(ABC):
     def mesh_controller_report(self) -> MeshControllerReport|None:
         '''What this device last announced about itself as a mesh controller,
         None until it has.'''
+
+    @property
+    @abstractmethod
+    def mesh_config_digest(self) -> MeshConfigDigest|None:
+        '''The length and crc32 of this unit's kept settings, as it last
+        announced them, None until it has.'''
 
     @property
     @abstractmethod
@@ -4912,6 +4990,45 @@ class MxrCallbacks:
         ''' called when 'dev' sent a mesh operation other than a membership or
         controller report, which mesh_master and mesh_controller_report hold.
         An operation this library has no name for arrives with its raw value. '''
+        pass
+
+    def on_mesh_replace_queried(self, dev:DeviceBase) -> None:
+        ''' called when 'dev', a unit outside any mesh, asked which units it can
+        replace. A controller answers with its offline units, and a member
+        whose controller is offline with that controller; see
+        Remote.send_mesh_replaceable(). '''
+        pass
+
+    def on_mesh_replace_units_received(self, dev:DeviceBase, units:MeshReplaceUnits) -> None:
+        ''' called when 'dev' listed units this client can ask it to have
+        replaced: the whole list it has sent so far, which
+        Remote.mesh_replaceable also reads. '''
+        pass
+
+    def on_mesh_replace_requested(self, dev:DeviceBase, unit:MxrDeviceUid) -> None:
+        ''' called when 'dev', a unit outside any mesh, asked to replace 'unit'
+        with it; see Remote.send_mesh_replace_result(). '''
+        pass
+
+    def on_mesh_replace_answered(self, dev:DeviceBase, unit:MxrDeviceUid, result:MeshReplaceResult|int) -> None:
+        ''' called when 'dev' answered this client's request to replace 'unit'.
+        A result this library has no name for arrives as a plain int. '''
+        pass
+
+    def on_mesh_config_requested(self, dev:DeviceBase, subject:MxrDeviceUid) -> None:
+        ''' called when 'dev' asked for the kept settings of 'subject': the
+        addressee's own when it is 'subject', otherwise the copy the addressee
+        keeps; see Remote.send_mesh_config(). '''
+        pass
+
+    def on_mesh_config_received(self, dev:DeviceBase, config:MeshConfig) -> None:
+        ''' called when 'dev' sent a unit's kept settings whole, which
+        Remote.mesh_config() also reads. '''
+        pass
+
+    def on_mesh_config_set_requested(self, dev:DeviceBase, settings:tuple[MeshSetting, ...]) -> None:
+        ''' called when 'dev', the controller this client follows, told it to
+        take these kept settings and reset every other one to its default. '''
         pass
 
     def on_third_party_message(self, dev:DeviceBase, message:ThirdPartyMessage) -> None:

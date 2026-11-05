@@ -10,7 +10,7 @@
 from enum import IntEnum, IntFlag
 from typing import TypeVar
 
-MXR_PROTOCOL_VERSION = 0x30
+MXR_PROTOCOL_VERSION = 0x33
 """Highest mx_remote protocol version this library understands.
 
 Mirrors the firmware's own protocol version. Bump
@@ -32,7 +32,10 @@ every 20-30s once every device it knows is on 0x2A.
 
 0x2E is the row of V2IP_SINK_SDP, so an output's session description report
 arrives stamped 0x2E, 0x2F the row of V2IP_OSD_SYNC and 0x30 the row of
-V2IP_PRIVACY."""
+V2IP_PRIVACY.
+
+0x32 and 0x33 are the rows of MESH_REPLACE and MESH_CONFIG, which a unit stamps
+on them, and this client announces the newest stamp it sends."""
 
 MXR_PROTOCOL_VERSION_SLOW_HELLO = 0x2A
 """First protocol version whose devices may hello only every 20-30s."""
@@ -126,6 +129,8 @@ MXR_OPCODE_VERSIONS: dict[int, int] = {
     # The lowest stamp, so that every receiver's ceiling passes it. No device
     # decodes the payload, so there is no layout for a stamp to announce.
     0x55: 0x01,  # THIRD_PARTY
+    0x56: 0x32,  # MESH_REPLACE (owned by the v2ipmesh module)
+    0x57: 0x33,  # MESH_CONFIG (owned by the v2ipmesh module)
 }
 """Per-opcode minimum compatible protocol version, mirroring the firmware's
 own opcode table. Transmitters stamp the
@@ -1317,6 +1322,36 @@ class RCType(IntEnum):
 		for val in RCType:
 			rv[val.value] = str(val)
 		return rv
+
+class MeshReplaceResult(IntEnum):
+	'''How a controller answered a request to replace one of its units, or how
+	a member answered one to replace its offline controller. A value without a
+	name arrives as a plain int.'''
+	REPLACED    = 0
+	'''The unit was replaced with the one that asked.'''
+	REFUSED     = 1
+	'''The unit that asked is a member of a mesh, or is on a default serial.'''
+	NOT_FOUND   = 2
+	'''The unit named is not one the controller lists as replaceable.'''
+	NOT_CAPABLE = 3
+	'''The unit that asked lacks a OneIP source, OneIP sink or multiviewer
+	feature of the unit named.'''
+	FAILED      = 4
+	'''The controller could not replace the unit.'''
+	BUSY        = 5
+	'''A membership change of the controller's own has not completed, such as
+	handing the controller role over.'''
+
+MESH_REPLACE_UNITS_MAX = 32
+"""The most units a controller lists as replaceable, and the most a unit keeps
+of every controller together."""
+
+MESH_REPLACE_NAME_MAX = 16
+"""The most bytes of a bay name a replaceable unit's record carries."""
+
+MESH_CONFIG_MAX = 1984
+"""The most bytes a unit's kept settings take, as they are carried: each setting
+a byte of name length, the name, a byte of value length and the value."""
 
 class MeshOperation(IntEnum):
 	'''What a mesh operation (0x3B) asks of the mesh.'''

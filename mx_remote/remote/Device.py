@@ -34,7 +34,7 @@ from ..Interface import (
 	OneIPVlan,
 	KEEP_REPORTED,
 	KeepReported,
-	RCSettings,
+	RCSettings, MeshConfigDigest,
 	OneIPTestcard,
 	OneIPSinkSdp,
 	OneIPPrivacy,
@@ -218,6 +218,7 @@ class Device(DeviceBase):
 		self._v2ip_downmix:OneIPDownmix|None = None
 		self._v2ip_locale:str|None = None
 		self._rc_settings:RCSettings|None = None
+		self._mesh_config_digest:MeshConfigDigest|None = None
 		self._v2ip_preview:str|None = None
 		self._unit_status:UnitStatus|None = None
 		self._v2ip_testcard:OneIPTestcard|None = None
@@ -941,6 +942,11 @@ class Device(DeviceBase):
 
 	@property
 	@override
+	def mesh_config_digest(self) -> MeshConfigDigest|None:
+		return self._mesh_config_digest
+
+	@property
+	@override
 	def is_mesh_master(self) -> bool:
 		return (self.features is not None) and DeviceFeature.MESH_MASTER in self.features
 
@@ -1299,6 +1305,10 @@ class Device(DeviceBase):
 		elif isinstance(data, RCSettings):
 			if (self._rc_settings != data):
 				self._rc_settings = data
+				self.call_callbacks()
+		elif isinstance(data, MeshConfigDigest):
+			if (self._mesh_config_digest != data):
+				self._mesh_config_digest = data
 				self.call_callbacks()
 		elif isinstance(data, OneIPVlan):
 			if (self._v2ip_vlan != data):

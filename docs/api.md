@@ -409,6 +409,40 @@ The operations a mesh controller sends, and what a controller announces.
 .. autodata:: mx_remote.proto.FrameV2IPSources.ONEIP_SOURCE_LIST_MAX
 ```
 
+## Mesh replacement and kept settings
+
+Replacing an offline unit of a mesh, and the settings each unit keeps for its
+mesh.
+
+```{eval-rst}
+.. autoclass:: mx_remote.MeshReplaceUnit
+   :members:
+
+.. autoclass:: mx_remote.MeshReplaceUnits
+   :members:
+
+.. autoclass:: mx_remote.MeshReplaceable
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.MeshReplaceResult
+   :members:
+
+.. autoclass:: mx_remote.MeshSetting
+   :members:
+
+.. autoclass:: mx_remote.MeshConfigDigest
+   :members:
+
+.. autoclass:: mx_remote.MeshConfig
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.MESH_REPLACE_UNITS_MAX
+
+.. autodata:: mx_remote.proto.Constants.MESH_REPLACE_NAME_MAX
+
+.. autodata:: mx_remote.proto.Constants.MESH_CONFIG_MAX
+```
+
 ## Names from before OneIP
 
 Releases up to 5.11 used the firmware's internal names in the public API: V2IP

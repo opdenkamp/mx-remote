@@ -41,6 +41,8 @@ ABOVE_CAP = {
     0x52: 'V2IP_SINK_SDP',
     0x53: 'V2IP_OSD_SYNC',
     0x54: 'V2IP_PRIVACY',
+    0x56: 'MESH_REPLACE',
+    0x57: 'MESH_CONFIG',
 }
 root = pathlib.Path(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'mx_remote', 'proto'))
 # Calls only. The pattern also matches the def in FrameBase, which carries a

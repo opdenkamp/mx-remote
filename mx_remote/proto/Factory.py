@@ -252,6 +252,12 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 	if hdr.opcode == 0x55:
 		from .FrameThirdParty import FrameThirdParty
 		return FrameThirdParty(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x56:
+		from .FrameMeshReplace import FrameMeshReplace
+		return FrameMeshReplace(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x57:
+		from .FrameMeshConfig import FrameMeshConfig
+		return FrameMeshConfig(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x50:
 		from .FrameUnitCommand import FrameUnitCommand
 		return FrameUnitCommand(header=hdr, timestamp=timestamp)

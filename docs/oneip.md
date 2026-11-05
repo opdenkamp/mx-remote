@@ -767,6 +767,54 @@ membership report as `mesh_master`. Every other mesh operation a device sends
 arrives at `MxrCallbacks.on_mesh_operation()`, one this library has no name for
 with its raw value.
 
+### Replacing a unit, and kept settings
+
+Units with the mesh module (protocol 0x32 for replacing, 0x33 for kept
+settings) let a unit outside any mesh take the place of an offline one. A
+device without the module answers nothing, and the library sends neither
+opcode to a unit below its version.
+
+```python
+await mx.query_mesh_replaceable()        # every device; at most every 2 s
+for r in mx.mesh_replaceable:            # listed in the last 30 s, each unit once
+    print(r.lister, r.offline_controller, r.unit.uid, r.unit.input_name)
+await mx.request_mesh_replace(lister, r.unit.uid)   # answered at on_mesh_replace_answered()
+```
+
+Each controller lists its own offline units, once it has been up 120 s, and a
+member whose controller is offline lists that controller. The device asked
+takes the replacing unit in: the unit's bays, their names and routes, and its
+kept settings. A member asked to replace its offline controller sends this
+client the controller's kept settings instead, and taking over is then this
+client's own: promoting itself to controller and having the members replace
+the old one with `send_mesh_operation()`. A request is refused before sending
+where the device would refuse it: the unit was not listed by that device in the
+last 30 s, this client follows a mesh controller or is on a default serial
+(one starting `P9SN0000` other than `P9SN00000000`), or the unit has a
+`ONEIP_SOURCE`, `ONEIP_SINK` or `MULTIVIEWER` feature this client lacks. As a
+controller this client answers with `send_mesh_replaceable()` and
+`send_mesh_replace_result()`.
+
+Every unit in a mesh keeps settings of its own, such as `led.status`, and
+announces their length and crc32 as `device.mesh_config_digest`. The controller
+keeps a copy of every member's, and every member one of its controller's, so a
+replacing unit inherits them:
+
+```python
+await mx.request_mesh_config(holder, subject.remote_id)  # holder's copy, or its own
+config = mx.mesh_config(subject.remote_id)               # once every frame has arrived
+await mx.send_mesh_config_hello(settings)                # this client's own, in a mesh
+await mx.send_mesh_config(to, subject_uid, settings)     # the answer to a request
+await mx.send_mesh_config_set(member, settings)          # a member takes these, resets the rest
+```
+
+Settings are taken only once every frame has arrived, in order, from one
+sender, and their crc32 matches. A set reaches `on_mesh_config_set_requested()`
+only from the controller this client follows; `send_mesh_config_set()` is
+refused unless the member reports this client as its controller, and a member
+whose settings changed restarts 3 s later. Names and values are at most 255
+bytes with no NUL, and all of them at most `MESH_CONFIG_MAX` (1984) bytes.
+
 ### Time zone and time
 
 The mesh controller announces its time zone and clock with every periodic
