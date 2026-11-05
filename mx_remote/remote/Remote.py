@@ -71,7 +71,7 @@ _LOGGER = logging.getLogger(__name__)
 # stranger's ping.
 _ACCEPT_UNANNOUNCED = (0x00, 0x01)
 
-_OPCODE_LIMIT = 0x55
+_OPCODE_LIMIT = 0x58
 '''The first opcode past a unit's table (MX_OP_NB). A frame at or above it has
 no valid header to a unit, which drops it before it keeps its sender alive or
 proves its path.'''
@@ -1093,8 +1093,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 frame = header = None
             if (header is not None) and (header.remote_id != self.uid):
                 # An opcode past a unit's table is no valid header to it, so it
-                # touches neither; this client still hands an application's
-                # message on.
+                # touches neither.
                 known = self.remotes.get(header.remote_id)
                 if (known is not None) and (header.opcode < _OPCODE_LIMIT):
                     if (path is not None):

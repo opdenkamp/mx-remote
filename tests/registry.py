@@ -202,7 +202,9 @@ assert router.online
 assert not router.bays_online, 'online by the bay list it sent while silent'
 print('alive     : every frame with a valid header keeps a live device so; only a hello revives one')
 
-# An opcode past a unit's table touches no timer, and still reaches the caller.
+# A frame whose opcode is 0x58 or above has no valid header to a unit: it neither
+# keeps its sender alive nor proves its path. Below that, a frame does both
+# whether or not a handler takes it, as an application's message at 0x55 does.
 class Messages(mx_remote.MxrCallbacks):
     def __init__(self):
         self.messages = []
@@ -215,14 +217,14 @@ APP = uid(0x48)
 feed(mx, APP, HELLO, hello_payload(serial='OP0001', features=DeviceFeature.MANAGER))
 app = device(mx, APP)
 app._last_ping -= timedelta(seconds=50)
+feed(mx, APP, 0x58, b'', path=M)
+assert heard_since(app) >= 50, 'kept alive by 0x58'
+assert app._heard_multicast is None, '0x58 proved its path'
 feed(mx, APP, THIRD_PARTY, bytes([0x00, 0x00, 0x1E, 0xC2]) + b'hello', path=M)
 assert len(seen.messages) == 1, "the application's message was dropped"
-assert heard_since(app) >= 50, 'kept alive'
-assert app._heard_multicast is None, 'proved its path'
-feed(mx, APP, 0x7F, b'', path=M)
-assert heard_since(app) >= 50, 'kept alive by 0x7F'
-assert app._heard_multicast is None, '0x7F proved its path'
-print('table     : an opcode from 0x55 on touches no timer, and the message is handed on')
+assert heard_since(app) < 50, '0x55 did not keep its sender alive'
+assert app._heard_multicast is not None, '0x55 did not prove its path'
+print('table     : an opcode from 0x58 on touches no timer; 0x55 keeps its sender alive')
 
 # ------------------------------------------------------------- bays online
 mx = client()
