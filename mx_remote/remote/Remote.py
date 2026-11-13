@@ -179,7 +179,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         :param open_connection: open the UDP connection immediately when True
         :param callbacks: event callbacks for device state changes
         :param name: human-readable name advertised on the network
-        :param local_ip: local interface IP to bind to, or None for any
+        :param local_ip: local interface IP to bind to, or None for any. On
+            Linux the interface holding it is the only one datagrams are taken
+            from, and opening fails when none holds it
         :param broadcast: deprecated and ignored: both endpoints always run
         :param addr_filter: only log frames from this IP address when set
         :param uid_path: file holding this client's uid, or None for ~/.mxr-uid.

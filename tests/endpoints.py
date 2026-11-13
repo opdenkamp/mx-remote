@@ -18,7 +18,7 @@ stands in for the transport, and the transport's own routing is checked with
 endpoints that record instead of sending.
 '''
 
-import asyncio, os, struct, sys, time, logging, warnings
+import asyncio, os, socket, struct, sys, time, logging, warnings
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logging.disable(logging.CRITICAL)
 import mx_remote
@@ -317,6 +317,58 @@ one.endpoints[0].transmit = lambda data: (wire.append('one'), len(data))[1]
 one._closed = False
 assert one.transmit(b'x', B) == 1 and wire == ['one'], 'one endpoint did not send everything by it'
 print('conn ok   : both endpoints open, each frame leaves by the ones asked')
+
+# --- a selected interface is the only one datagrams are taken from
+# The datagram goes to 127.0.0.1, so it arrives on lo. An endpoint on lo takes
+# it, and one on the host's other interface does not; an endpoint on no
+# interface in particular takes it first, which proves the host delivers it to
+# that port at all. Linux only: elsewhere nothing reports the arrival
+# interface.
+ARRIVAL_PORT = 18820
+arrivals = []
+async def arrives(local_ip):
+    got = []
+    class Taking:
+        def on_datagram_received(self, data, addr, path=None):
+            got.append(data)
+        def on_connection_made(self):
+            pass
+    conn = ConnectionAsync(callbacks=Taking(), local_ip=local_ip, target_ip='127.0.0.1', port=ARRIVAL_PORT)
+    # The sending socket on a port of its own: bound to the selected address at
+    # the arrival port, it would take the unicast this sends ahead of the
+    # receiving one.
+    for e in conn.endpoints:
+        e._create_tx_socket = lambda: socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    await conn.start_srv()
+    arrivals.append(conn.endpoints[0].arrival)
+    try:
+        sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sender.sendto(b'ping', ('127.0.0.1', ARRIVAL_PORT))
+        sender.close()
+        for _ in range(100):
+            if got:
+                break
+            await asyncio.sleep(0.02)
+    finally:
+        conn.close()
+    return got == [b'ping']
+
+if sys.platform.startswith('linux'):
+    others = [a for a in mx_remote.Interface.mxr_valid_addresses()]
+    if not asyncio.run(arrives(None)):
+        print('arrive    : skipped, the host does not deliver to the arrival port')
+    elif not others:
+        print('arrive    : skipped, the host has no interface besides loopback')
+    else:
+        assert arrivals == [None], f'no address selected, yet confined to {arrivals}'
+        assert asyncio.run(arrives('127.0.0.1')), 'dropped on its own interface'
+        assert not asyncio.run(arrives(others[0])), f"taken from {others[0]}'s interface by way of lo"
+        try:
+            asyncio.run(arrives('192.0.2.250'))
+            raise AssertionError('opened on an address no interface holds')
+        except OSError as e:
+            assert 'no interface holds' in str(e), e
+        print('arrive    : only from the selected interface, and none for an address no interface holds')
 
 # --- the broadcast option is accepted, ignored and deprecated
 with warnings.catch_warnings(record=True) as caught:

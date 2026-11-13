@@ -10,8 +10,11 @@ import asyncio
 import logging
 import os
 import socket
+import struct
+import sys
 import ipaddress
 from typing import Tuple
+import netifaces
 from ..Interface import ConnectionCallbacks, mxr_broadcast_address, mxr_valid_addresses
 from ..const import MX_BCAST_UDP_PORT, MX_MCAST_UDP_IP, MX_MCAST_UDP_PORT
 from ..proto.Constants import Endpoints
@@ -68,6 +71,31 @@ MULTICAST_TTL = 64
 '''The TTL a unit sends on the discovery group with. Anything lower leaves a
 unit more routed hops away hearing every unit but this client.'''
 
+_READ_MAX = 65535
+_PKTINFO_SIZE = 12
+'''struct in_pktinfo: the int arrival interface index, then two addresses.'''
+
+def index_holding(address:str) -> int:
+    '''The kernel index of the interface holding address, loopback included.
+    Raises OSError when no interface holds it.'''
+    for name in netifaces.interfaces():
+        if any(entry.get('addr') == address for entry in netifaces.ifaddresses(name).get(netifaces.AF_INET, [])):
+            return socket.if_nametoindex(name)
+    raise OSError(f"no interface holds {address}")
+
+def arrival_for(local_ip:str|None) -> int|None:
+    '''The index of the interface the caller selected by address, which is the
+    only one datagrams are taken from. None when none is selected, and off
+    Linux, where nothing reports the interface a datagram arrived on.
+
+    The receive socket is bound to every address, so without this a
+    multi-homed host hands it every broadcast and group frame on every other
+    interface too. Filtering on the arrival interface needs no privilege,
+    where SO_BINDTODEVICE needs CAP_NET_RAW on kernels before 5.7.'''
+    if (not local_ip) or not sys.platform.startswith('linux'):
+        return None
+    return index_holding(local_ip)
+
 class _Endpoint(asyncio.DatagramProtocol):
     ''' one endpoint: a socket receiving on its port and one sending to its target '''
     def __init__(self, owner:'ConnectionAsync', target_ip:str, port:int, local_ip:str|None, path:Endpoints) -> None:
@@ -78,6 +106,11 @@ class _Endpoint(asyncio.DatagramProtocol):
         self._local_ip = local_ip
         self._path = path
         self._tx_socket:socket.socket|None = None
+        self._rx_socket:socket.socket|None = None
+        self._loop:asyncio.AbstractEventLoop|None = None
+        self.arrival:int|None = None
+        '''The index of the one interface datagrams are taken from, None for
+        any.'''
         super().__init__()
 
     @property
@@ -140,17 +173,51 @@ class _Endpoint(asyncio.DatagramProtocol):
         else:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
+        if (self.arrival is not None):
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_PKTINFO, 1)
         return sock
 
     async def start(self) -> None:
         loop = asyncio.get_running_loop()
         self._tx_socket = self._create_tx_socket()
-        await loop.create_datagram_endpoint(lambda: self, sock=self._create_rx_socket())
+        rx = self._create_rx_socket()
+        if (self.arrival is None) or (rx is None):
+            await loop.create_datagram_endpoint(lambda: self, sock=rx)
+            return
+        # Reading the arrival interface takes recvmsg(), which a datagram
+        # transport does not offer.
+        rx.setblocking(False)
+        self._rx_socket, self._loop = rx, loop
+        loop.add_reader(rx.fileno(), self._read)
+        _LOGGER.debug(f"listening on {self.target_ip}:{self.port}, interface {self.arrival} only")
+
+    def _read(self) -> None:
+        '''Take every datagram waiting, dropping one that arrived on an
+        interface other than the selected one, or whose arrival is unknown.'''
+        sock = self._rx_socket
+        while (sock is not None):
+            try:
+                data, ancillary, _, addr = sock.recvmsg(_READ_MAX, socket.CMSG_SPACE(_PKTINFO_SIZE))
+            except (BlockingIOError, InterruptedError):
+                return
+            except OSError as e:
+                _LOGGER.debug(f"receive on {self.target_ip}:{self.port} failed: {e}")
+                return
+            arrived = next((struct.unpack_from('=i', cdata)[0] for level, kind, cdata in ancillary
+                            if (level == socket.IPPROTO_IP) and (kind == socket.IP_PKTINFO)
+                            and (len(cdata) >= _PKTINFO_SIZE)), 0)
+            if (arrived == self.arrival):
+                self._owner._received(data, addr, self._path)
 
     def close(self) -> None:
         if (self._transport is not None):
             self._transport.close()
             self._transport = None
+        if (self._rx_socket is not None):
+            if (self._loop is not None) and not self._loop.is_closed():
+                self._loop.remove_reader(self._rx_socket.fileno())
+            self._rx_socket.close()
+            self._rx_socket = None
         if (self._tx_socket is not None):
             self._tx_socket.close()
             self._tx_socket = None
@@ -176,9 +243,15 @@ class ConnectionAsync:
         target_ip replaces them with one endpoint on that address and port
         (8812 when unset), so a test or development setup runs on a scratch
         address rather than a live network. A client on one endpoint sends every
-        frame by it and does not tell paths apart.'''
+        frame by it and does not tell paths apart.
+
+        On Linux, an interface selected by local_ip is the only one datagrams
+        are taken from, so a device reachable only by another interface stays
+        unknown; start_srv() fails when no interface holds the address.
+        Elsewhere, broadcasts on every interface still arrive.'''
         self._callbacks = callbacks
         self._local_ip = local_ip
+        self._selected = local_ip or None
         self._closed = True
         if (target_ip is not None):
             self._endpoints = [_Endpoint(self, target_ip, port or MX_MCAST_UDP_PORT, self.local_ip,
@@ -216,7 +289,9 @@ class ConnectionAsync:
         '''Open every endpoint, and report the connection made.'''
         _LOGGER.debug("starting service on " + ", ".join(f"{e.target_ip}:{e.port}" for e in self._endpoints))
         try:
+            arrival = arrival_for(self._selected)
             for endpoint in self._endpoints:
+                endpoint.arrival = arrival
                 await endpoint.start()
         except Exception as e:
             _LOGGER.warning(f"failed to start mx_remote service: {e}")

@@ -28,6 +28,11 @@ mx = mx_remote.Remote(uid_path="/var/lib/myapp/.mxr-uid")
 mx = mx_remote.Remote(mesh_device=True, serial="P9SN66660600", version="1.2.3")
 ```
 
+On Linux, the interface `local_ip` selects is the only one datagrams are taken
+from, so a device reachable only by another interface stays unknown, and
+starting fails when no interface holds the address. Elsewhere, broadcasts on
+every interface still arrive.
+
 Each frame leaves by the endpoints a unit picks for it:
 
 - a frame for every unit at once goes to both: a discover, reboot or factory
