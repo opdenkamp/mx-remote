@@ -126,10 +126,19 @@ assert len(builders) == 1 and builders[0].startswith('FrameBase.py:'), \
     f'a frame header is built outside construct_base: {builders}'
 print(f'builders       : 1 ({builders[0]})')
 
+# Two writes, both in the transport: an endpoint's, and an announcer's, which
+# sends only the hellos to interfaces this client announces itself on alone.
 writers = sites(r'\.sendto\(|\.send\(')
-assert len(writers) == 1 and writers[0].startswith('ConnectionAsync.py:'), \
+transport = (lib / 'remote' / 'ConnectionAsync.py').read_text(encoding='utf-8').splitlines()
+def within(site, cls):
+    line = int(site.split(':')[1])
+    owner = next((l for l in reversed(transport[:line]) if l.startswith('class ')), '')
+    return owner.startswith(f'class {cls}')
+assert len(writers) == 2 and all(w.startswith('ConnectionAsync.py:') for w in writers), \
     f'the socket is written outside the transport: {writers}'
-print(f'socket writes  : 1 ({writers[0]})')
+assert sorted(c for c in ('_Endpoint', 'Announcer') for w in writers if within(w, c)) == ['Announcer', '_Endpoint'], \
+    f'a socket write outside an endpoint and the announcer: {writers}'
+print(f'socket writes  : 2 ({", ".join(writers)})')
 
 # Asserting an empty result is vacuous if the name has been renamed, so confirm
 # the symbol still exists before concluding nothing calls it.

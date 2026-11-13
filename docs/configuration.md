@@ -28,6 +28,24 @@ mx = mx_remote.Remote(uid_path="/var/lib/myapp/.mxr-uid")
 mx = mx_remote.Remote(mesh_device=True, serial="P9SN66660600", version="1.2.3")
 ```
 
+A client confined to one interface is invisible on every other, so a dedicated
+controller speaking the protocol on its mesh link alone is not listed by the
+units on its uplink LAN. `announce_interfaces` names interfaces that get each
+hello, and a dedicated controller's `CONTROLLER_STATE` hello, from a send-only
+socket bound to the interface's current address:
+
+```python
+mx = mx_remote.Remote(local_ip="10.8.80.30", dedicated_controller=True, announce_interfaces=["eth1"])
+mx.set_announce_interfaces(["eth1", "wlan0"])   # while running, announced at once
+```
+
+The socket is rebound when that address changes and skipped while there is
+none, as on a DHCP uplink; nothing arriving there is taken. The hello there
+leaves out `MANAGER` (a unit takes a promotion to controller from a manager),
+`MESH_MASTER` (a unit joining a mesh joins it) and `OSD_SYNC` (a source syncs
+every device with it, in any mesh). `MESH_MEMBER` stays, so no unit takes the
+client for one free to join.
+
 On Linux, the interface `local_ip` selects is the only one datagrams are taken
 from, so a device reachable only by another interface stays unknown, and
 starting fails when no interface holds the address. Elsewhere, broadcasts on

@@ -21,7 +21,7 @@ import time
 import warnings
 from datetime import datetime, timezone
 
-from .ConnectionAsync import ConnectionAsync
+from .ConnectionAsync import Announcer, ConnectionAsync
 from ..const import MXR_HELLO_INTERVAL_MIN, MXR_HELLO_INTERVAL_RAND, __version__
 from .Device import Device
 from .Tree import DeviceTree
@@ -77,6 +77,20 @@ _LOGGER = logging.getLogger(__name__)
 # announcement itself, and the discover asking for one. A unit drops a
 # stranger's ping.
 _ACCEPT_UNANNOUNCED = (0x00, 0x01)
+
+def announced_only(features:DeviceFeature) -> DeviceFeature:
+    """The features of the hello on an interface this client only announces
+    itself on: its own, less each that invites a unit there to act on it.
+
+    - MANAGER: a unit takes a promotion to controller from a manager, as from
+      its own controller.
+    - MESH_MASTER: a unit joining a mesh joins the sender of a hello with it.
+    - OSD_SYNC: a source sends its overlay syncs to every device with it, in
+      whatever mesh.
+
+    MESH_MEMBER stays: without it a unit takes this client for a unit free to
+    join its mesh."""
+    return features & ~(DeviceFeature.MANAGER | DeviceFeature.MESH_MASTER | DeviceFeature.OSD_SYNC)
 
 MCAST_FAULT_GRACE = 60.0
 '''How long a peer is heard before it counts towards a multicast fault, in
@@ -166,7 +180,7 @@ def _missed_state(before:_Heard|None, device:DeviceBase) -> bool:
 class Remote(DeviceRegistry, ConnectionCallbacks):
     ''' Main component that handles the network connections and registration of remote devices '''
 
-    def __init__(self, target_ip:str|None=None, port:int|None=None, http_session:aiohttp.ClientSession|None=None, open_connection:bool=True, callbacks:MxrCallbacks|None=None, name:str="MXR Python", local_ip:str|None=None, broadcast:bool|None=None, addr_filter:str|None=None, uid_path:str|None=None, logo_port:int|None=None, serial:str=CLIENT_SERIAL, version:str|None=None, mesh_device:bool=False, dedicated_controller:bool=False, osd_sync:bool=False) -> None:
+    def __init__(self, target_ip:str|None=None, port:int|None=None, http_session:aiohttp.ClientSession|None=None, open_connection:bool=True, callbacks:MxrCallbacks|None=None, name:str="MXR Python", local_ip:str|None=None, broadcast:bool|None=None, addr_filter:str|None=None, uid_path:str|None=None, logo_port:int|None=None, serial:str=CLIENT_SERIAL, version:str|None=None, mesh_device:bool=False, dedicated_controller:bool=False, osd_sync:bool=False, announce_interfaces:list[str]|None=None) -> None:
         '''Initialise the remote controller.
 
         :param target_ip: for tests and development only: replaces both
@@ -216,6 +230,14 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             its settings; the sync arrives at MxrCallbacks.on_osd_sync(), each
             setting at on_osd_sync_setting(). Fetching the logos is the
             caller's, from OsdSync.logo_url().
+        :param announce_interfaces: interfaces, by name, this client only
+            announces itself on: each hello, and the CONTROLLER_STATE hello of a
+            dedicated controller, goes there to both endpoints a unit has, from
+            a socket that is never read, so nothing arriving there is taken.
+            The hello there leaves out what invites a unit to act on this
+            client: MANAGER, MESH_MASTER and OSD_SYNC. Each follows its
+            interface's current address and is skipped while it has none.
+            set_announce_interfaces() changes them while running.
         '''
         DeviceRegistry.__init__(self)
         ConnectionCallbacks.__init__(self)
@@ -227,6 +249,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._version = version if (version is not None) else __version__
         self._mesh_device = mesh_device
         self._dedicated_controller = dedicated_controller
+        self._announce_interfaces = list(announce_interfaces or ())
+        self._announcers:list[Announcer] = []
         self._osd_sync = osd_sync
         self._osd_sync_asked:float|None = None
         self._osd_settings_asked:deque[tuple[MxrDeviceUid, int]] = deque(maxlen=OSD_SETTINGS_ASKED)
@@ -506,6 +530,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 self._hello_on_broadcast = None
                 self._own_controller.sent = None
                 self._endpoints_opened = time.time()
+                self._open_announcers()
                 await self.conn.start_srv()
                 # The sync units hold names the port, which the move keeps.
                 await self._logos.move_to(self._local_ip or '0.0.0.0')
@@ -598,6 +623,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._hello_on_broadcast = None
         self._own_controller.sent = None
         self._endpoints_opened = time.time()
+        self._open_announcers()
         await self.conn.start_srv()
         # Announce before anything else can be sent. A device drops every frame
         # from a uid it has no record of, except hello and discover, so a
@@ -632,6 +658,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         await self._logos.stop()
         if self.conn is not None:
             self.conn.close()
+        self._close_announcers()
         if self._own_session:
             await self.http_session.close()
 
@@ -1356,7 +1383,46 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             # and on an interface that never writes, permanently.
             self._arm_hello()
             self._announce_controller(time.time(), False)
+        if self._announcers and ((only := FrameHello.construct(self, announced_only(self.features))) is not None):
+            self._announce(only.frame)
         return sent
+
+    def _open_announcers(self) -> None:
+        '''A send-only socket on each interface this client only announces
+        itself on, for the endpoints being opened.'''
+        self._close_announcers()
+        self._announcers = [Announcer(name) for name in self._announce_interfaces]
+
+    def _close_announcers(self) -> None:
+        for announcer in self._announcers:
+            announcer.close()
+        self._announcers = []
+
+    def _announce(self, data:bytes) -> int:
+        '''Write a frame to every interface this client only announces itself
+        on, returning how many took it. One that cannot does not stop the
+        others. For the hellos alone, which address no device and expect no
+        answer.'''
+        if not self._announcers or (self.conn is None):
+            return 0
+        reach = self.conn.reach()
+        took = 0
+        for announcer in self._announcers:
+            try:
+                took += (announcer.announce(data, reach) > 0)
+            except OSError as e:
+                _LOGGER.debug(f"announcing on {announcer.interface} failed: {e}")
+        return took
+
+    def set_announce_interfaces(self, interfaces:list[str]) -> None:
+        '''Replace the interfaces this client only announces itself on,
+        announcing on the new ones at once when running.'''
+        self._announce_interfaces = list(interfaces)
+        if (self.conn is None) or not self.conn.is_open:
+            return
+        self._open_announcers()
+        self._own_controller.sent = None
+        self.tx_hello()
 
     def _announce_controller(self, now:float, now_due:bool) -> None:
         '''A dedicated controller's CONTROLLER_STATE hello, which follows its
@@ -1367,7 +1433,10 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         if not now_due and not self._own_controller.due(now):
             return
         self._own_controller.sent = now
-        self._send_to_all(FrameControllerState.construct_hello(mxr=self, hello=self._own_controller.hello()))
+        frame = FrameControllerState.construct_hello(mxr=self, hello=self._own_controller.hello())
+        self._send_to_all(frame)
+        if (frame is not None):
+            self._announce(frame.frame)
 
     def set_controller_role(self, role:ControllerRole|int, primary:MxrDeviceUid|None=None) -> bool:
         '''Set the role and the primary this client's CONTROLLER_STATE hello

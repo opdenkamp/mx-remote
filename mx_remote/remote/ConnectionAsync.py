@@ -96,6 +96,64 @@ def arrival_for(local_ip:str|None) -> int|None:
         return None
     return index_holding(local_ip)
 
+def address_of(interface:str) -> str|None:
+    """The current IPv4 address of interface, None while it has none or does
+    not exist."""
+    try:
+        entries = netifaces.ifaddresses(interface).get(netifaces.AF_INET, [])
+    except ValueError:
+        return None
+    return next((e['addr'] for e in entries if e.get('addr')), None)
+
+class Announcer:
+    """A send-only socket on an interface other than the selected one, which
+    announces this client there and takes nothing in.
+
+    It follows the interface's current address: it rebinds when the address
+    changes, and sends nothing while the interface has none. It is bound to an
+    ephemeral port and never read, so nothing arriving on that interface
+    reaches the registry."""
+
+    def __init__(self, interface:str) -> None:
+        self.interface = interface
+        self._bound:tuple[str, socket.socket]|None = None
+
+    def _socket_for(self, address:str) -> socket.socket:
+        """The socket for address, rebound when the interface's address has
+        changed since the last send."""
+        if (self._bound is None) or (self._bound[0] != address):
+            self.close()
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+            sock.bind((address, 0))
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            # Linux already sends multicast by the interface holding the bound
+            # address; other systems route it by the group unless told.
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(address))
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, MULTICAST_TTL)
+            self._bound = (address, sock)
+        return self._bound[1]
+
+    def announce(self, data:bytes, reach:list[tuple[str|None, int]]) -> int:
+        """Write data to every place in reach by this interface: an address
+        and port, or None for the interface's subnet broadcast address, on
+        that port. Returns the bytes the last write took; 0, sending nothing,
+        while the interface has no address."""
+        if ((address := address_of(self.interface)) is None):
+            self.close()
+            return 0
+        sock = self._socket_for(address)
+        sent = 0
+        for ip, port in reach:
+            if (ip is None) and ((ip := mxr_broadcast_address(address)) is None):
+                continue
+            sent = sock.sendto(data, (ip, port))
+        return sent
+
+    def close(self) -> None:
+        if (self._bound is not None):
+            self._bound[1].close()
+            self._bound = None
+
 class _Endpoint(asyncio.DatagramProtocol):
     ''' one endpoint: a socket receiving on its port and one sending to its target '''
     def __init__(self, owner:'ConnectionAsync', target_ip:str, port:int, local_ip:str|None, path:Endpoints) -> None:
@@ -305,6 +363,12 @@ class ConnectionAsync:
         for endpoint in self._endpoints:
             endpoint.close()
         self._closed = True
+
+    def reach(self) -> list[tuple[str|None, int]]:
+        '''Where a frame goes on an interface this client only announces
+        itself on: the place each endpoint sends to, a broadcast as that
+        interface's own subnet broadcast.'''
+        return [(None if (e.path == Endpoints.BROADCAST) else e.target_ip, e.port) for e in self._endpoints]
 
     def _received(self, data: bytes, addr: Tuple[str, int], path:Endpoints) -> None:
         self._callbacks.on_datagram_received(data, addr, path if self.is_dual else None)

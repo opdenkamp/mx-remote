@@ -28,8 +28,9 @@ every device fills it, so it carries a constant rather than a blank.'''
 class FrameHello(FrameBase):
     '''Hello frame, sent by devices to advertise themselves on the network.'''
     @staticmethod
-    def construct(mxr:DeviceRegistry) -> FrameBase|None:
-        '''Build a hello frame for transmission to advertise this client.
+    def construct(mxr:DeviceRegistry, features:DeviceFeature|None=None) -> FrameBase|None:
+        '''Build a hello frame for transmission to advertise this client, with
+        features in place of what it announces when given.
 
         Never append a field to this payload. Receivers read a payload length as
         a minimum everywhere except the hello, which they check exactly, so a
@@ -49,7 +50,8 @@ class FrameHello(FrameBase):
         # one filling its 16 bytes would run on into the field after it.
         payload = append_payload_str(payload=payload, value=getattr(mxr, 'serial', CLIENT_SERIAL), sz=15) + [0]
         payload = append_payload_str(payload=payload, value=getattr(mxr, 'version', __version__), sz=15) + [0]
-        features = FrameHello.announced_features(mxr)
+        if (features is None):
+            features = FrameHello.announced_features(mxr)
         payload += [ (features >> 0) & 0xFF, (features >> 8) & 0xFF, (features >> 16) & 0xFF, (features >> 24) & 0xFF ]
         return FrameBase.construct_base(mxr=mxr, opcode=0, payload=bytes(payload))
 

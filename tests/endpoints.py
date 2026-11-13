@@ -370,6 +370,115 @@ if sys.platform.startswith('linux'):
             assert 'no interface holds' in str(e), e
         print('arrive    : only from the selected interface, and none for an address no interface holds')
 
+# --- an interface only announced on gets the hellos, less what invites action
+from mx_remote.remote.Remote import announced_only
+from mx_remote.remote.ConnectionAsync import Announcer
+kept = (DeviceFeature.CONFIG_INITIALISED | DeviceFeature.MESH | DeviceFeature.MESH_MEMBER
+        | DeviceFeature.SETUP_COMPLETED | DeviceFeature.STATUS_MCAST_FAULT)
+for invites in (DeviceFeature.MANAGER, DeviceFeature.MESH_MASTER, DeviceFeature.OSD_SYNC):
+    assert announced_only(kept | invites) == kept, f'{invites!r} kept'
+# An interface without an address is sent nothing, and that is no error: it is
+# how an interface waiting on DHCP looks.
+absent = Announcer('mxr-absent0')
+assert absent.announce(b'ping', [('224.8.8.8', 8812)]) == 0 and absent._bound is None
+
+# Live: the announced interface is the one the endpoint is on too, so one
+# listener hears both, told apart by the port they come from.
+import netifaces
+ANNOUNCED = ('239.255.77.92', 18823)
+def interface_holding(address):
+    return next((n for n in netifaces.interfaces()
+                 if any(e.get('addr') == address for e in netifaces.ifaddresses(n).get(netifaces.AF_INET, []))), None)
+
+async def announced(later):
+    local = mx_remote.Interface.mxr_valid_addresses()[0]
+    listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(('', ANNOUNCED[1]))
+    listener.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, socket.inet_aton(ANNOUNCED[0]) + socket.inet_aton(local))
+    listener.settimeout(0.1)
+    names = [interface_holding(local)]
+    mx = mx_remote.Remote(target_ip=ANNOUNCED[0], port=ANNOUNCED[1], local_ip=local, osd_sync=True,
+                          dedicated_controller=True, announce_interfaces=([] if later else names))
+    mx._uid = bytes(range(0x70, 0x80))
+    mx._probe_once = lambda: None
+    await mx.start_async()
+    if later:
+        mx.set_announce_interfaces(names)
+    seen = {}
+    deadline = time.time() + 2
+    try:
+        wanted = {(0x00, True), (0x00, False), (0x58, False)}
+        while (time.time() < deadline) and not wanted.issubset(seen):
+            try:
+                frame, (_, port) = listener.recvfrom(2048)
+            except socket.timeout:
+                continue
+            by_endpoint = (port == ANNOUNCED[1])
+            seen.setdefault((opcode_of(frame), by_endpoint), frame)
+    finally:
+        listener.close()
+        await mx.close()
+    return seen
+
+if mx_remote.Interface.mxr_valid_addresses():
+    for later in (False, True):
+        seen = asyncio.run(announced(later))
+        if (0x00, True) not in seen:
+            print('announce  : skipped, no multicast loopback delivery')
+            break
+        endpoint = DeviceFeature(struct.unpack_from('<I', seen[(0x00, True)], 24 + 50)[0])
+        assert DeviceFeature.OSD_SYNC in endpoint and DeviceFeature.MANAGER in endpoint, repr(endpoint)
+        assert (0x00, False) in seen, f'no hello from the announcing socket (named later: {later})'
+        only = DeviceFeature(struct.unpack_from('<I', seen[(0x00, False)], 24 + 50)[0])
+        assert DeviceFeature.OSD_SYNC not in only and DeviceFeature.MANAGER not in only, repr(only)
+        assert DeviceFeature.CONFIG_INITIALISED in only, repr(only)
+        assert (0x58, False) in seen, f'no CONTROLLER_STATE hello from the announcing socket (named later: {later})'
+    else:
+        print('announce  : the hellos alone on an interface only announced on, from the start or named later')
+
+# A socket bound to an address the interface no longer holds is rebound.
+if mx_remote.Interface.mxr_valid_addresses():
+    local = mx_remote.Interface.mxr_valid_addresses()[0]
+    moved = Announcer(interface_holding(local))
+    stale = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    moved._bound = ('192.0.2.250', stale)
+    assert moved.announce(b'ping', [('239.255.77.89', 18825)]) == 4
+    assert moved._bound[0] == local and stale.fileno() == -1, moved._bound
+    moved.close()
+
+# The frame leaves by the named interface, not the one multicast is routed by:
+# an interface a plain socket's multicast does not reach is the proof.
+PINNED = ('239.255.77.88', 18826)
+def reaches(address, send):
+    listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(('', PINNED[1]))
+    listener.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, socket.inet_aton(PINNED[0]) + socket.inet_aton(address))
+    listener.settimeout(0.3)
+    try:
+        send()
+        while True:
+            data, _ = listener.recvfrom(64)
+            if data == b'pinned':
+                return True
+    except socket.timeout:
+        return False
+    finally:
+        listener.close()
+def plain_send():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.sendto(b'pinned', PINNED)
+    s.close()
+elsewhere = [a for a in mx_remote.Interface.mxr_valid_addresses() if not reaches(a, plain_send)]
+if elsewhere:
+    pinned = Announcer(interface_holding(elsewhere[0]))
+    assert reaches(elsewhere[0], lambda: pinned.announce(b'pinned', [PINNED])), f'not sent by {pinned.interface}'
+    pinned.close()
+    print('pinned    : an announcer sends by its own interface, rebinding when its address moves')
+else:
+    print('pinned    : skipped, multicast reaches every interface unpinned')
+
 # --- the broadcast option is accepted, ignored and deprecated
 with warnings.catch_warnings(record=True) as caught:
     warnings.simplefilter('always')
