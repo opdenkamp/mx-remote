@@ -63,6 +63,8 @@ _REQUEST_SIZE = 54
 _REQUEST_SOURCE_AT = 38
 _SETTING_BODY_AT = 30
 _REPORT_SIZE = 90
+_REPORT_REASON_MAX = 63
+'''The bytes of a report's reason, its NUL left out.'''
 _MESSAGE_SIZE = 26
 
 OSD_SETTING_CAPTION = 0
@@ -110,6 +112,16 @@ class FrameV2IPOsdSync(FrameBase):
         standing for setting i, of the sync source sent.'''
         p = _header(OSD_KIND_REQUEST, seq, target) + bytes([int(what), 0]) + missing
         return FrameBase.construct_base(mxr=mxr, opcode=0x53, payload=p + source.byte_value, target=to)
+
+    @staticmethod
+    def construct_report(mxr:DeviceRegistry, target:MxrDeviceUid, report:OsdSyncReport,
+                         to:object=None) -> FrameBase|None:
+        '''A report from target, the unit taking the sync, its reason cut to 63
+        bytes at a character boundary and NUL padded.'''
+        reason = report.reason.encode('utf-8')[:_REPORT_REASON_MAX].decode('utf-8', errors='ignore').encode('utf-8')
+        p = (_header(OSD_KIND_REPORT, report.seq, target) + bytes([int(report.state), 0])
+             + struct.pack('<HH', report.written, report.refused) + reason)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x53, payload=p.ljust(_REPORT_SIZE, b'\0'), target=to)
 
     @staticmethod
     def construct_setting(mxr:DeviceRegistry, target:MxrDeviceUid, seq:int, index:int, records:int,

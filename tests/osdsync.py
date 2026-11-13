@@ -414,4 +414,29 @@ assert run(mx.keep_osd_sync(content(OSD_SYNC_RECORDS_MAX + 1))) is False and sen
 assert mx.osd_sync_held, 'refused content dropped the held sync'
 print('keep        : held and served, sent to no unit until resent')
 
+# A report goes to the source, naming this client, its reason cut before the
+# character that does not fit.
+from mx_remote import OsdSyncReport
+mx, seen, sent = client(osd_sync=True)
+source = hello(mx, uid(0x40), DeviceFeature.ONEIP_SINK)
+assert run(mx.send_osd_report(source, OsdSyncReport(seq=0x0102, state=OsdSyncState.FAILED, written=3, refused=1,
+                                                   reason='x' * 62 + '\u00e9'))) is True
+f, = sent
+p = f[24:]
+assert opcode(f) == 0x53 and f[2] == 0x2F and len(p) == 90, (f[:4].hex(), len(p))
+assert p[:4] == bytes([2, 3]) + struct.pack('<H', 0x0102) and p[4:20] == OURS, p[:20].hex()
+assert p[20:26] == bytes([2, 0]) + struct.pack('<HH', 3, 1), p[20:26].hex()
+assert p[26:88] == b'x' * 62 and p[88:] == bytes(2), p[26:].hex()
+# Read back by the source as a unit's report.
+peer, _, _ = client()
+peer._uid = uid(0x40)
+hello(peer, OURS, DeviceFeature.ONEIP_SINK)
+peer.process_frame(time.time(), f, ADDR)
+assert peer.get_by_uid(MxrDeviceUid(OURS)).osd_sync_report == OsdSyncReport(
+    seq=0x0102, state=OsdSyncState.FAILED, written=3, refused=1, reason='x' * 62)
+sent.clear()
+run(mx.send_osd_report(source, OsdSyncReport(seq=1, state=OsdSyncState.DONE, written=0, refused=0, reason='y' * 70)))
+assert sent[-1][24 + 26:24 + 90] == b'y' * 63 + b'\0', 'a reason cut to 63 bytes, its NUL kept'
+print('report send : 90 bytes to the source, naming this client, reason cut at a character')
+
 print('ALL OK')

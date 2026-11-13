@@ -564,6 +564,16 @@ the last one came. `setting.entry` converts a setting into the `OsdSyncEntry`
 that `send_osd_sync()` and `keep_osd_sync()` take, so the client can serve the
 sync it took. Fetching the logos is the caller's.
 
+Like a unit, it reports to the source at each stage, so the source lists it
+with the units that took the sync:
+
+```python
+await mx.send_osd_report(dev, OsdSyncReport(seq=sync.seq, state=OsdSyncState.DONE, written=3, refused=0,
+                                            reason=''))
+```
+
+The reason is cut to 63 bytes at a character boundary.
+
 A caption setting with `OsdCaptionField.DEFAULT_TEXT` in place of
 `OsdCaptionField.TEXT`, and no text, sends a unit back to its layout's default
 caption, drawn in its own locale. A unit whose firmware predates it keeps the

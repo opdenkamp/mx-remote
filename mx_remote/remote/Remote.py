@@ -26,7 +26,7 @@ from ..const import MXR_HELLO_INTERVAL_MIN, MXR_HELLO_INTERVAL_RAND, __version__
 from .Device import Device
 from .Tree import DeviceTree
 from .AudioRoute import audio_path
-from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, AudioHop, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, MeshConfig, MeshReplaceable, MeshReplaceUnit, MeshSetting, MeshBay, MeshBays, OneIPStreamSources, DeviceTreeEntry, UnitStatus
+from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, AudioHop, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncReport, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, MeshConfig, MeshReplaceable, MeshReplaceUnit, MeshSetting, MeshBay, MeshBays, OneIPStreamSources, DeviceTreeEntry, UnitStatus
 from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat, MESH_REPLACE_NAME_MAX, MESH_REPLACE_UNITS_MAX, MeshReplaceResult, UNIT_MAX_TEMPERATURES, MESH_BAYS_MAX, ControllerRole, CONTROLLER_PARTS_MAX, OSD_SETTINGS_ASKED, OSD_SYNC_RECORDS_MAX
 from ..proto.FrameDiscover import FrameDiscover, constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
@@ -1664,6 +1664,14 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._osd_settings_asked.append(key)
         frame = FrameV2IPOsdSync.construct_request(mxr=self, target=self.uid, seq=seq, what=what, missing=bytes(bits),
                                                    source=source.remote_id, to=source)
+        return (frame is not None) and (self.transmit(frame.frame, to=source) == len(frame.frame))
+
+    async def send_osd_report(self, source:DeviceBase, report:OsdSyncReport) -> bool:
+        '''Report to source how this client gets on with taking its sync
+        report.seq, as a unit does at each stage: taking, done or failed. The
+        source lists it among the units that took the sync. The reason is cut
+        to 63 bytes. True when it was written.'''
+        frame = FrameV2IPOsdSync.construct_report(mxr=self, target=self.uid, report=report, to=source)
         return (frame is not None) and (self.transmit(frame.frame, to=source) == len(frame.frame))
 
     @override
