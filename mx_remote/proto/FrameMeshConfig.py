@@ -21,6 +21,9 @@ alone, and a bays answer carries at most BAYS_PER_FRAME entries of 24 bytes,
 each u8 mode (1 an input, 0 an output), a reserved byte, the u16 bay number,
 the owning unit's u32 features and its uid.
 
+A setup frame marks one member's setup completed, or not: the header alone,
+naming the member, the mark in the length field.
+
 The opcode is served by the v2ipmesh module, so a unit without it answers
 nothing.'''
 
@@ -44,6 +47,7 @@ KIND_DUMP = 2
 KIND_SET = 3
 KIND_BAYS_REQUEST = 4
 KIND_BAYS = 5
+KIND_SETUP = 9
 
 FLAG_COPY = 1 << 0
 '''The dump flag: the settings are a copy the sender keeps of the unit named,
@@ -140,6 +144,12 @@ class FrameMeshConfig(FrameBase):
                                         target=to)
 
     @staticmethod
+    def construct_setup(mxr:DeviceRegistry, member:MxrDeviceUid, completed:bool, to:object=None) -> FrameBase|None:
+        '''A setup frame marking member's setup completed, or not.'''
+        return FrameBase.construct_base(mxr=mxr, opcode=0x57, payload=_header(KIND_SETUP, member, total=int(completed)),
+                                        target=to)
+
+    @staticmethod
     def construct_pages(mxr:DeviceRegistry, kind:int, flags:int, subject:MxrDeviceUid, encoded:bytes,
                         to:object=None) -> list[FrameBase]:
         '''The frames of a dump (KIND_DUMP), set (KIND_SET) or numbering
@@ -220,6 +230,8 @@ class FrameMeshConfig(FrameBase):
             return f"mesh config request for {self.subject}"
         if (kind == KIND_BAYS_REQUEST):
             return f"mesh config bays request for {self.subject}"
+        if (kind == KIND_SETUP):
+            return f"mesh config setup of {self.subject}: {'completed' if self.total else 'not completed'}"
         if (kind in (KIND_DUMP, KIND_SET, KIND_BAYS)):
             what = {KIND_DUMP: 'dump', KIND_SET: 'set', KIND_BAYS: 'bays'}[kind]
             return (f"mesh config {what} of {self.subject}: {len(self.chunk)} bytes at {self.offset} "

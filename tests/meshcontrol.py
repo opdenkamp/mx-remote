@@ -378,7 +378,32 @@ assert call(mx.set_mesh_installer(0x1234)) is True
 assert opcode(mx.sent[-1]) == 0x37 and mx.sent[-1][24:] == bytes([0x34, 0x12])
 mx.sent.clear()
 assert call(mx.set_mesh_installer(0x10000)) is False and not mx.sent
-print('mesh        : setup completed and installer id to every unit')
+# This client's own setup goes out in its hello, at once on a change.
+assert DeviceFeature.SETUP_COMPLETED not in mx.features
+mx.sent.clear()
+mx.set_setup_completed(True)
+assert DeviceFeature.SETUP_COMPLETED in mx.features
+hellos = [f for f in mx.sent if opcode(f) == 0x00]
+assert len(hellos) == 1, 'a change not announced at once'
+assert int.from_bytes(hellos[0][24 + 50:24 + 54], 'little') & (1 << 10), hellos[0][24 + 50:24 + 54].hex()
+mx.sent.clear()
+mx.set_setup_completed(True)
+assert not mx.sent, 'the same again announced'
+mx.set_setup_completed(False)
+assert DeviceFeature.SETUP_COMPLETED not in mx.features and len(mx.sent) == 1
+# One member's mark: 0x57 kind 9, the header alone, the mark in the length.
+member_new = hello(uid(0x51), 0x33, DeviceFeature.ONEIP_SINK | DeviceFeature.MESH)
+member_old = hello(uid(0x52), 0x32, DeviceFeature.ONEIP_SINK | DeviceFeature.MESH)
+mx.sent.clear()
+assert call(mx.set_member_setup_completed(member_new, True)) is True
+f = mx.sent[-1]
+assert opcode(f) == 0x57 and f[2] == 0x33, (hex(opcode(f)), f[2])
+assert f[24:] == bytes([1, 9, 0, 0, 0, 0, 1, 0]) + bytes(8) + uid(0x51), f[24:].hex()
+assert call(mx.set_member_setup_completed(member_new, False)) is True
+assert mx.sent[-1][24 + 6:24 + 8] == bytes(2)
+mx.sent.clear()
+assert call(mx.set_member_setup_completed(member_old, True)) is False and not mx.sent, 'a unit below 0x33'
+print('mesh        : setup completed and installer id to every unit, this client\'s own, one member\'s')
 
 # Refusals, none of which sends anything.
 mx.sent.clear()

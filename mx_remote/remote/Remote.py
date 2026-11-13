@@ -232,6 +232,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._controller_allowed:MxrDeviceUid|None = None
         self._mesh_controller:MxrDeviceUid|None = None
         self._mesh_bays_mapped = False
+        self._setup_completed = False
         self._closing = False
         self._own_session = (http_session is None)
         self._callbacks = State(callbacks, http_session)
@@ -426,6 +427,24 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         to what the hello announces goes out at once.'''
         before = self.features
         self._mesh_bays_mapped = mapped
+        if (self.features != before):
+            self.tx_hello()
+
+    @property
+    def setup_completed(self) -> bool:
+        '''Whether this client's own setup is completed, as
+        set_setup_completed() last said.'''
+        return self._setup_completed
+
+    def set_setup_completed(self, completed:bool) -> None:
+        '''Set whether this client's own setup is completed, which its hello
+        announces as DeviceFeature.SETUP_COMPLETED, as a unit's does. A change
+        is announced at once.
+
+        It marks only this client. set_mesh_setup_completed() marks the units
+        that hear it, and set_member_setup_completed() one member.'''
+        before = self.features
+        self._setup_completed = completed
         if (self.features != before):
             self.tx_hello()
 
@@ -1226,8 +1245,30 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         '''Mark the setup of every unit that hears it completed, or not.
 
         A unit takes it only from its mesh controller or a management
-        application, and shows it in its next announcement.'''
+        application, and shows it in its next announcement. This client's own
+        flag is set_setup_completed()'s, and one member's
+        set_member_setup_completed()'s.'''
         return self._send_to_all(FrameSetupStatus.construct(mxr=self, completed=completed))
+
+    async def set_member_setup_completed(self, member:DeviceBase, completed:bool) -> bool:
+        '''Mark the setup of mesh member member alone completed, or not, as its
+        controller does: set_mesh_setup_completed() marks every unit that
+        hears it, as its frame names no unit. True when it was written.
+
+        A member takes it only from its own controller, and only one whose
+        mesh module knows it; any other unit drops it unread. Nothing reports
+        it taken except the member's next hello, which carries
+        DeviceFeature.SETUP_COMPLETED as marked.
+
+        A controller marking its mesh's setup completed marks the members of
+        that moment, and sends this to one that missed it: offline at the
+        time, or still booting without its controller known or its module
+        loaded, so it is sent again until the hello shows it. A replacement
+        takes the mark of the unit it replaced. A member added later is marked
+        only with its own setup. Which members carry a mark is the caller's to
+        keep. Sent only to a unit at protocol 0x33 or later.'''
+        frame = FrameMeshConfig.construct_setup(mxr=self, member=member.remote_id, completed=completed, to=member)
+        return (frame is not None) and (self.transmit(frame.frame, to=member) == len(frame.frame))
 
     async def set_mesh_installer(self, installer:int) -> bool:
         '''Set the installer id of every unit that hears it, 16 bits.

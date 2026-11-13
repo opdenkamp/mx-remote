@@ -743,7 +743,9 @@ mx.set_mesh_bays_mapped(True)       # the role is announced only with bays mappe
 await mx.send_mesh_operation(MeshOperationMessage.report_controller(mx.uid, priority=1, installer=0x1234))
 await mx.send_mesh_operation(MeshOperationMessage.register(unit.remote_id, mx.uid))
 await mx.send_oneip_source_list(sources)   # the mesh's whole source list
-await mx.set_mesh_setup_completed(True)
+await mx.set_mesh_setup_completed(True)    # every unit that hears it
+mx.set_setup_completed(True)                # this client's own, in its hello
+await mx.set_member_setup_completed(unit, True)   # one member, 0x33 or later
 await mx.set_mesh_installer(0x1234)
 
 await output.set_oneip_mirroring(other_output)   # None to stop
@@ -753,6 +755,13 @@ await unit.set_rc_settings(rc_target=RCType.CEC, ip=None, cec_enabled=True, cec_
                            forward_rc=True, forward_ir=False)
 await unit.set_rc_settings(forward_ir=True)      # the rest as the unit reported
 ```
+
+`set_mesh_setup_completed()` names no unit, so every unit that hears it takes
+it. `set_member_setup_completed()` reaches one member alone: a controller marks
+the members of the moment its setup completes, and sends it again to one that
+missed it until that member's hello carries `DeviceFeature.SETUP_COMPLETED`; a
+replacement takes the mark of the unit it replaced. A member takes it only from
+its own controller, and one whose mesh module predates it drops it.
 
 The tiling window is in pixels of the decoded source picture: the output crops
 it out and scales it up. A width or height of 0 shows the whole picture. An

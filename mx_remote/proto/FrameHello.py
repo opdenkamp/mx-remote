@@ -70,6 +70,9 @@ class FrameHello(FrameBase):
             features |= DeviceFeature.MESH_MEMBER
             if (controller == mxr.uid) and getattr(mxr, 'mesh_bays_mapped', False):
                 features |= DeviceFeature.MESH_MASTER
+        # Its own setup, as a unit announces it.
+        if getattr(mxr, 'setup_completed', False):
+            features |= DeviceFeature.SETUP_COMPLETED
         # While it holds an overlay sync it also announces itself as the mesh's
         # overlay sync manager, which has the controller leave units' requests
         # for a new sync to it. A client taking syncs as a unit announces it
