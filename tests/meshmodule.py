@@ -87,9 +87,9 @@ def refused(mx, coro, why):
     assert call(coro) is False, why
     assert len(mx.sent) == n, f'{why}: refused, but transmitted anyway'
 
-assert MXR_PROTOCOL_VERSION == 0x33, hex(MXR_PROTOCOL_VERSION)
+assert MXR_PROTOCOL_VERSION >= 0x33, hex(MXR_PROTOCOL_VERSION)
 assert (MXR_OPCODE_VERSIONS[0x56], MXR_OPCODE_VERSIONS[0x57]) == (0x32, 0x33)
-print('versions    : 0x56 stamped 0x32, 0x57 0x33, announced 0x33')
+print('versions    : 0x56 stamped 0x32, 0x57 0x33')
 
 # ============================================================ 0x56 MESH_REPLACE
 def replace_header(kind, first=0, total=0, flags=0):

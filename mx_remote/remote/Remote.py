@@ -27,7 +27,7 @@ from .Device import Device
 from .Tree import DeviceTree
 from .AudioRoute import audio_path
 from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, AudioHop, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, MeshConfig, MeshReplaceable, MeshReplaceUnit, MeshSetting, MeshBay, MeshBays, OneIPStreamSources, DeviceTreeEntry, UnitStatus
-from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat, MESH_REPLACE_NAME_MAX, MESH_REPLACE_UNITS_MAX, MeshReplaceResult, UNIT_MAX_TEMPERATURES, MESH_BAYS_MAX
+from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat, MESH_REPLACE_NAME_MAX, MESH_REPLACE_UNITS_MAX, MeshReplaceResult, UNIT_MAX_TEMPERATURES, MESH_BAYS_MAX, ControllerRole
 from ..proto.FrameDiscover import FrameDiscover, constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
 from ..proto.FrameHello import FrameHello, constructFrameHello
@@ -40,6 +40,8 @@ from ..proto.FrameMeshReplace import FrameMeshReplace, KIND_QUERY, KIND_UNITS, K
 from ..proto.FrameMeshConfig import (FrameMeshConfig, encode_bays, encode_settings, FLAG_COPY, KIND_BAYS,
                                      KIND_BAYS_REQUEST, KIND_DUMP, KIND_REQUEST as CONFIG_REQUEST, KIND_SET)
 from .Mesh import MeshKeeper
+from .Controller import OwnController
+from ..proto.FrameControllerState import FrameControllerState
 from ..proto.FrameSetInstaller import FrameSetInstaller
 from ..proto.FrameSetupStatus import FrameSetupStatus
 from ..proto.FrameV2IPSources import FrameV2IPSources, ONEIP_SOURCE_LIST_MAX
@@ -76,7 +78,7 @@ _LOGGER = logging.getLogger(__name__)
 # stranger's ping.
 _ACCEPT_UNANNOUNCED = (0x00, 0x01)
 
-_OPCODE_LIMIT = 0x58
+_OPCODE_LIMIT = 0x59
 '''The first opcode past a unit's table (MX_OP_NB). A frame at or above it has
 no valid header to a unit, which drops it before it keeps its sender alive or
 proves its path.'''
@@ -160,7 +162,7 @@ def _missed_state(before:_Heard|None, device:DeviceBase) -> bool:
 class Remote(DeviceRegistry, ConnectionCallbacks):
     ''' Main component that handles the network connections and registration of remote devices '''
 
-    def __init__(self, target_ip:str|None=None, port:int|None=None, http_session:aiohttp.ClientSession|None=None, open_connection:bool=True, callbacks:MxrCallbacks|None=None, name:str="MXR Python", local_ip:str|None=None, broadcast:bool|None=None, addr_filter:str|None=None, uid_path:str|None=None, logo_port:int|None=None, serial:str=CLIENT_SERIAL, version:str|None=None, mesh_device:bool=False) -> None:
+    def __init__(self, target_ip:str|None=None, port:int|None=None, http_session:aiohttp.ClientSession|None=None, open_connection:bool=True, callbacks:MxrCallbacks|None=None, name:str="MXR Python", local_ip:str|None=None, broadcast:bool|None=None, addr_filter:str|None=None, uid_path:str|None=None, logo_port:int|None=None, serial:str=CLIENT_SERIAL, version:str|None=None, mesh_device:bool=False, dedicated_controller:bool=False) -> None:
         '''Initialise the remote controller.
 
         :param target_ip: for tests and development only: replaces both
@@ -190,6 +192,14 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             while they follow it as their controller. Units count a mesh device
             without bays as a member only when its serial is P9SN00000000 or
             does not start P9SN0000.
+        :param dedicated_controller: announce this client as a dedicated mesh
+            controller, one without bays of its own such as a router: right
+            after its hello to every unit, at most every 10 s, and at once when
+            set_controller_role() changes it, it sends a CONTROLLER_STATE
+            (0x58) hello, in a mesh or not. Its hello stays at the 54 bytes
+            every unit takes. A OneIP unit at protocol 0x34 or later knows it as
+            a dedicated controller once it has had one, and then takes the
+            controller role from none while one it follows is online.
         '''
         DeviceRegistry.__init__(self)
         ConnectionCallbacks.__init__(self)
@@ -200,6 +210,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._serial = serial
         self._version = version if (version is not None) else __version__
         self._mesh_device = mesh_device
+        self._dedicated_controller = dedicated_controller
+        self._own_controller = OwnController()
         self._mesh_controller:MxrDeviceUid|None = None
         self._mesh_bays_mapped = False
         self._closing = False
@@ -451,6 +463,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 self.conn = ConnectionAsync(callbacks=self, local_ip=self._local_ip, target_ip=self._target_ip, port=self._port)
                 # The first hello on new sockets goes to both endpoints.
                 self._hello_on_broadcast = None
+                self._own_controller.sent = None
                 await self.conn.start_srv()
 
     def has_completed_devices(self) -> bool:
@@ -538,6 +551,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         await self._load_uid()
         # The first hello on new sockets goes to both endpoints.
         self._hello_on_broadcast = None
+        self._own_controller.sent = None
         await self.conn.start_srv()
         # Announce before anything else can be sent. A device drops every frame
         # from a uid it has no record of, except hello and discover, so a
@@ -1265,7 +1279,34 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             # would silence a client for a full interval every time a write failed,
             # and on an interface that never writes, permanently.
             self._arm_hello()
+            self._announce_controller(time.time(), False)
         return sent
+
+    def _announce_controller(self, now:float, now_due:bool) -> None:
+        '''A dedicated controller's CONTROLLER_STATE hello, which follows its
+        hello to every unit at most every 10 s, and goes at once when
+        now_due.'''
+        if not self._dedicated_controller:
+            return
+        if not now_due and not self._own_controller.due(now):
+            return
+        self._own_controller.sent = now
+        self._send_to_all(FrameControllerState.construct_hello(mxr=self, hello=self._own_controller.hello()))
+
+    def set_controller_role(self, role:ControllerRole|int, primary:MxrDeviceUid|None=None) -> bool:
+        '''Set the role and the primary this client's CONTROLLER_STATE hello
+        carries as a dedicated controller, and send it at once when they
+        changed. It starts as ControllerRole.NONE with no primary. Refused,
+        returning False, unless this client was made with
+        dedicated_controller.'''
+        if not self._dedicated_controller:
+            _LOGGER.warning("not setting the controller role: only a dedicated controller sends a controller hello")
+            return False
+        own = self._own_controller
+        if (own.role != role) or (own.primary != primary):
+            own.role, own.primary = role, primary
+            self._announce_controller(time.time(), True)
+        return True
 
     def on_connection_made(self) -> None:
         '''Callback invoked after ConnectionAsync has started the server.'''

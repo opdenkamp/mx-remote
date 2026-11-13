@@ -849,6 +849,33 @@ A numbering arrives at `on_mesh_bays_received()`, put together as a dump is;
 bay 0 is the controller's own. It is asked only of a unit at 0x33 or later,
 and holds at most `MESH_BAYS_MAX` (512) bays.
 
+### Dedicated controllers
+
+A mesh controller without bays of its own, such as a router, marks itself as
+dedicated with a `CONTROLLER_STATE` (0x58) hello. A OneIP unit at protocol 0x34
+or later then takes the controller role from none while one it follows is
+online.
+
+```python
+print(device.dedicated_controller)   # True once it has sent such a hello
+print(device.controller_hello)       # ControllerHello: role, generation, primary, parts
+```
+
+`MxrCallbacks.on_controller_hello_changed(dev, hello)` reports each hello that
+differs from that device's last.
+
+A client made with `Remote(dedicated_controller=True)` sends one itself, right
+after its hello to every unit, at most every 10 s, in a mesh or not; its own
+hello stays at the 54 bytes every unit takes.
+
+```python
+mx = Remote(dedicated_controller=True)
+mx.set_controller_role(ControllerRole.PRIMARY, primary=mx.uid)   # sent at once when it changed
+```
+
+It starts as `ControllerRole.NONE` with no primary, and any other client is
+refused.
+
 ### Time zone and time
 
 The mesh controller announces its time zone and clock with every periodic

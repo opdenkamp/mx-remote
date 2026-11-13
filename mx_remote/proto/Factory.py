@@ -258,6 +258,9 @@ def _mxr_frame_factory(hdr:FrameHeader, timestamp:float) -> FrameBase|None:
 	if hdr.opcode == 0x57:
 		from .FrameMeshConfig import FrameMeshConfig
 		return FrameMeshConfig(header=hdr, timestamp=timestamp)
+	if hdr.opcode == 0x58:
+		from .FrameControllerState import FrameControllerState
+		return FrameControllerState(header=hdr, timestamp=timestamp)
 	if hdr.opcode == 0x50:
 		from .FrameUnitCommand import FrameUnitCommand
 		return FrameUnitCommand(header=hdr, timestamp=timestamp)

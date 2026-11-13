@@ -59,6 +59,7 @@ SUITES = [
     'routes',       # what a OneIP output is routed to, as the frames a unit acts on move it
     'meshbays',     # the bays a unit lists for other units, from its mappings
     'meshmodule',   # replacing a mesh unit, and the settings a mesh keeps of its units
+    'controllerstate',  # a dedicated controller's hello
     'v2ipsdp',      # what a OneIP output plays from a session description
     'privacy',      # how a OneIP source unit encrypts its streams
     'thirdparty',   # applications' own messages, sent and received

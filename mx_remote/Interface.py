@@ -3021,6 +3021,35 @@ class MeshBays:
     naming none is left out."""
 
 @dataclass(frozen=True)
+class ControllerPart:
+    """One part of a dedicated controller's state, as its hello lists it."""
+    part: int
+    """Which part: 0 the state, 1 to 4 the PNG of that overlay logo slot."""
+    length: int
+    """The part's length in bytes."""
+    crc: int
+    """The crc32 of the whole part."""
+
+@dataclass(frozen=True)
+class ControllerHello:
+    """
+    A dedicated controller's CONTROLLER_STATE hello: its role, its state's
+    generation, the primary in its state and the parts its state is made of.
+
+    Sending one marks the sender as a dedicated controller, such as a router,
+    to every unit from protocol 0x34 on, which then lets no OneIP take the
+    controller role from it while it is online.
+    """
+    role: ControllerRole|int = ControllerRole.NONE
+    """Primary, failsafe or neither; a plain int where it has no name."""
+    generation: int = 0
+    """Raised on every change of the sender's state."""
+    primary: MxrDeviceUid|None = None
+    """The primary in the sender's state, None for none."""
+    parts: tuple[ControllerPart, ...] = ()
+    """The parts, at most CONTROLLER_PARTS_MAX."""
+
+@dataclass(frozen=True)
 class ThirdPartyMessage:
     """
     A message an application sent to every device, under its own vendor id.
@@ -3916,6 +3945,18 @@ class DeviceBase(ABC):
     def mesh_config_digest(self) -> MeshConfigDigest|None:
         '''The length and crc32 of this unit's kept settings, as it last
         announced them, None until it has.'''
+
+    @property
+    @abstractmethod
+    def controller_hello(self) -> ControllerHello|None:
+        '''The CONTROLLER_STATE hello this device last sent, None until it
+        has sent one.'''
+
+    @property
+    def dedicated_controller(self) -> bool:
+        '''This device is a dedicated mesh controller, such as a router: it has
+        sent a CONTROLLER_STATE hello, which controller_hello reads.'''
+        return (self.controller_hello is not None)
 
     @property
     @abstractmethod
@@ -5070,6 +5111,13 @@ class MxrCallbacks:
     def on_mesh_bays_received(self, dev:DeviceBase, bays:MeshBays) -> None:
         ''' called when 'dev' sent a controller's numbering whole, which
         Remote.mesh_bays() also reads. '''
+        pass
+
+    def on_controller_hello_changed(self, dev:DeviceBase, hello:ControllerHello) -> None:
+        ''' called when 'dev' sent a CONTROLLER_STATE hello other than its last:
+        it is a dedicated controller, such as a router, which
+        DeviceBase.dedicated_controller says from then on, and
+        DeviceBase.controller_hello reads. '''
         pass
 
     def on_third_party_message(self, dev:DeviceBase, message:ThirdPartyMessage) -> None:

@@ -10,7 +10,7 @@
 from enum import IntEnum, IntFlag
 from typing import TypeVar
 
-MXR_PROTOCOL_VERSION = 0x33
+MXR_PROTOCOL_VERSION = 0x34
 """Highest mx_remote protocol version this library understands.
 
 Mirrors the firmware's own protocol version. Bump
@@ -35,7 +35,8 @@ arrives stamped 0x2E, 0x2F the row of V2IP_OSD_SYNC and 0x30 the row of
 V2IP_PRIVACY.
 
 0x32 and 0x33 are the rows of MESH_REPLACE and MESH_CONFIG, which a unit stamps
-on them, and this client announces the newest stamp it sends."""
+on them, and 0x34 the row of CONTROLLER_STATE; this client announces the newest
+stamp it sends."""
 
 MXR_PROTOCOL_VERSION_SLOW_HELLO = 0x2A
 """First protocol version whose devices may hello only every 20-30s."""
@@ -131,6 +132,7 @@ MXR_OPCODE_VERSIONS: dict[int, int] = {
     0x55: 0x01,  # THIRD_PARTY
     0x56: 0x32,  # MESH_REPLACE (owned by the v2ipmesh module)
     0x57: 0x33,  # MESH_CONFIG (owned by the v2ipmesh module)
+    0x58: 0x34,  # CONTROLLER_STATE (only dedicated controllers send or take it)
 }
 """Per-opcode minimum compatible protocol version, mirroring the firmware's
 own opcode table. Transmitters stamp the
@@ -1352,6 +1354,20 @@ MESH_REPLACE_NAME_MAX = 16
 MESH_CONFIG_MAX = 1984
 """The most bytes a unit's kept settings take, as they are carried: each setting
 a byte of name length, the name, a byte of value length and the value."""
+
+CONTROLLER_PARTS_MAX = 5
+"""The most parts a CONTROLLER_STATE hello lists: the state, and the four
+overlay logo slots."""
+
+class ControllerRole(IntEnum):
+	'''The role a dedicated controller says it has in its CONTROLLER_STATE
+	hello.'''
+	NONE     = 0
+	'''Neither: in no mesh, or not settled yet.'''
+	PRIMARY  = 1
+	'''The mesh's primary controller.'''
+	FAILSAFE = 2
+	'''The failsafe, holding a copy of the primary's state.'''
 
 MESH_BAYS_MAX = 2 * 256
 """The most entries a controller's numbering holds: up to 256 bays of each mode,

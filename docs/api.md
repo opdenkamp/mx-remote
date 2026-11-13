@@ -451,6 +451,24 @@ and the numbering of a controller's bays.
 .. autodata:: mx_remote.proto.Constants.MESH_BAYS_MAX
 ```
 
+## Dedicated controllers
+
+What a dedicated mesh controller, such as a router, announces of itself and its
+state.
+
+```{eval-rst}
+.. autoclass:: mx_remote.ControllerHello
+   :members:
+
+.. autoclass:: mx_remote.ControllerPart
+   :members:
+
+.. autoclass:: mx_remote.proto.Constants.ControllerRole
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.CONTROLLER_PARTS_MAX
+```
+
 ## Names from before OneIP
 
 Releases up to 5.11 used the firmware's internal names in the public API: V2IP
