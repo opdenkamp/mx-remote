@@ -10,6 +10,7 @@ Names that live in different modules across the Python versions this package
 supports. Import them from here so the version test is written once.
 """
 
+import socket
 import sys
 
 if sys.version_info >= (3, 12):
@@ -19,4 +20,11 @@ else:
     # decorator further back, and is a dependency only below that version.
     from typing_extensions import override
 
-__all__ = ['override']
+if sys.version_info >= (3, 12):
+    IP_PKTINFO = socket.IP_PKTINFO
+else:
+    # socket.IP_PKTINFO arrived in 3.12; Linux, the one system that reads it
+    # here, has always numbered it 8.
+    IP_PKTINFO = 8
+
+__all__ = ['IP_PKTINFO', 'override']

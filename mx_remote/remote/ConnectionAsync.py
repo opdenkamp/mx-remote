@@ -15,6 +15,7 @@ import sys
 import ipaddress
 from typing import Tuple
 import netifaces
+from ..compat import IP_PKTINFO
 from ..Interface import ConnectionCallbacks, mxr_broadcast_address, mxr_valid_addresses
 from ..const import MX_BCAST_UDP_PORT, MX_MCAST_UDP_IP, MX_MCAST_UDP_PORT
 from ..proto.Constants import Endpoints
@@ -232,7 +233,7 @@ class _Endpoint(asyncio.DatagramProtocol):
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
         if (self.arrival is not None):
-            sock.setsockopt(socket.IPPROTO_IP, socket.IP_PKTINFO, 1)
+            sock.setsockopt(socket.IPPROTO_IP, IP_PKTINFO, 1)
         return sock
 
     async def start(self) -> None:
@@ -262,7 +263,7 @@ class _Endpoint(asyncio.DatagramProtocol):
                 _LOGGER.debug(f"receive on {self.target_ip}:{self.port} failed: {e}")
                 return
             arrived = next((struct.unpack_from('=i', cdata)[0] for level, kind, cdata in ancillary
-                            if (level == socket.IPPROTO_IP) and (kind == socket.IP_PKTINFO)
+                            if (level == socket.IPPROTO_IP) and (kind == IP_PKTINFO)
                             and (len(cdata) >= _PKTINFO_SIZE)), 0)
             if (arrived == self.arrival):
                 self._owner._received(data, addr, self._path)
