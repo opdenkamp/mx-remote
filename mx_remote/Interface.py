@@ -2923,6 +2923,14 @@ class MeshOperationMessage:
         """The installer id a controller report carries."""
         return int.from_bytes(self.param.byte_value[4:6], 'little')
 
+    @property
+    def membership_lost(self) -> bool:
+        """Whether a membership report flags that its sender lost its
+        settings, and its membership possibly with them: bit 0 of the
+        parameter's first 32-bit word. Senders that predate the flag leave it
+        clear."""
+        return bool(int.from_bytes(self.param.byte_value[0:4], 'little') & 1)
+
     def __str__(self) -> str:
         return f"{self.operation} target={self.target} param={self.param}"
 
@@ -2992,6 +3000,10 @@ class MeshConfigDigest:
     """The settings' length in bytes, as they are carried."""
     crc32: int
     """The crc32 of those bytes."""
+    lost: bool = False
+    """The unit lost its settings and announces defaults: a controller that
+    keeps a record of it restores that record, whatever the length and crc32
+    say. Never set by a unit that predates the flag."""
 
 @dataclass(frozen=True)
 class MeshConfig:
@@ -3005,6 +3017,10 @@ class MeshConfig:
     keeps one of every member, and a member one of its controller."""
     settings: tuple[MeshSetting, ...]
     """The settings, in the order they were sent."""
+    lost: bool = False
+    """The unit lost its settings, and these are its defaults: a controller
+    that keeps a record of it drops them. Only ever set on a unit's own
+    settings, never on a copy."""
 
 @dataclass(frozen=True)
 class MeshBay:

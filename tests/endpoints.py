@@ -22,7 +22,7 @@ import asyncio, os, struct, sys, time, logging, warnings
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logging.disable(logging.CRITICAL)
 import mx_remote
-from mx_remote import DeviceFeature, Endpoints
+from mx_remote import DeviceFeature, Endpoints, MxrDeviceUid
 from mx_remote.proto.Factory import create_mxr_frame
 import mx_remote.remote.ConnectionAsync as connection_module
 from mx_remote.remote.ConnectionAsync import ConnectionAsync
@@ -144,6 +144,55 @@ mx._judge_paths(3002.0)
 assert mx._broadcast_needed, 'a peer reporting its multicast fault was not reached by broadcast'
 assert not mx.multicast_fault
 
+# A peer counts towards the fault only 60 s after it was first heard, and, for
+# every peer, 60 s after this client opened its endpoints.
+mx = client()
+mx.process_frame(4000.0, hello(PEER, 'PG0001'), ADDR, B)
+mx.process_frame(4001.0, hello(PEER, 'PG0004'), ADDR, B)    # a known sender's path is recorded
+assert mx.get_by_uid(MxrDeviceUid(PEER)).heard_broadcast_lately(4059.0), 'nothing heard by broadcast'
+assert not mx._judge_paths(4059.0) and not mx.multicast_fault, 'a fault within 60 s of first hearing the peer'
+assert mx._broadcast_needed, 'the grace held back broadcast as well'
+mx.process_frame(4060.0, hello(PEER, 'PG0002'), ADDR, B)
+assert mx._judge_paths(4060.0) and mx.multicast_fault, '60 s after first hearing the peer'
+mx._endpoints_opened = 4100.0
+assert mx._judge_paths(4159.0) and not mx.multicast_fault, 'a fault within 60 s of opening the endpoints'
+mx.process_frame(4160.0, hello(PEER, 'PG0003'), ADDR, B)
+assert mx._judge_paths(4160.0) and mx.multicast_fault, '60 s after opening the endpoints'
+
+# Opening the endpoints, at start or on a changed address, starts the grace.
+class Opened:
+    def __init__(self, *args, **kw):
+        self.is_dual = True
+    async def start_srv(self):
+        return (None, None)
+    def transmit(self, data, endpoints=None):
+        return len(data)
+    def close(self):
+        pass
+
+async def opened():
+    import asyncio, mx_remote.remote.Remote as module
+    mx = mx_remote.Remote(open_connection=False)
+    mx._uid = OURS
+    mx._probe_once = lambda: None
+    mx.conn = Opened()
+    before = time.time()
+    await mx.start_async()
+    started = mx._endpoints_opened
+    mx._endpoints_opened = None
+    real, module.ConnectionAsync = module.ConnectionAsync, Opened
+    try:
+        await mx.update_config(local_ip='192.0.2.77')
+    finally:
+        module.ConnectionAsync = real
+        await mx.close()
+    return before, started, mx._endpoints_opened
+import asyncio
+before, started, moved = asyncio.run(opened())
+assert (started is not None) and (started >= before), 'start_async did not start the grace'
+assert (moved is not None) and (moved >= before), 'new endpoints did not start the grace'
+print('grace ok  : a peer counts towards the fault 60 s after it was first heard or the endpoints opened')
+
 single = client(dual=False)
 single.process_frame(3000.0, hello(OTHER, 'PB0012'), ADDR, None)
 assert not single._judge_paths(3500.0) and not single._broadcast_needed, 'one endpoint judged paths'
@@ -201,6 +250,7 @@ print('direct ok : a ping goes by the one endpoint its device is heard by')
 mx = client()
 mx.on_datagram_received(hello(PEER, 'MF0001'), ADDR, B)
 assert not mx.multicast_fault
+mx.get_by_uid(MxrDeviceUid(PEER))._first_heard -= 60    # past its grace
 mx.conn.sent.clear()
 mx.on_datagram_received(hello(PEER, 'MF0002'), ADDR, B)
 hellos = [f for f, _ in mx.conn.sent if opcode_of(f) == 0x00]

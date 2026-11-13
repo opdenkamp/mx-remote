@@ -236,6 +236,8 @@ class Device(DeviceBase):
 		self._time_zone:TimeZone|None = None
 		self._clock:DeviceClock|None = None
 		self._mesh_master_uid:MxrDeviceUid|None = None
+		self._mesh_membership_lost = False
+		self._first_heard = hello.timestamp
 		self._mesh_controller_report:MeshControllerReport|None = None
 		# The source device behind each OneIP bay, by bay mode and number. Held
 		# here as well as on the bays because a device may send its mappings
@@ -929,6 +931,18 @@ class Device(DeviceBase):
 			self.call_callbacks()
 
 	@property
+	def mesh_membership_lost(self) -> bool:
+		'''The device's last membership report flags that it lost its
+		settings, and its membership possibly with them: a controller that has
+		it as a member adds it back rather than drop it for naming no master.'''
+		return self._mesh_membership_lost
+
+	@property
+	def first_heard(self) -> float:
+		'''When this client first heard the device.'''
+		return self._first_heard
+
+	@property
 	@override
 	def mesh_master_uid(self) -> MxrDeviceUid|None:
 		'''UID of the mesh controller this device reports, None while it has named none.'''
@@ -1128,6 +1142,9 @@ class Device(DeviceBase):
 		if ((message := frame.message) is None):
 			return
 		if (message.operation == MeshOperation.REPORT_MEMBERSHIP):
+			if (self._mesh_membership_lost != message.membership_lost):
+				self._mesh_membership_lost = message.membership_lost
+				self.call_callbacks()
 			self.mesh_master = message.target
 		elif (message.operation == MeshOperation.REPORT_CONTROLLER):
 			report = frame.controller_report

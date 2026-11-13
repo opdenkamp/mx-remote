@@ -48,6 +48,10 @@ KIND_BAYS = 5
 FLAG_COPY = 1 << 0
 '''The dump flag: the settings are a copy the sender keeps of the unit named,
 not its own.'''
+FLAG_LOST = 1 << 1
+'''The flag of a hello, or of a dump of the sender's own settings: the sender
+lost its settings and holds defaults. A controller that keeps a record of it
+sends that record back as a set.'''
 
 FRAME_MAX = 1024
 '''The most settings bytes one frame carries.'''
@@ -195,7 +199,7 @@ class FrameMeshConfig(FrameBase):
         does not name its sender, which a unit ignores.'''
         if (self.kind != KIND_HELLO) or (self.subject != self.remote_id):
             return None
-        return MeshConfigDigest(length=self.total, crc32=self.crc)
+        return MeshConfigDigest(length=self.total, crc32=self.crc, lost=bool(self.flags & FLAG_LOST))
 
     @override
     def process(self) -> None:

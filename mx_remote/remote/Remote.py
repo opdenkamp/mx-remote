@@ -78,6 +78,10 @@ _LOGGER = logging.getLogger(__name__)
 # stranger's ping.
 _ACCEPT_UNANNOUNCED = (0x00, 0x01)
 
+MCAST_FAULT_GRACE = 60.0
+'''How long a peer is heard before it counts towards a multicast fault, in
+seconds.'''
+
 _OPCODE_LIMIT = 0x59
 '''The first opcode past a unit's table (MX_OP_NB). A frame at or above it has
 no valid header to a unit, which drops it before it keeps its sender alive or
@@ -259,6 +263,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         # broadcast endpoint, None since the sockets opened.
         self._broadcast_needed = False
         self._multicast_fault = False
+        self._endpoints_opened:float|None = None
         self._hello_on_broadcast:float|None = None
         # The digest and arrival time of each recent datagram.
         self._recent:deque[tuple[int, float]] = deque()
@@ -478,6 +483,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 # The first hello on new sockets goes to both endpoints.
                 self._hello_on_broadcast = None
                 self._own_controller.sent = None
+                self._endpoints_opened = time.time()
                 await self.conn.start_srv()
 
     def has_completed_devices(self) -> bool:
@@ -567,6 +573,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         # The first hello on new sockets goes to both endpoints.
         self._hello_on_broadcast = None
         self._own_controller.sent = None
+        self._endpoints_opened = time.time()
         await self.conn.start_srv()
         # Announce before anything else can be sent. A device drops every frame
         # from a uid it has no record of, except hello and discover, so a
@@ -769,7 +776,12 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
     def _judge_paths(self, now:float) -> bool:
         '''Re-judge whether frames must reach some peer by broadcast too, and
         whether this client's own multicast fails, returning whether the second
-        changed: a unit announces a change to its features at once.
+        changed: a unit announces a change to its features at once. A peer
+        counts towards the fault only after MCAST_FAULT_GRACE, from when it was
+        first heard and, for every peer, from when this client opened its
+        endpoints: a peer's broadcast copies can arrive before its first
+        multicast frame, or before the switch forwards the group to this
+        client.
 
         Every registered peer counts, one gone silent included, as a unit
         judges by every peer it knows. A client on one endpoint judges nothing,
@@ -781,7 +793,10 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             return (d.features is not None) and (flag in d.features)
         self._broadcast_needed = any(d.broadcast_only(now) or flagged(d, DeviceFeature.STATUS_MCAST_FAULT)
                                      for d in peers)
-        fault = any(not flagged(d, DeviceFeature.STATUS_REBOOTING) and d.broadcast_only(now)
+        def settled(d:Device) -> bool:
+            since = d.first_heard if (self._endpoints_opened is None) else max(self._endpoints_opened, d.first_heard)
+            return (now - since) >= MCAST_FAULT_GRACE
+        fault = any(settled(d) and not flagged(d, DeviceFeature.STATUS_REBOOTING) and d.broadcast_only(now)
                     and d.heard_broadcast_lately(now) for d in peers)
         changed = (fault != self._multicast_fault)
         self._multicast_fault = fault

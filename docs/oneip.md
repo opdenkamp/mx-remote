@@ -815,7 +815,7 @@ input of its own or has not reported its stream addresses, or the other unit has
 not reported a usable audio return group.
 
 A unit's controller report is kept as `device.mesh_controller_report`, and its
-membership report as `mesh_master`. Every other mesh operation a device sends
+membership report as `mesh_master` and `mesh_membership_lost`. Every other mesh operation a device sends
 arrives at `MxrCallbacks.on_mesh_operation()`, one this library has no name for
 with its raw value.
 
@@ -866,6 +866,13 @@ only from the controller this client follows; `send_mesh_config_set()` is
 refused unless the member reports this client as its controller, and a member
 whose settings changed restarts 3 s later. Names and values are at most 255
 bytes with no NUL, and all of them at most `MESH_CONFIG_MAX` (1984) bytes.
+
+A unit that lost its settings says so, and announces its defaults: `lost` is set
+on its `mesh_config_digest`, and on a `MeshConfig` of its own settings (never on
+a copy). A controller that keeps a record of it sends that record back as a
+set. Its membership report flags the same, as `device.mesh_membership_lost`:
+a controller that has it as a member adds it back rather than drop it for
+naming no master. Units that predate the flags never set them.
 
 A unit that takes over from a controller numbers its bays as that controller
 did, so drivers keep addressing the same ports. A controller answers for its

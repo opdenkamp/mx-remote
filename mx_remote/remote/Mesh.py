@@ -21,7 +21,7 @@ from a device keeping a copy.'''
 from dataclasses import dataclass, field
 from ..Interface import MeshBays, MeshConfig, MeshReplaceable, MeshReplaceUnit, MeshReplaceUnits, MeshSetting
 from ..proto.Constants import MESH_BAYS_MAX, MESH_CONFIG_MAX, MESH_REPLACE_UNITS_MAX
-from ..proto.FrameMeshConfig import (BAYS_ENTRY_SIZE, FLAG_COPY, KIND_BAYS, KIND_DUMP, FrameMeshConfig, crc32,
+from ..proto.FrameMeshConfig import (BAYS_ENTRY_SIZE, FLAG_COPY, FLAG_LOST, KIND_BAYS, KIND_DUMP, FrameMeshConfig, crc32,
                                      decode_bays, decode_settings)
 from ..proto.FrameMeshReplace import KEPT, FrameMeshReplace
 from ..Uid import MxrDeviceUid
@@ -139,8 +139,10 @@ class MeshKeeper:
         if ((data := self._take(sender, frame)) is None) or ((settings := decode_settings(data)) is None):
             return None
         if (frame.kind == KIND_DUMP) and (frame.subject is not None):
-            self.configs[frame.subject] = MeshConfig(subject=frame.subject, holder=sender,
-                                                     copy=bool(frame.flags & FLAG_COPY), settings=settings)
+            copy = bool(frame.flags & FLAG_COPY)
+            self.configs[frame.subject] = MeshConfig(subject=frame.subject, holder=sender, copy=copy, settings=settings,
+                                                     lost=(not copy) and (frame.subject == sender)
+                                                          and bool(frame.flags & FLAG_LOST))
         return settings
 
     def take_bays(self, sender:MxrDeviceUid, frame:FrameMeshConfig) -> MeshBays|None:

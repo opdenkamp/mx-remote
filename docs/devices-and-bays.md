@@ -43,6 +43,11 @@ await bay.set_hidden(True)   # hide
 await bay.set_hidden(False)  # show
 ```
 
+A device that lost its settings reports its bays' default names and hidden
+flags, with `BayStatusMask.SETTINGS_LOST` set. A bay keeps the name and hidden
+flag it had until the bit clears; a bay first heard while it is set takes what
+it is sent.
+
 ## EDID Profiles
 
 Change the EDID profile on input bays:

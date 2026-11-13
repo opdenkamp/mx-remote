@@ -1354,7 +1354,10 @@ class Bay(BayBase):
             return
         self._status_word = data
         self.faulty = BayStatusMask.FAULT in data
-        self.hidden = BayStatusMask.HIDDEN in data
+        # A device that lost its settings reports its default, which would
+        # undo the flag a user set; the one held stays until the bit clears.
+        if not ((BayStatusMask.SETTINGS_LOST in data) and (self._hidden is not None)):
+            self.hidden = BayStatusMask.HIDDEN in data
         self.zone_powered = BayStatusMask.POWERED in data
         self.hdbt_connected = BayStatusMask.HDBT_CONNECTED in data
         self.hpd_detected = BayStatusMask.HPD_DETECTED in data
@@ -1384,7 +1387,10 @@ class Bay(BayBase):
         self._features = data.features
         self._modenum = data.modenum
         self.status_mask = data.status
-        self.user_name = data.user_name
+        # A device that lost its settings names the bay by its default, so the
+        # name held stays until the bit clears.
+        if not ((BayStatusMask.SETTINGS_LOST in data.status) and (self._user_name is not None)):
+            self.user_name = data.user_name
         self.bay = data.bay
         self._on_mxr_bay_status(data.status)
         self._signal_snapshot = data.signal_snapshot

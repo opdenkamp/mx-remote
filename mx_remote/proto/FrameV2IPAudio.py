@@ -471,7 +471,7 @@ class AudioConfig:
 
 # SELECT_INPUT payload, as construct() below writes it:
 #   0..2     u16 sub-opcode
-#   2..4     padding
+#   2..4     u16 flags, zero on every command
 #   4..20    device uid    (the hop this frame is addressed to)
 #   20..36   target uid    (the sink, whose endpoint changes source)
 #   36..52   source uid

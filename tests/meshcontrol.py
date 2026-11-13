@@ -210,6 +210,17 @@ for kind in (0, 1, 2, 3, 5, 6, 7, 0x80):
 seen.operations.clear()
 rx(uid(0x50), 0x3B, poisoned(0xFF, uid(0x41), uid(0x42)))
 assert member.mesh_master_uid == U(0x41) and not seen.operations, 'a membership report arrived as an operation'
+assert not member.mesh_membership_lost, 'a parameter word with bit 0 clear read as lost'
+# Bit 0 of the parameter's first word flags lost settings, and a change of the
+# flag alone is reported.
+changes = []
+member.register_callback(changes.append)
+rx(uid(0x50), 0x3B, bytes([0xFF, 0, 0, 0]) + uid(0x41) + struct.pack('<I', 0xA5A5A5A5) + bytes(12) + bytes(4))
+assert member.mesh_membership_lost and member.mesh_master_uid == U(0x41)
+assert changes, 'lost settings flagged without a change reported'
+changes.clear()
+rx(uid(0x50), 0x3B, bytes([0xFF, 0, 0, 0]) + uid(0x41) + struct.pack('<I', 0xA5A5A5A4) + bytes(12) + bytes(4))
+assert not member.mesh_membership_lost and changes, 'the flag clearing'
 print('received    : every other operation reaches the caller, an unnamed one raw')
 
 # A controller report is the sender's own: priority and installer each the low

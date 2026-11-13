@@ -533,4 +533,27 @@ assert len(sent) == 24, 'a payload'
 assert on == Endpoints.BOTH
 print('detect    : 0x21, empty, stamped 0x06, to both endpoints')
 
+# A device that lost its settings reports its bays' defaults, bit 25 set: the
+# name and hidden flag held stay until the bit clears, and a bay first heard
+# takes what it is sent.
+LOST, HIDDEN = 1 << 25, 1 << 1
+mx = client()
+UNIT = uid(0x49)
+feed(mx, UNIT, HELLO, hello_payload(serial='SL0001', features=DeviceFeature.VIDEO_ROUTING))
+feed(mx, UNIT, BAY_CONFIG, bay(port=0, name='Lobby', status=HIDDEN))
+dev = device(mx, UNIT)
+b = dev.get_by_portnum(0)
+assert (b.user_name, b.hidden) == ('Lobby', True), (b.user_name, b.hidden)
+feed(mx, UNIT, BAY_CONFIG, bay(port=0, name='Input 1', status=LOST))
+assert (b.user_name, b.hidden) == ('Lobby', True), ('defaults taken while lost', b.user_name, b.hidden)
+feed(mx, UNIT, BAY_CONFIG, bay(port=0, name='Input 1', status=0))
+assert (b.user_name, b.hidden) == ('Input 1', False), ('the bit cleared', b.user_name, b.hidden)
+# Its record, as bay() lays it out, with a user name other than its default.
+feed(mx, UNIT, BAY_CONFIG, bytes([1, 0, 0, 0, 0]) + nm('Input 2') + nm('Doorway') + nm('1080p')
+                           + struct.pack('<II', LOST | HIDDEN, 1 << 1))
+fresh = dev.get_by_portnum(1)
+assert (fresh.bay_name, fresh.user_name, fresh.hidden) == ('Input 2', 'Doorway', True), \
+    (fresh.bay_name, fresh.user_name, fresh.hidden)
+print('lost      : a bay keeps its name and hidden flag while its device lost its settings')
+
 print('ALL OK')

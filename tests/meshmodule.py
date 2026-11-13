@@ -284,7 +284,12 @@ rx(mx, uid(0x31), 0x57, config_header(0, 0, 0, 293, 0xDEADBEEF, uid(0x31))[:31])
 assert unit_a.mesh_config_digest is None, '31 bytes'
 rx(mx, uid(0x31), 0x57, config_header(0, 0, 0, 293, 0xDEADBEEF, uid(0x31)))
 assert unit_a.mesh_config_digest == MeshConfigDigest(length=293, crc32=0xDEADBEEF), unit_a.mesh_config_digest
-print('hello       : the length and crc32 a unit announces of itself')
+# Flag bit 1 says the unit lost its settings.
+rx(mx, uid(0x31), 0x57, config_header(0, 2, 0, 12, 0x1234, uid(0x31)))
+assert unit_a.mesh_config_digest == MeshConfigDigest(length=12, crc32=0x1234, lost=True), unit_a.mesh_config_digest
+rx(mx, uid(0x31), 0x57, config_header(0, 1, 0, 12, 0x1234, uid(0x31)))
+assert not unit_a.mesh_config_digest.lost, 'the copy flag read as lost'
+print('hello       : the length and crc32 a unit announces of itself, and whether it lost them')
 
 # Settings are taken once every frame has arrived.
 rx(mx, uid(0x31), 0x57, config_header(1, 0, 0, 0, 0, uid(0x33)))
@@ -491,5 +496,20 @@ assert p[:8] == bytes([1, 5, 0, 0, 0, 0, 0, 0]), 'its own, of no bays, in one fr
 refused(mx, mx.send_mesh_bays(new, U(9), [NUMBERING[0]] * (MESH_BAYS_MAX + 1)), '513 bays')
 assert call(mx.send_mesh_bays(new, U(9), [NUMBERING[0]] * MESH_BAYS_MAX)) is True, '512 bays'
 print('bays send   : asked of 0x33, 42 entries a frame, a copy flagged, 512 at most')
+
+# A dump flagged lost is the unit's own defaults; a copy, or a dump about
+# another unit, never is.
+def dumped(flags, subject, sender=0x31):
+    mx, _ = client()
+    hello(mx, uid(sender))
+    for f in pages(2, flags, subject, BYTES, crc32(BYTES)):
+        rx(mx, uid(sender), 0x57, f)
+    return mx.mesh_config(MxrDeviceUid(subject))
+assert dumped(2, uid(0x31)).lost, 'its own, lost'
+assert not dumped(0, uid(0x31)).lost, 'its own'
+assert not dumped(3, uid(0x32)).lost, 'a copy flagged lost'
+assert not dumped(3, uid(0x31)).lost, 'a copy of its own subject flagged lost'
+assert not dumped(2, uid(0x32)).lost, 'about another unit, flagged lost'
+print('lost        : a hello or a dump of the unit\'s own settings flags defaults')
 
 print('ALL OK')
