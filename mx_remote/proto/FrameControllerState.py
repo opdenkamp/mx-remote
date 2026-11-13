@@ -11,9 +11,13 @@ itself as dedicated.
 Every frame opens with a 20-byte header: u8 payload version, u8 kind, u8 part,
 a reserved byte, then the u32 generation, offset, length and crc32.
 
-  hello  the header, then u8 role, u8 part count, two reserved bytes, the
-         primary's uid and 12 bytes per part: u8 part, three reserved bytes,
-         u32 length, u32 crc32
+  hello    the header, then u8 role, u8 part count, two reserved bytes, the
+           primary's uid and 12 bytes per part: u8 part, three reserved bytes,
+           u32 length, u32 crc32
+  request  the header alone: the part and generation, and the offset and
+           length of the window asked for, at most WINDOW_MAX bytes
+  data     the header, with this frame's offset and the whole part's length
+           and crc32, then at most DATA_MAX bytes of the part
 
 Only dedicated controllers send or take the opcode.'''
 
@@ -37,6 +41,13 @@ PART_SIZE = 12
 '''Width of one part entry of a hello.'''
 
 KIND_HELLO = 0
+KIND_REQUEST = 1
+KIND_DATA = 2
+
+WINDOW_MAX = 8192
+'''The most bytes one request asks for.'''
+DATA_MAX = 1024
+'''The most part bytes one data frame carries.'''
 
 _NO_PRIMARY = bytes(16)
 
@@ -84,6 +95,11 @@ class FrameControllerState(FrameBase):
             p += struct.pack('<BxxxII', part.part, part.length, part.crc)
         return FrameBase.construct_base(mxr=mxr, opcode=0x58, payload=p)
 
+    @staticmethod
+    def construct(mxr:DeviceRegistry, header:StateHeader, data:bytes=b'', to:object=None) -> FrameBase|None:
+        '''A request, or a data frame carrying data, to one device.'''
+        return FrameBase.construct_base(mxr=mxr, opcode=0x58, payload=header.encode() + data, target=to)
+
     @cached_property
     def state_header(self) -> StateHeader|None:
         return StateHeader.decode(self.payload or b'')
@@ -103,16 +119,33 @@ class FrameControllerState(FrameBase):
         return ControllerHello(role=_role(p[20]), generation=header.generation,
                                primary=None if (primary == _NO_PRIMARY) else MxrDeviceUid(primary), parts=parts)
 
+    @property
+    def data(self) -> bytes:
+        '''A data frame's bytes of the part.'''
+        return bytes((self.payload or b'')[HEADER_SIZE:])
+
     @override
     def process(self) -> None:
         '''Record a hello against its sender, which a unit from protocol 0x34
-        on then knows as a dedicated controller.'''
-        if ((hello := self.hello) is not None) and ((dev := self.remote_device) is not None):
+        on then knows as a dedicated controller, and hand a request or data to
+        the registry.'''
+        if ((header := self.state_header) is None) or ((dev := self.remote_device) is None):
+            return
+        if ((hello := self.hello) is not None):
             dev.on_mxr_update(hello)
+        elif (header.kind in (KIND_REQUEST, KIND_DATA)):
+            self.mxr.on_mxr_update(self)
 
     def __str__(self) -> str:
         if ((hello := self.hello) is not None):
             role = hello.role.name if isinstance(hello.role, ControllerRole) else hello.role
             return (f"controller hello: {role}, generation {hello.generation}, primary {hello.primary}, "
                     f"{len(hello.parts)} parts")
+        header = self.state_header
+        if (header is not None) and (header.kind == KIND_REQUEST):
+            return (f"controller state request: part {header.part} of generation {header.generation}, "
+                    f"{header.length} bytes at {header.offset}")
+        if (header is not None) and (header.kind == KIND_DATA):
+            return (f"controller state data: part {header.part} of generation {header.generation}, "
+                    f"{len(self.data)} bytes at {header.offset} of {header.length}")
         return "controller state <dropped>"

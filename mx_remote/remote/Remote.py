@@ -27,7 +27,7 @@ from .Device import Device
 from .Tree import DeviceTree
 from .AudioRoute import audio_path
 from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, AudioHop, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, MeshConfig, MeshReplaceable, MeshReplaceUnit, MeshSetting, MeshBay, MeshBays, OneIPStreamSources, DeviceTreeEntry, UnitStatus
-from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat, MESH_REPLACE_NAME_MAX, MESH_REPLACE_UNITS_MAX, MeshReplaceResult, UNIT_MAX_TEMPERATURES, MESH_BAYS_MAX, ControllerRole
+from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat, MESH_REPLACE_NAME_MAX, MESH_REPLACE_UNITS_MAX, MeshReplaceResult, UNIT_MAX_TEMPERATURES, MESH_BAYS_MAX, ControllerRole, CONTROLLER_PARTS_MAX
 from ..proto.FrameDiscover import FrameDiscover, constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
 from ..proto.FrameHello import FrameHello, constructFrameHello
@@ -37,11 +37,11 @@ from ..proto.FrameFactoryReset import FrameFactoryReset
 from ..proto.FrameThirdParty import FrameThirdParty
 from ..proto.FrameMeshOperation import FrameMeshOperation
 from ..proto.FrameMeshReplace import FrameMeshReplace, KIND_QUERY, KIND_UNITS, KIND_REQUEST, KIND_RESULT
-from ..proto.FrameMeshConfig import (FrameMeshConfig, encode_bays, encode_settings, FLAG_COPY, KIND_BAYS,
+from ..proto.FrameMeshConfig import (FrameMeshConfig, crc32, encode_bays, encode_settings, FLAG_COPY, KIND_BAYS,
                                      KIND_BAYS_REQUEST, KIND_DUMP, KIND_REQUEST as CONFIG_REQUEST, KIND_SET)
 from .Mesh import MeshKeeper
-from .Controller import OwnController
-from ..proto.FrameControllerState import FrameControllerState
+from .Controller import ControllerPull, OwnController
+from ..proto.FrameControllerState import FrameControllerState, KIND_DATA as STATE_DATA, KIND_REQUEST as STATE_REQUEST, StateHeader
 from ..proto.FrameSetInstaller import FrameSetInstaller
 from ..proto.FrameSetupStatus import FrameSetupStatus
 from ..proto.FrameV2IPSources import FrameV2IPSources, ONEIP_SOURCE_LIST_MAX
@@ -212,6 +212,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._mesh_device = mesh_device
         self._dedicated_controller = dedicated_controller
         self._own_controller = OwnController()
+        self._controller_pulls:list[ControllerPull] = []
+        self._controller_allowed:MxrDeviceUid|None = None
         self._mesh_controller:MxrDeviceUid|None = None
         self._mesh_bays_mapped = False
         self._closing = False
@@ -531,6 +533,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                     self._reasked.pop(uid, None)
             elif device.online:
                 self._reask(uid)
+        self._check_controller_pulls(time.time())
         self._forget_silent()
         if (len(self.remotes) == 0) and ((time.time() - self._discover_timeout) >= _DISCOVER_COVERS):
             self.tx_discover()
@@ -1308,6 +1311,128 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             self._announce_controller(time.time(), True)
         return True
 
+    def set_controller_parts(self, generation:int, parts:list[tuple[int, bytes]]) -> bool:
+        '''Set the parts of this client's state, as a dedicated controller:
+        each part number with its bytes. The hello then lists each part's
+        length and crc32 under generation, and goes at once when either
+        changed. A request from another dedicated controller of this client's
+        mesh, or the one allow_controller_state() names, is answered from them,
+        for this generation only. It starts with no parts and generation 0.
+
+        Refused, returning False, unless this client was made with
+        dedicated_controller, and for more than CONTROLLER_PARTS_MAX parts, a
+        part listed twice, or a part number outside 0 to 255.'''
+        if not self._dedicated_controller:
+            _LOGGER.warning("not setting the controller parts: only a dedicated controller serves them")
+            return False
+        numbers = [part for part, _ in parts]
+        if (len(parts) > CONTROLLER_PARTS_MAX) or (len(set(numbers)) != len(numbers)) \
+                or any(not (0 <= part <= 0xFF) for part in numbers):
+            _LOGGER.warning(f"not setting the controller parts: at most {CONTROLLER_PARTS_MAX}, "
+                            f"each numbered 0 to 255 once")
+            return False
+        held = [(part, bytes(data), crc32(bytes(data))) for part, data in parts]
+        own = self._own_controller
+        if (own.generation != generation) or (own.parts != held):
+            own.generation, own.parts = generation, held
+            self._announce_controller(time.time(), True)
+        return True
+
+    def allow_controller_state(self, uid:MxrDeviceUid|None) -> None:
+        '''Also take CONTROLLER_STATE requests and data from uid, a dedicated
+        controller of no mesh of this client's: one this client is replacing a
+        router of its mesh with. None takes them only from this client's mesh
+        again.'''
+        self._controller_allowed = uid
+
+    def _takes_controller_state(self, dev:DeviceBase) -> bool:
+        '''Whether a CONTROLLER_STATE request or data is taken from dev: a
+        dedicated controller, one that sent a hello, of this client's own mesh,
+        so one whose controller is this client's controller or which is that
+        controller; or the one allow_controller_state() named.'''
+        if (dev.controller_hello is None):
+            return False
+        if (self._controller_allowed == dev.remote_id):
+            return True
+        controller = self._mesh_controller
+        return (controller is not None) and ((dev.remote_id == controller) or (dev.mesh_master_uid == controller))
+
+    async def pull_controller_part(self, device:DeviceBase, part:int, generation:int, length:int, crc:int) -> bool:
+        '''Pull part of device's state generation, which its hello lists with
+        length and crc, in place of a pull of the same part under way. It asks
+        for windows of up to 8192 bytes, each from the first byte it does not
+        have, and again from there when no data arrives for 2 s. The part
+        arrives at MxrCallbacks.on_controller_part_received() once whole and
+        its crc32 matches, or the pull ends at on_controller_part_failed():
+        for a generation no longer held, a part other than the one asked, the
+        device going offline, or ten asks without progress. Pulls of other
+        parts, or of other devices, run alongside.
+
+        Data is taken only from a dedicated controller of this client's mesh,
+        or the one allow_controller_state() names. Refused, returning False,
+        for a device that is offline; True once the first request was
+        written.'''
+        if not device.online:
+            _LOGGER.warning(f"not pulling part {part} of {device}: it is offline")
+            return False
+        self._controller_pulls = [p for p in self._controller_pulls
+                                  if not ((p.device.remote_id == device.remote_id) and (p.part == part))]
+        if (length == 0):
+            if (crc == crc32(b'')):
+                self.callbacks.on_controller_part_received(device, part, generation, b'')
+            else:
+                self.callbacks.on_controller_part_failed(device, part, generation)
+            return True
+        pull = ControllerPull(device, part, generation, length, crc, time.time())
+        self._controller_pulls.append(pull)
+        return self._ask_controller(device, pull.ask(time.time()))
+
+    def _ask_controller(self, device:DeviceBase, header:StateHeader, data:bytes=b'') -> bool:
+        '''Send a request, or data, to one dedicated controller.'''
+        frame = FrameControllerState.construct(mxr=self, header=header, data=data, to=device)
+        return (frame is not None) and (self.transmit(frame.frame, to=device) == len(frame.frame))
+
+    def _on_controller_state(self, frame:FrameControllerState) -> None:
+        '''Answer a request from the parts this client holds, and take data
+        into the pull of its part, each only from a sender
+        _takes_controller_state() takes.'''
+        if ((dev := self.remotes.get(frame.remote_id)) is None) or ((header := frame.state_header) is None) \
+                or not self._takes_controller_state(dev):
+            return
+        if (header.kind == STATE_REQUEST):
+            if self._dedicated_controller:
+                for answer, data in self._own_controller.answer(header):
+                    self._ask_controller(dev, answer, data)
+            return
+        pull = next((p for p in self._controller_pulls
+                     if (p.device.remote_id == dev.remote_id) and (p.part == header.part)), None)
+        if (pull is None):
+            return
+        asks:list[StateHeader] = []
+        done = pull.take(header, frame.data, time.time(), asks)
+        for ask in asks:
+            self._ask_controller(dev, ask)
+        if (done is not None):
+            self._end_controller_pull(pull, done)
+
+    def _end_controller_pull(self, pull:ControllerPull, received:bool) -> None:
+        self._controller_pulls.remove(pull)
+        if received:
+            self.callbacks.on_controller_part_received(pull.device, pull.part, pull.generation, bytes(pull.data))
+        else:
+            self.callbacks.on_controller_part_failed(pull.device, pull.part, pull.generation)
+
+    def _check_controller_pulls(self, now:float) -> None:
+        '''Ask again for a pull that has waited 2 s for data, and give up on one
+        whose device went offline, or after ten asks without progress.'''
+        for pull in list(self._controller_pulls):
+            asks:list[StateHeader] = []
+            done = False if not pull.device.online else pull.retry(now, asks)
+            for ask in asks:
+                self._ask_controller(pull.device, ask)
+            if (done is not None):
+                self._end_controller_pull(pull, done)
+
     def on_connection_made(self) -> None:
         '''Callback invoked after ConnectionAsync has started the server.'''
         self.tx_hello()
@@ -1538,6 +1663,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             self._on_mesh_replace(data)
         elif isinstance(data, FrameMeshConfig):
             self._on_mesh_config(data)
+        elif isinstance(data, FrameControllerState):
+            self._on_controller_state(data)
         elif isinstance(data, FrameHello):
             self._on_mxr_hello(data)
         elif isinstance(data, FrameTopology):

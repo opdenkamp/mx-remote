@@ -876,6 +876,31 @@ mx.set_controller_role(ControllerRole.PRIMARY, primary=mx.uid)   # sent at once 
 It starts as `ControllerRole.NONE` with no primary, and any other client is
 refused.
 
+Dedicated controllers replicate their state between themselves: the library
+does the transfer, and the application only gives and takes part bytes.
+
+```python
+# serving: the hello lists each part's length and crc32 under the generation
+mx.set_controller_parts(generation=3, parts=[(0, state_bytes), (1, logo_png)])
+
+# pulling a part another controller's hello lists
+part = router.controller_hello.parts[0]
+await mx.pull_controller_part(router, part.part, router.controller_hello.generation, part.length, part.crc)
+# arrives at MxrCallbacks.on_controller_part_received(dev, part, generation, data),
+# or ends at on_controller_part_failed(dev, part, generation)
+
+mx.allow_controller_state(new_router.remote_id)   # also a controller of no mesh of this client's
+```
+
+A request is answered with the window it asks, at most 8192 bytes, in frames of
+at most 1024. A pull asks from the first byte it lacks, again after 2 s without
+data and once on a frame out of order, and ends on a generation no longer held,
+a part other than the one its hello described, the device going offline, or
+ten asks without progress. Requests and data are taken only from a dedicated
+controller of this client's mesh, or the one `allow_controller_state()` names,
+and never from a sender that sent no hello. More than five parts, or one listed
+twice, is refused.
+
 ### Time zone and time
 
 The mesh controller announces its time zone and clock with every periodic

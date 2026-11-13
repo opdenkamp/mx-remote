@@ -5113,6 +5113,17 @@ class MxrCallbacks:
         Remote.mesh_bays() also reads. '''
         pass
 
+    def on_controller_part_received(self, dev:DeviceBase, part:int, generation:int, data:bytes) -> None:
+        ''' called when a part this client pulled from 'dev' with
+        Remote.pull_controller_part() arrived whole, its crc32 matching. '''
+        pass
+
+    def on_controller_part_failed(self, dev:DeviceBase, part:int, generation:int) -> None:
+        ''' called when a pull of a part from 'dev' ended without it: the
+        generation is no longer held, the part is not the one its hello
+        described, 'dev' went offline, or ten asks went without progress. '''
+        pass
+
     def on_controller_hello_changed(self, dev:DeviceBase, hello:ControllerHello) -> None:
         ''' called when 'dev' sent a CONTROLLER_STATE hello other than its last:
         it is a dedicated controller, such as a router, which
