@@ -2549,6 +2549,16 @@ class OsdSync:
     CRC differs from its own from http://source_ip:http_port/osd-sync/slotN.png,
     N being 1 to 4."""
 
+    def logo_url(self, sender:str, slot:int) -> str|None:
+        """Where a unit fetches the logo of slot, 1 to 4, of this sync sent from
+        sender, the sender's address: source_ip, or sender when it is
+        unspecified, at http_port, or 80 when it is zero. None for a slot
+        outside 1 to 4."""
+        if not (1 <= slot <= OSD_SYNC_SLOTS):
+            return None
+        host = sender if (self.source_ip == '0.0.0.0') else self.source_ip
+        return f"http://{host}:{self.http_port or 80}/osd-sync/slot{slot}.png"
+
 @dataclass(frozen=True)
 class OsdSyncRequest:
     """A unit asking for an overlay sync, or for settings of one it is taking,
@@ -2620,6 +2630,12 @@ class OsdSyncSetting:
     """The fields it gives: OsdCaptionField bits for a caption, OsdLogoField
     bits for a logo, and bit 0 for a background's colour."""
     value: OsdSyncValue
+
+    @property
+    def entry(self) -> 'OsdSyncEntry':
+        """The setting as this client sends it on, holding the sync it took
+        with Remote.send_osd_sync() or keep_osd_sync()."""
+        return OsdSyncEntry(value=self.value, set=self.set, size=self.size, layers=self.layers)
 
 @dataclass(frozen=True)
 class OsdSyncReport:
@@ -4719,6 +4735,16 @@ class BayLinks:
 
 class DeviceRegistry(ABC):
     ''' all mx_remote devices on the network '''
+
+    def osd_sync_asked(self, at:float) -> bool:
+        '''Whether a sync naming this client, arriving at at, answers its own
+        request for one.'''
+        return False
+
+    def osd_settings_asked(self, source:MxrDeviceUid, seq:int) -> bool:
+        '''Whether a setting naming this client is of sync seq, which it asked
+        source the settings of.'''
+        return False
 
     @property
     @abstractmethod

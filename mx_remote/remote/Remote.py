@@ -27,7 +27,7 @@ from .Device import Device
 from .Tree import DeviceTree
 from .AudioRoute import audio_path
 from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, AudioHop, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, MeshConfig, MeshReplaceable, MeshReplaceUnit, MeshSetting, MeshBay, MeshBays, OneIPStreamSources, DeviceTreeEntry, UnitStatus
-from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat, MESH_REPLACE_NAME_MAX, MESH_REPLACE_UNITS_MAX, MeshReplaceResult, UNIT_MAX_TEMPERATURES, MESH_BAYS_MAX, ControllerRole, CONTROLLER_PARTS_MAX
+from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat, MESH_REPLACE_NAME_MAX, MESH_REPLACE_UNITS_MAX, MeshReplaceResult, UNIT_MAX_TEMPERATURES, MESH_BAYS_MAX, ControllerRole, CONTROLLER_PARTS_MAX, OSD_SETTINGS_ASKED, OSD_SYNC_RECORDS_MAX
 from ..proto.FrameDiscover import FrameDiscover, constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
 from ..proto.FrameHello import FrameHello, constructFrameHello
@@ -59,7 +59,7 @@ from ..proto.FrameV2IPPowerSave import FrameV2IPPowerSave
 from ..proto.FrameV2IPPrivacy import FrameV2IPPrivacy
 from ..proto.FrameV2IPSettingsAll import FrameV2IPSettingsAll
 from ..proto.FrameV2IPOsdSync import FrameV2IPOsdSync
-from .OsdSync import LogoServer, OsdSender, PASS_GAP, osd_content_refusal
+from .OsdSync import LogoServer, OsdSender, OSD_SYNC_ASK_WINDOW, PASS_GAP, osd_content_refusal
 from ..proto.Constants import (ONEIP_DEVICE_SETTINGS_REPORTED_ONLY, ONEIP_DSCP_MAX, ONEIP_IR_PROFILE_MAX, ONEIP_PTP_DOMAIN_MAX, ONEIP_SINK_ROTATION_MAX,
                                OneIPPowerSaveLevel, OneIPPtpMode,
                                ONEIP_IR_PROFILE_NOT_SET, OneIPDeviceSetting)
@@ -162,7 +162,7 @@ def _missed_state(before:_Heard|None, device:DeviceBase) -> bool:
 class Remote(DeviceRegistry, ConnectionCallbacks):
     ''' Main component that handles the network connections and registration of remote devices '''
 
-    def __init__(self, target_ip:str|None=None, port:int|None=None, http_session:aiohttp.ClientSession|None=None, open_connection:bool=True, callbacks:MxrCallbacks|None=None, name:str="MXR Python", local_ip:str|None=None, broadcast:bool|None=None, addr_filter:str|None=None, uid_path:str|None=None, logo_port:int|None=None, serial:str=CLIENT_SERIAL, version:str|None=None, mesh_device:bool=False, dedicated_controller:bool=False) -> None:
+    def __init__(self, target_ip:str|None=None, port:int|None=None, http_session:aiohttp.ClientSession|None=None, open_connection:bool=True, callbacks:MxrCallbacks|None=None, name:str="MXR Python", local_ip:str|None=None, broadcast:bool|None=None, addr_filter:str|None=None, uid_path:str|None=None, logo_port:int|None=None, serial:str=CLIENT_SERIAL, version:str|None=None, mesh_device:bool=False, dedicated_controller:bool=False, osd_sync:bool=False) -> None:
         '''Initialise the remote controller.
 
         :param target_ip: for tests and development only: replaces both
@@ -200,6 +200,15 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             every unit takes. A OneIP unit at protocol 0x34 or later knows it as
             a dedicated controller once it has had one, and then takes the
             controller role from none while one it follows is online.
+        :param osd_sync: take overlay syncs (0x53) as a unit does: the hello
+            announces DeviceFeature.OSD_SYNC, for which a source sends this
+            client a sync of its own, as to any unit that takes one. Without
+            MANAGER next to it, as with mesh_device, that marks a unit copying
+            overlays, not a manager answering requests for them.
+            request_osd_sync() and request_osd_settings() ask for a sync and for
+            its settings; the sync arrives at MxrCallbacks.on_osd_sync(), each
+            setting at on_osd_sync_setting(). Fetching the logos is the
+            caller's, from OsdSync.logo_url().
         '''
         DeviceRegistry.__init__(self)
         ConnectionCallbacks.__init__(self)
@@ -211,6 +220,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._version = version if (version is not None) else __version__
         self._mesh_device = mesh_device
         self._dedicated_controller = dedicated_controller
+        self._osd_sync = osd_sync
+        self._osd_sync_asked:float|None = None
+        self._osd_settings_asked:deque[tuple[MxrDeviceUid, int]] = deque(maxlen=OSD_SETTINGS_ASKED)
         self._own_controller = OwnController()
         self._controller_pulls:list[ControllerPull] = []
         self._controller_allowed:MxrDeviceUid|None = None
@@ -1562,17 +1574,37 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         over OSD_SYNC_PERCENT_MAX percent. Refused content leaves the held sync as
         it was; content that fails to go out leaves none held.
         '''
-        if ((why := osd_content_refusal(content)) is not None):
-            _LOGGER.warning(f"not sending an overlay sync: {why}")
+        if not await self._store_osd_sync(content, 'sending'):
             return None
+        seq = self._tx_osd_sync(MxrDeviceUid(bytes(16)), None, None)
+        if (seq is None):
+            await self.clear_osd_sync()
+        return seq
+
+    async def keep_osd_sync(self, content:OsdSyncContent) -> bool:
+        '''Keep content in place as send_osd_sync() does, serving its images
+        and answering units' requests for its settings, without having any
+        unit copy it now: a mesh controller holding the sync its units already
+        took from another source, to send a unit that joins with
+        resend_osd_sync(). Refused as send_osd_sync() is.'''
+        return await self._store_osd_sync(content, 'keeping')
+
+    async def _store_osd_sync(self, content:OsdSyncContent, what:str) -> bool:
+        '''Hold content and serve its images, announcing the overlay sync
+        manager when none was held. False after a warning for content a unit
+        would refuse, which leaves the held sync as it was, and for a logo
+        server that did not start, which leaves none held.'''
+        if ((why := osd_content_refusal(content)) is not None):
+            _LOGGER.warning(f"not {what} an overlay sync: {why}")
+            return False
         http_port = 0
         if (content.images is not None):
             try:
                 await self._logos.start(self._logo_port or 0)
             except OSError as e:
-                _LOGGER.warning(f"not sending an overlay sync: the logo server did not start: {e}")
+                _LOGGER.warning(f"not {what} an overlay sync: the logo server did not start: {e}")
                 await self.clear_osd_sync()
-                return None
+                return False
             self._logos.images = tuple(image.png for image in content.images)
             http_port = self._logos.port
         was_held = self._osd.holds
@@ -1581,10 +1613,66 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         # deferring this sync wakes and asks for it.
         if not was_held:
             self.tx_hello()
-        seq = self._tx_osd_sync(MxrDeviceUid(bytes(16)), None, None)
-        if (seq is None):
-            await self.clear_osd_sync()
-        return seq
+        return True
+
+    @property
+    def takes_osd_sync(self) -> bool:
+        '''Whether this client takes overlay syncs as a unit does, as
+        Remote(osd_sync=True) says, and so announces DeviceFeature.OSD_SYNC
+        always.'''
+        return self._osd_sync
+
+    async def request_osd_sync(self, what:OsdSyncWhat) -> bool:
+        '''Ask for an overlay sync of this client's own, copying what, as a unit
+        does once it can take one: the controller, or a management application
+        standing in for it, answers with a sync naming this client, which
+        arrives at MxrCallbacks.on_osd_sync() under its sender. For 10 s after,
+        a sync naming this client is read from any device, as the one
+        answering may be a controller its units no longer follow.
+
+        The request goes to every unit, as a unit's does; only the controller
+        acts on it. A controller without a decoder runs no overlays and
+        answers nothing. True when it was written.'''
+        self._osd_sync_asked = time.time()
+        return self._send_to_all(FrameV2IPOsdSync.construct_request(
+            mxr=self, target=self.uid, seq=0, what=what, missing=bytes(16), source=MxrDeviceUid(bytes(16))))
+
+    async def request_osd_settings(self, source:DeviceBase, seq:int, what:OsdSyncWhat, missing:list[int]) -> bool:
+        '''Ask source for settings missing, each below the sync's records, of
+        its sync seq, as a unit taking that sync does. The source answers each
+        one with a setting naming this client, which arrives at
+        MxrCallbacks.on_osd_sync_setting() under source, and is read for the
+        last OSD_SETTINGS_ASKED syncs asked about.
+
+        A source sends at most a few settings at a time and drops nothing it
+        was asked for, but a frame can be lost: a unit asks again for those
+        still missing a second after the last one came. One whose seq is no
+        longer its latest answers with a new sync copying what; a what of none
+        asks for nothing new.
+
+        Refused, returning False, for a setting index of OSD_SYNC_RECORDS_MAX
+        or more. True when it was written.'''
+        bits = bytearray(16)
+        for index in missing:
+            if not (0 <= index < OSD_SYNC_RECORDS_MAX):
+                _LOGGER.warning(f"not asking {source} for overlay settings: an index is below {OSD_SYNC_RECORDS_MAX}")
+                return False
+            bits[index // 8] |= 1 << (index % 8)
+        key = (source.remote_id, seq)
+        if (key in self._osd_settings_asked):
+            self._osd_settings_asked.remove(key)
+        self._osd_settings_asked.append(key)
+        frame = FrameV2IPOsdSync.construct_request(mxr=self, target=self.uid, seq=seq, what=what, missing=bytes(bits),
+                                                   source=source.remote_id, to=source)
+        return (frame is not None) and (self.transmit(frame.frame, to=source) == len(frame.frame))
+
+    @override
+    def osd_sync_asked(self, at:float) -> bool:
+        return (self._osd_sync_asked is not None) and ((at - self._osd_sync_asked) < OSD_SYNC_ASK_WINDOW)
+
+    @override
+    def osd_settings_asked(self, source:MxrDeviceUid, seq:int) -> bool:
+        return (source, seq) in self._osd_settings_asked
 
     async def resend_osd_sync(self, device:DeviceBase) -> int|None:
         '''Have one unit copy the held sync again, returning the new sync's

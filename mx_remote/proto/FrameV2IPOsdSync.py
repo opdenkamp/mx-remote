@@ -102,6 +102,16 @@ class FrameV2IPOsdSync(FrameBase):
         return FrameBase.construct_base(mxr=mxr, opcode=0x53, payload=p.ljust(_SYNC_SIZE, b'\0'), target=to)
 
     @staticmethod
+    def construct_request(mxr:DeviceRegistry, target:MxrDeviceUid, seq:int, what:OsdSyncWhat, missing:bytes,
+                          source:MxrDeviceUid, to:object=None) -> FrameBase|None:
+        '''A request from target, the unit asking: with seq 0 for a new sync
+        copying what, missing and source zero; with seq set for the settings of
+        that sync that missing, 16 bytes, names, bit i (byte i // 8, bit i % 8)
+        standing for setting i, of the sync source sent.'''
+        p = _header(OSD_KIND_REQUEST, seq, target) + bytes([int(what), 0]) + missing
+        return FrameBase.construct_base(mxr=mxr, opcode=0x53, payload=p + source.byte_value, target=to)
+
+    @staticmethod
     def construct_setting(mxr:DeviceRegistry, target:MxrDeviceUid, seq:int, index:int, records:int,
                           entry:OsdSyncEntry, to:object=None) -> FrameBase|None:
         '''Setting index of a sync of records, for the unit target. A caption's
@@ -168,9 +178,12 @@ class FrameV2IPOsdSync(FrameBase):
     def sync(self) -> OsdSync|None:
         '''The sync, None for any other kind or one no unit would take: from a
         sender that is not management, short of its 80 bytes, or announcing
-        more than OSD_SYNC_RECORDS_MAX settings.'''
+        more than OSD_SYNC_RECORDS_MAX settings. A sync naming this client is
+        also taken from any device for 10 s after it asked for one, as the one
+        answering may be a controller its units no longer follow.'''
         p = self.payload or b''
-        if (self.kind != OSD_KIND_SYNC) or (len(p) < _SYNC_SIZE) or not self.from_management:
+        asked = (self.target == self.mxr.uid) and self.mxr.osd_sync_asked(self.timestamp)
+        if (self.kind != OSD_KIND_SYNC) or (len(p) < _SYNC_SIZE) or not (self.from_management or asked):
             return None
         what, port, records = OsdSyncWhat(p[20]), struct.unpack_from('<H', p, 22)[0], struct.unpack_from('<H', p, 28)[0]
         if (records > OSD_SYNC_RECORDS_MAX):
@@ -201,9 +214,13 @@ class FrameV2IPOsdSync(FrameBase):
     def setting(self) -> OsdSyncSetting|None:
         '''The setting, None for any other kind or one no unit takes: from a
         sender that is not management, past its count, of a kind no unit knows,
-        or short of its body, a caption's counted text included.'''
+        or short of its body, a caption's counted text included. A setting
+        naming this client is also taken from the source of a sync it asked the
+        settings of.'''
         p = self.payload or b''
-        if (self.kind != OSD_KIND_SETTING) or (len(p) < _SETTING_BODY_AT) or not self.from_management:
+        asked = (self.target == self.mxr.uid) and (self.remote_id is not None) \
+            and self.mxr.osd_settings_asked(self.remote_id, self.seq or 0)
+        if (self.kind != OSD_KIND_SETTING) or (len(p) < _SETTING_BODY_AT) or not (self.from_management or asked):
             return None
         index, records, kind, size, layers, given = struct.unpack_from('<HHBBHH', p, 20)
         if (index >= records):

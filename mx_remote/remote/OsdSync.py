@@ -40,6 +40,10 @@ asks for a new sync is sent one of its own; a request naming one that has aged
 out is answered with another.'''
 
 SETTINGS_PER_PASS = 4
+OSD_SYNC_ASK_WINDOW = 10.0
+'''How long after this client asked for a sync of its own one naming it is taken
+from any device, in seconds: a unit's request goes unanswered after as long.'''
+
 PASS_GAP = 0.014
 '''How many settings go out together, and the gap after them, which a unit
 keeps up with.'''

@@ -28,7 +28,9 @@ OURS = bytes(range(0x20, 0x30))
 
 class Watching(mx_remote.MxrCallbacks):
     def __init__(self):
-        self.requests, self.settings = [], []
+        self.requests, self.settings, self.syncs = [], [], []
+    def on_osd_sync(self, dev, sync):
+        self.syncs.append((dev.remote_id, sync))
     def on_osd_sync_requested(self, dev, request):
         self.requests.append((dev, request))
     def on_osd_sync_setting(self, dev, setting):
@@ -41,9 +43,9 @@ def nm(s, sz=16):
     b = s.encode('ascii')[:sz]
     return b + bytes(sz - len(b))
 
-def client():
+def client(**kw):
     seen = Watching()
-    mx = mx_remote.Remote(open_connection=False, callbacks=seen)
+    mx = mx_remote.Remote(open_connection=False, callbacks=seen, **kw)
     mx._uid = OURS
     sent = []
     mx.transmit = lambda data, to=None: (sent.append(bytes(data)), len(data))[1]
@@ -310,5 +312,106 @@ async def serve_and_fetch():
 run(serve_and_fetch())
 assert not mx.osd_sync_held, 'closing kept the sync'
 print('images      : described in the sync, served plainly with their length, 404 otherwise')
+
+# ----------------------------------------------------- taking a sync as a unit
+from mx_remote import OsdSync
+from mx_remote.proto.Constants import OSD_SETTINGS_ASKED
+
+# The hello announces OSD_SYNC whatever is held; as a mesh device, without
+# MANAGER, which marks a unit copying overlays.
+unit_mx, _, unit_sent = client(osd_sync=True, mesh_device=True)
+unit_mx.tx_hello()
+features = DeviceFeature(int.from_bytes(unit_sent[-1][24 + 50:24 + 54], 'little'))
+assert DeviceFeature.OSD_SYNC in features and DeviceFeature.MANAGER not in features, repr(features)
+mx, seen, sent = client(osd_sync=True)
+mx.tx_hello()
+assert DeviceFeature.OSD_SYNC in DeviceFeature(int.from_bytes(sent[-1][24 + 50:24 + 54], 'little'))
+plain_mx, _, plain_sent = client()
+plain_mx.tx_hello()
+assert DeviceFeature.OSD_SYNC not in DeviceFeature(int.from_bytes(plain_sent[-1][24 + 50:24 + 54], 'little'))
+
+# A request for a sync of its own: seq 0, naming this client, to every unit.
+sent.clear()
+assert run(mx.request_osd_sync(W.CAPTIONS | W.LOGO_SLOTS)) is True
+f, = sent
+assert opcode(f) == 0x53 and f[2] == 0x2F, f[:4].hex()
+assert f[24:] == request(OURS, 0, W.CAPTIONS | W.LOGO_SLOTS).replace(b'\xA5', b'\0', 1), f[24:].hex()
+
+# For 10 s after, a sync naming this client is read from any device; one naming
+# another unit, or arriving later, is not.
+ROUTER = uid(0x40)
+router = hello(mx, ROUTER, DeviceFeature.ONEIP_SINK)
+rx(mx, ROUTER, 0x53, sync_frame(0x0102, OURS, W.CAPTIONS, 3))
+assert [(u.byte_value, x.seq) for u, x in seen.syncs] == [(ROUTER, 0x0102)], seen.syncs
+rx(mx, ROUTER, 0x53, sync_frame(0x0103, uid(0x41), W.CAPTIONS, 3))
+assert len(seen.syncs) == 1, 'a sync naming another unit'
+mx._osd_sync_asked -= 10
+rx(mx, ROUTER, 0x53, sync_frame(0x0104, OURS, W.CAPTIONS, 3))
+assert len(seen.syncs) == 1, 'a sync 10 s after the request'
+fresh, fresh_seen, _ = client(osd_sync=True)
+hello(fresh, ROUTER, DeviceFeature.ONEIP_SINK)
+rx(fresh, ROUTER, 0x53, sync_frame(0x0102, OURS, W.CAPTIONS, 3))
+assert fresh_seen.syncs == [], 'a sync this client never asked for'
+
+# The settings it asks for, by bit, direct to their source.
+sent.clear()
+assert run(mx.request_osd_settings(router, 0x0102, W.CAPTIONS, [0, 9, 127])) is True
+f, = sent
+missing = bytearray(16)
+missing[0], missing[1], missing[15] = 0x01, 0x02, 0x80
+assert f[24:] == header(1, 0x0102, OURS) + bytes([int(W.CAPTIONS), 0]) + bytes(missing) + ROUTER, f[24:].hex()
+sent.clear()
+assert run(mx.request_osd_settings(router, 0x0102, W.CAPTIONS, [128])) is False and sent == [], 'index 128'
+
+# A setting naming this client is read from that source, of that sync.
+before = len(seen.settings)
+rx(mx, ROUTER, 0x53, setting(OURS, 1, 3, 2, struct.pack('<I', 7)).replace(struct.pack('<H', 0xA1B2), struct.pack('<H', 0x0102), 1))
+assert len(seen.settings) == before + 1, 'a setting this client asked for'
+st = seen.settings[-1]
+assert st.entry == OsdSyncEntry(value=7, set=0x0155, size=OsdSyncSize.SMALL, layers=0x2010), st.entry
+for sender, seq_, target in ((ROUTER, 0x0103, OURS), (uid(0x41), 0x0102, OURS), (ROUTER, 0x0102, uid(0x41))):
+    hello(mx, uid(0x41), DeviceFeature.ONEIP_SINK)
+    rx(mx, sender, 0x53, header(2, seq_, target) + struct.pack('<HHBBHH', 1, 3, 2, 2, 0x2010, 0x0155)
+                         + struct.pack('<I', 7))
+assert len(seen.settings) == before + 1, 'a setting of another sync, source or unit'
+# The last OSD_SETTINGS_ASKED syncs are read, and asking again keeps one.
+for n in range(1, OSD_SETTINGS_ASKED):
+    run(mx.request_osd_settings(router, 0x0200 + n, W.CAPTIONS, [0]))
+assert mx.osd_settings_asked(router.remote_id, 0x0102), 'the oldest of eight'
+run(mx.request_osd_settings(router, 0x0102, W.CAPTIONS, [0]))
+run(mx.request_osd_settings(router, 0x0300, W.CAPTIONS, [0]))
+assert mx.osd_settings_asked(router.remote_id, 0x0102), 'asked again, so no longer the oldest'
+assert not mx.osd_settings_asked(router.remote_id, 0x0201), 'a ninth sync kept'
+# One sync asked about again and again takes one place.
+run(mx.request_osd_settings(router, 0x0400, W.CAPTIONS, [0]))
+for _ in range(OSD_SETTINGS_ASKED):
+    run(mx.request_osd_settings(router, 0x0401, W.CAPTIONS, [0]))
+assert mx.osd_settings_asked(router.remote_id, 0x0400), 'pushed out by one sync asked about again'
+print('as a unit   : OSD_SYNC announced, a sync and its settings asked for and read')
+
+# Where a unit fetches a slot's logo.
+s = OsdSync(seq=1, target=MxrDeviceUid(OURS), what=W.LOGO_SLOTS, http_port=0, source_ip='0.0.0.0', records=0,
+            slots=None)
+assert s.logo_url('10.8.80.5', 2) == 'http://10.8.80.5:80/osd-sync/slot2.png', s.logo_url('10.8.80.5', 2)
+s = OsdSync(seq=1, target=MxrDeviceUid(OURS), what=W.LOGO_SLOTS, http_port=8080, source_ip='10.0.0.1', records=0,
+            slots=None)
+assert s.logo_url('10.8.80.5', 4) == 'http://10.0.0.1:8080/osd-sync/slot4.png'
+assert s.logo_url('10.8.80.5', 0) is None and s.logo_url('10.8.80.5', 5) is None
+print('logo url    : the source address or the sender, the port or 80, slots 1 to 4')
+
+# A sync kept is served and answered without any unit being sent it.
+mx, seen, sent = client()
+unit = hello(mx, UNIT, DeviceFeature.ONEIP_SINK | DeviceFeature.OSD_SYNC)
+assert run(mx.keep_osd_sync(content(3))) is True
+assert [opcode(f) for f in sent] == [0x00], [hex(opcode(f)) for f in sent]
+assert mx.osd_sync_held
+sent.clear()
+assert run(mx.keep_osd_sync(content(2))) is True and sent == [], 'kept again, announced again'
+seq = run(mx.resend_osd_sync(unit))
+assert seq is not None and kind(sent[-1]) == 0 and u16(sent[-1], 28) == 2
+sent.clear()
+assert run(mx.keep_osd_sync(content(OSD_SYNC_RECORDS_MAX + 1))) is False and sent == []
+assert mx.osd_sync_held, 'refused content dropped the held sync'
+print('keep        : held and served, sent to no unit until resent')
 
 print('ALL OK')

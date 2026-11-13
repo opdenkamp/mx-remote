@@ -72,8 +72,9 @@ class FrameHello(FrameBase):
                 features |= DeviceFeature.MESH_MASTER
         # While it holds an overlay sync it also announces itself as the mesh's
         # overlay sync manager, which has the controller leave units' requests
-        # for a new sync to it.
-        if getattr(mxr, 'osd_sync_held', False):
+        # for a new sync to it. A client taking syncs as a unit announces it
+        # always, for which a source sends it a sync of its own.
+        if getattr(mxr, 'osd_sync_held', False) or getattr(mxr, 'takes_osd_sync', False):
             features |= DeviceFeature.OSD_SYNC
         # A peer heard by broadcast but not by multicast shows this client's
         # multicast fails, which a unit announces so its peers reach it by

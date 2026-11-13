@@ -536,6 +536,34 @@ save then takes this content rather than the controller's. Logo images are
 served over HTTP from this client, on `logo_port` or a free port. Content a unit
 would refuse is refused before anything is sent; see `send_osd_sync`.
 
+A mesh controller holding the sync its units already took from another source
+keeps it without sending it again, and sends it to a unit that joins:
+
+```python
+await mx.keep_osd_sync(content)    # held and served, sent to no unit
+await mx.resend_osd_sync(joined)
+```
+
+A client made with `Remote(osd_sync=True)` takes a sync the way a unit does,
+which a dedicated controller needs to hold the mesh's overlays. Its hello
+announces `DeviceFeature.OSD_SYNC`, so a source sends it a sync of its own:
+
+```python
+await mx.request_osd_sync(OsdSyncWhat.CAPTIONS | OsdSyncWhat.LOGO_SLOTS)
+# MxrCallbacks.on_osd_sync(dev, sync): the sync naming this client
+await mx.request_osd_settings(dev, sync.seq, sync.what, missing=list(range(sync.records)))
+# MxrCallbacks.on_osd_sync_setting(dev, setting), once per setting
+url = sync.logo_url(sender_address, 1)    # where slot 1's PNG is fetched
+```
+
+A sync naming this client is read from any device for 10 s after it asked for
+one, and a setting naming it from the source of one of the last
+`OSD_SETTINGS_ASKED` (8) syncs it asked the settings of. A source sends a few
+settings at a time; a unit asks again for those still missing a second after
+the last one came. `setting.entry` converts a setting into the `OsdSyncEntry`
+that `send_osd_sync()` and `keep_osd_sync()` take, so the client can serve the
+sync it took. Fetching the logos is the caller's.
+
 A caption setting with `OsdCaptionField.DEFAULT_TEXT` in place of
 `OsdCaptionField.TEXT`, and no text, sends a unit back to its layout's default
 caption, drawn in its own locale. A unit whose firmware predates it keeps the

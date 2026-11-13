@@ -538,6 +538,11 @@ class OsdLogoField(IntFlag):
 OSD_SYNC_SLOTS = 4
 """The logo slots an overlay sync can copy."""
 
+OSD_SETTINGS_ASKED = 8
+"""How many syncs this client reads the settings of, the ones it asked about
+last with Remote.request_osd_settings(): a unit takes one sync at a time, and a
+source answers only its latest."""
+
 OSD_SYNC_RECORDS_MAX = 128
 """The most settings one overlay sync carries."""
 

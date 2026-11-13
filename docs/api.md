@@ -74,6 +74,8 @@ place, backgrounds and logo images.
 
 .. autodata:: mx_remote.proto.Constants.OSD_SYNC_RECORDS_MAX
 
+.. autodata:: mx_remote.proto.Constants.OSD_SETTINGS_ASKED
+
 .. autodata:: mx_remote.proto.Constants.OSD_SYNC_FONT_MAX
 
 .. autodata:: mx_remote.proto.Constants.OSD_SYNC_TEXT_MAX
