@@ -10,11 +10,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 logging.disable(logging.CRITICAL)
 import mx_remote
 from mx_remote import DeviceFeature as D, MxrDeviceUid
-from mx_remote.Interface import MeshReplaceUnit, MeshSetting, MeshConfigDigest
-from mx_remote.proto.Constants import (MESH_CONFIG_MAX, MESH_REPLACE_UNITS_MAX, MXR_OPCODE_VERSIONS,
+from mx_remote.Interface import MeshBay, MeshBays, MeshReplaceUnit, MeshSetting, MeshConfigDigest
+from mx_remote.proto.Constants import (MESH_BAYS_MAX, MESH_CONFIG_MAX, MESH_REPLACE_UNITS_MAX, MXR_OPCODE_VERSIONS,
                                        MXR_PROTOCOL_VERSION, MeshReplaceResult)
 from mx_remote.proto.Factory import create_mxr_frame
-from mx_remote.proto.FrameMeshConfig import decode_settings, encode_settings
+from mx_remote.proto.FrameMeshConfig import decode_settings, encode_bays, encode_settings
 
 ADDR = ('192.0.2.9', 8812)
 
@@ -35,6 +35,10 @@ class Seen(mx_remote.MxrCallbacks):
         self.events.append(('config', dev.remote_id, config))
     def on_mesh_config_set_requested(self, dev, settings):
         self.events.append(('set', dev.remote_id, settings))
+    def on_mesh_bays_requested(self, dev, subject):
+        self.events.append(('bays requested', dev.remote_id, subject))
+    def on_mesh_bays_received(self, dev, bays):
+        self.events.append(('bays', dev.remote_id, bays))
     def of(self, kind):
         return [e for e in self.events if e[0] == kind]
 
@@ -404,5 +408,88 @@ assert call(mx.send_mesh_config_set(member, SETTINGS)) is True
 p, = sent(mx, 0x57)
 assert p == bytes([1, 3, 0, 0]) + struct.pack('<HHI', 0, len(BYTES), crc32(BYTES)) + bytes(4) + uid(0x31) + BYTES
 print('send        : hello, request, dump in 1024-byte frames, set to a member of this controller')
+
+# ----------------------------------------------------- a controller's numbering
+
+def bays_entry(input, bay, features, unit):
+    '''One entry, its reserved byte poisoned.'''
+    return bytes([1 if input else 0, 0xA5]) + struct.pack('<HI', bay, features) + unit
+
+# 50 bays: inputs 0 to 24 of units 0 to 24, then outputs 1 to 25 of units 100
+# to 124, each with features of its own.
+NUMBERING, NUMBERED = [], b''
+for n in range(50):
+    entry = MeshBay(input=(n < 25), bay=(n if (n < 25) else n - 24), features=D(0x00400018 ^ n),
+                    unit=U(n if (n < 25) else n + 75))
+    NUMBERING.append(entry)
+    NUMBERED += bays_entry(entry.input, entry.bay, int(entry.features), entry.unit.byte_value)
+assert len(NUMBERED) == 1200
+assert encode_bays(NUMBERING) == NUMBERED.replace(b'\xA5', b'\0'), 'encoded otherwise than composed'
+
+# Taken entry by entry once every frame has arrived.
+mx, seen = client()
+holder = hello(mx, uid(0x31))
+frames = pages(5, 1, uid(7), NUMBERED, crc32(NUMBERED), size=1008)
+assert len(frames) == 2
+for i, f in enumerate(frames):
+    assert mx.mesh_bays(U(7)) is None, f'taken after {i} frames'
+    rx(mx, uid(0x31), 0x57, f)
+expected = MeshBays(subject=U(7), holder=U(0x31), copy=True, bays=tuple(NUMBERING))
+assert mx.mesh_bays(U(7)) == expected, mx.mesh_bays(U(7))
+assert seen.of('bays') == [('bays', U(0x31), expected)], seen.of('bays')
+assert mx.mesh_config(U(7)) is None, 'a numbering kept as settings'
+
+# A numbering of ragged entries or another crc is dropped.
+def fed(data, crc):
+    mx, _ = client()
+    hello(mx, uid(0x31))
+    for f in pages(5, 0, uid(7), data, crc):
+        rx(mx, uid(0x31), 0x57, f)
+    return mx.mesh_bays(U(7))
+assert fed(NUMBERED, crc32(NUMBERED)) is not None
+assert fed(NUMBERED[:-1], crc32(NUMBERED[:-1])) is None, 'a part entry'
+assert fed(NUMBERED, crc32(NUMBERED) ^ 1) is None, 'another crc'
+# A numbering longer than a settings dump, and not past 512 entries.
+big = bays_entry(True, 1, 0, uid(1)) * MESH_BAYS_MAX
+assert fed(big, crc32(big)) is not None, f'{MESH_BAYS_MAX} entries'
+big += bays_entry(True, 1, 0, uid(1))
+assert fed(big, crc32(big)) is None, f'{MESH_BAYS_MAX + 1} entries'
+
+# Only mode 1 is an input.
+odd = bays_entry(True, 3, 0, uid(1)).replace(b'\x01\xA5', b'\x02\xA5', 1)
+assert not fed(odd, crc32(odd)).bays[0].input, 'mode 2 read as an input'
+
+# A numbering of no bays, and a request for one.
+mx, seen = client()
+hello(mx, uid(0x31))
+rx(mx, uid(0x31), 0x57, config_header(5, 0, 0, 0, crc32(b''), uid(7)))
+assert mx.mesh_bays(U(7)) == MeshBays(subject=U(7), holder=U(0x31), copy=False, bays=()), mx.mesh_bays(U(7))
+rx(mx, uid(0x31), 0x57, config_header(4, 0, 0, 0, 0, uid(9)))
+assert seen.of('bays requested') == [('bays requested', U(0x31), U(9))], seen.events
+print('bays recv   : 24-byte entries put together as a dump is, a request handed on')
+
+# Asked of a unit at 0x33, sent in frames of 42 entries, a copy flagged.
+mx, seen = client()
+new = hello(mx, uid(0x31))
+old = hello(mx, uid(0x32), protocol=0x32)
+mx.sent.clear()
+assert call(mx.request_mesh_bays(new, U(9))) is True
+assert sent(mx, 0x57) == [bytes([1, 4]) + bytes(14) + uid(9)]
+refused(mx, mx.request_mesh_bays(old, U(9)), 'a unit below 0x33')
+mx.sent.clear()
+assert call(mx.send_mesh_bays(new, U(9), NUMBERING)) is True
+first, second = sent(mx, 0x57)
+assert first[:3] == bytes([1, 5, 1]) and len(first) == 32 + 42 * 24, (first[:3], len(first))
+assert second[4:8] == struct.pack('<HH', 1008, 1200), second[4:8].hex()
+assert first[8:12] == second[8:12] == struct.pack('<I', crc32(encode_bays(NUMBERING)))
+assert first[32:] + second[32:] == encode_bays(NUMBERING)
+assert first[32:40] == bytes([1, 0, 0, 0]) + struct.pack('<I', 0x00400018), first[32:40].hex()
+mx.sent.clear()
+assert call(mx.send_mesh_bays(new, mx.uid, [])) is True
+p, = sent(mx, 0x57)
+assert p[:8] == bytes([1, 5, 0, 0, 0, 0, 0, 0]), 'its own, of no bays, in one frame'
+refused(mx, mx.send_mesh_bays(new, U(9), [NUMBERING[0]] * (MESH_BAYS_MAX + 1)), '513 bays')
+assert call(mx.send_mesh_bays(new, U(9), [NUMBERING[0]] * MESH_BAYS_MAX)) is True, '512 bays'
+print('bays send   : asked of 0x33, 42 entries a frame, a copy flagged, 512 at most')
 
 print('ALL OK')

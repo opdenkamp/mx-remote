@@ -829,6 +829,26 @@ refused unless the member reports this client as its controller, and a member
 whose settings changed restarts 3 s later. Names and values are at most 255
 bytes with no NUL, and all of them at most `MESH_CONFIG_MAX` (1984) bytes.
 
+A unit that takes over from a controller numbers its bays as that controller
+did, so drivers keep addressing the same ports. A controller answers for its
+own numbering, and a member with the copy it keeps of its controller's, also
+once that controller is offline:
+
+```python
+await mx.request_mesh_bays(member, controller.remote_id)
+bays = mx.mesh_bays(controller.remote_id)   # MeshBays, None until it arrived whole
+for bay in bays.bays:
+    print('input' if bay.input else 'output', bay.bay, bay.unit)
+
+# answering a request, MxrCallbacks.on_mesh_bays_requested(dev, subject)
+await mx.send_mesh_bays(dev, mx.uid, [MeshBay(input=True, bay=1, features=DeviceFeature.ONEIP_SOURCE,
+                                              unit=source.remote_id)])
+```
+
+A numbering arrives at `on_mesh_bays_received()`, put together as a dump is;
+bay 0 is the controller's own. It is asked only of a unit at 0x33 or later,
+and holds at most `MESH_BAYS_MAX` (512) bays.
+
 ### Time zone and time
 
 The mesh controller announces its time zone and clock with every periodic

@@ -411,8 +411,8 @@ The operations a mesh controller sends, and what a controller announces.
 
 ## Mesh replacement and kept settings
 
-Replacing an offline unit of a mesh, and the settings each unit keeps for its
-mesh.
+Replacing an offline unit of a mesh, the settings each unit keeps for its mesh,
+and the numbering of a controller's bays.
 
 ```{eval-rst}
 .. autoclass:: mx_remote.MeshReplaceUnit
@@ -441,6 +441,14 @@ mesh.
 .. autodata:: mx_remote.proto.Constants.MESH_REPLACE_NAME_MAX
 
 .. autodata:: mx_remote.proto.Constants.MESH_CONFIG_MAX
+
+.. autoclass:: mx_remote.MeshBay
+   :members:
+
+.. autoclass:: mx_remote.MeshBays
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.MESH_BAYS_MAX
 ```
 
 ## Names from before OneIP

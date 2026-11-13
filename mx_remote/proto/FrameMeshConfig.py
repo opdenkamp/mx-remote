@@ -16,6 +16,11 @@ carries at most FRAME_MAX bytes of the settings behind it.
 The settings are carried as pairs: a u8 name length, the name, a u8 value
 length and the value, none terminated.
 
+A controller's numbering travels the same way: a bays request is the header
+alone, and a bays answer carries at most BAYS_PER_FRAME entries of 24 bytes,
+each u8 mode (1 an input, 0 an output), a reserved byte, the u16 bay number,
+the owning unit's u32 features and its uid.
+
 The opcode is served by the v2ipmesh module, so a unit without it answers
 nothing.'''
 
@@ -24,8 +29,8 @@ import struct, zlib
 from typing import Iterable
 from ..compat import override
 from .FrameBase import FrameBase
-from .Constants import MESH_CONFIG_MAX
-from ..Interface import DeviceRegistry, MeshConfigDigest, MeshSetting
+from .Constants import MESH_CONFIG_MAX, DeviceFeature
+from ..Interface import DeviceRegistry, MeshBay, MeshConfigDigest, MeshSetting
 from ..Uid import MxrDeviceUid
 
 
@@ -37,6 +42,8 @@ KIND_HELLO = 0
 KIND_REQUEST = 1
 KIND_DUMP = 2
 KIND_SET = 3
+KIND_BAYS_REQUEST = 4
+KIND_BAYS = 5
 
 FLAG_COPY = 1 << 0
 '''The dump flag: the settings are a copy the sender keeps of the unit named,
@@ -44,6 +51,12 @@ not its own.'''
 
 FRAME_MAX = 1024
 '''The most settings bytes one frame carries.'''
+
+BAYS_ENTRY_SIZE = 24
+'''Width of one entry of a controller's numbering.'''
+BAYS_PER_FRAME = 42
+'''The most numbering entries one frame carries.'''
+_BAYS_INPUT = 1
 
 def crc32(data:bytes) -> int:
     '''The crc32 a unit checks its kept settings against: the zlib one.'''
@@ -79,6 +92,22 @@ def decode_settings(p:bytes) -> tuple[MeshSetting, ...]|None:
             texts = []
     return None if texts else tuple(settings)
 
+def encode_bays(bays:Iterable[MeshBay]) -> bytes:
+    '''A numbering's entries as a unit carries them.'''
+    return b''.join(struct.pack('<BxHI', _BAYS_INPUT if bay.input else 0, bay.bay, int(bay.features))
+                    + bay.unit.byte_value for bay in bays)
+
+def decode_bays(p:bytes) -> tuple[MeshBay, ...]|None:
+    '''A numbering's entries, None for bytes that end inside one.'''
+    if (len(p) % BAYS_ENTRY_SIZE):
+        return None
+    bays:list[MeshBay] = []
+    for i in range(0, len(p), BAYS_ENTRY_SIZE):
+        mode, bay, features = struct.unpack_from('<BxHI', p, i)
+        bays.append(MeshBay(input=(mode == _BAYS_INPUT), bay=bay, features=DeviceFeature(features),
+                            unit=MxrDeviceUid(bytes(p[i + 8:i + BAYS_ENTRY_SIZE]))))
+    return tuple(bays)
+
 def _header(kind:int, subject:MxrDeviceUid, flags:int=0, offset:int=0, total:int=0, crc:int=0) -> bytes:
     return struct.pack('<BBBxHHI4x', VERSION, kind, flags, offset, total, crc) + subject.byte_value
 
@@ -100,16 +129,24 @@ class FrameMeshConfig(FrameBase):
         return FrameBase.construct_base(mxr=mxr, opcode=0x57, payload=_header(KIND_REQUEST, subject), target=to)
 
     @staticmethod
+    def construct_bays_request(mxr:DeviceRegistry, subject:MxrDeviceUid, to:object=None) -> FrameBase|None:
+        '''A request for the numbering of controller subject: the header
+        alone.'''
+        return FrameBase.construct_base(mxr=mxr, opcode=0x57, payload=_header(KIND_BAYS_REQUEST, subject),
+                                        target=to)
+
+    @staticmethod
     def construct_pages(mxr:DeviceRegistry, kind:int, flags:int, subject:MxrDeviceUid, encoded:bytes,
                         to:object=None) -> list[FrameBase]:
-        '''The frames of a dump (KIND_DUMP) or set (KIND_SET), in order: each the
-        header, with the offset of its bytes, then at most FRAME_MAX bytes of
-        encoded, which comes from encode_settings(). Settings of no bytes are
-        one frame.'''
+        '''The frames of a dump (KIND_DUMP), set (KIND_SET) or numbering
+        (KIND_BAYS), in order: each the header, with the offset of its bytes,
+        then at most FRAME_MAX bytes of encoded, from encode_settings(), or
+        BAYS_PER_FRAME entries, from encode_bays(). No bytes are one frame.'''
         crc = crc32(encoded)
+        page = (BAYS_PER_FRAME * BAYS_ENTRY_SIZE) if (kind == KIND_BAYS) else FRAME_MAX
         frames:list[FrameBase] = []
-        for offset in range(0, max(len(encoded), 1), FRAME_MAX):
-            p = _header(kind, subject, flags, offset, len(encoded), crc) + encoded[offset:offset + FRAME_MAX]
+        for offset in range(0, max(len(encoded), 1), page):
+            p = _header(kind, subject, flags, offset, len(encoded), crc) + encoded[offset:offset + page]
             if ((frame := FrameBase.construct_base(mxr=mxr, opcode=0x57, payload=p, target=to)) is not None):
                 frames.append(frame)
         return frames
@@ -177,8 +214,10 @@ class FrameMeshConfig(FrameBase):
             return f"mesh config hello: {self.total} bytes, crc32 {self.crc:08x}"
         if (kind == KIND_REQUEST):
             return f"mesh config request for {self.subject}"
-        if (kind in (KIND_DUMP, KIND_SET)):
-            what = 'dump' if (kind == KIND_DUMP) else 'set'
+        if (kind == KIND_BAYS_REQUEST):
+            return f"mesh config bays request for {self.subject}"
+        if (kind in (KIND_DUMP, KIND_SET, KIND_BAYS)):
+            what = {KIND_DUMP: 'dump', KIND_SET: 'set', KIND_BAYS: 'bays'}[kind]
             return (f"mesh config {what} of {self.subject}: {len(self.chunk)} bytes at {self.offset} "
                     f"of {self.total}{' (copy)' if (self.flags & FLAG_COPY) else ''}")
         return "mesh config <dropped>"

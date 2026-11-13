@@ -2991,6 +2991,36 @@ class MeshConfig:
     """The settings, in the order they were sent."""
 
 @dataclass(frozen=True)
+class MeshBay:
+    """One bay of a controller's numbering: the unit that owns it."""
+    input: bool
+    """An input, or else an output."""
+    bay: int
+    """The bay number the controller gives it, as its /port/list Bay; 0 is the
+    controller's own."""
+    features: DeviceFeature
+    """The unit's ONEIP_SOURCE, ONEIP_SINK and MULTIVIEWER features as the
+    sender knows them, none when it doesn't."""
+    unit: MxrDeviceUid
+    """The unit that owns the bay."""
+
+@dataclass(frozen=True)
+class MeshBays:
+    """A controller's numbering, as a device sent it: the controller its own, a
+    member the copy it keeps of its controller's. A unit that takes over from
+    a controller numbers its bays the same, so drivers keep addressing the
+    same ports."""
+    subject: MxrDeviceUid
+    """The controller the numbering is of."""
+    holder: MxrDeviceUid
+    """The device that sent it."""
+    copy: bool
+    """It is a copy holder keeps of subject's numbering."""
+    bays: tuple[MeshBay, ...]
+    """The bays that name a unit, inputs first, each mode by bay number; a bay
+    naming none is left out."""
+
+@dataclass(frozen=True)
 class ThirdPartyMessage:
     """
     A message an application sent to every device, under its own vendor id.
@@ -5029,6 +5059,17 @@ class MxrCallbacks:
     def on_mesh_config_set_requested(self, dev:DeviceBase, settings:tuple[MeshSetting, ...]) -> None:
         ''' called when 'dev', the controller this client follows, told it to
         take these kept settings and reset every other one to its default. '''
+        pass
+
+    def on_mesh_bays_requested(self, dev:DeviceBase, subject:MxrDeviceUid) -> None:
+        ''' called when 'dev' asked for the numbering of controller 'subject':
+        this client's own when it is that controller, otherwise the copy it
+        keeps. Answer with Remote.send_mesh_bays(). '''
+        pass
+
+    def on_mesh_bays_received(self, dev:DeviceBase, bays:MeshBays) -> None:
+        ''' called when 'dev' sent a controller's numbering whole, which
+        Remote.mesh_bays() also reads. '''
         pass
 
     def on_third_party_message(self, dev:DeviceBase, message:ThirdPartyMessage) -> None:

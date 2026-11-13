@@ -26,8 +26,8 @@ from ..const import MXR_HELLO_INTERVAL_MIN, MXR_HELLO_INTERVAL_RAND, __version__
 from .Device import Device
 from .Tree import DeviceTree
 from .AudioRoute import audio_path
-from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, AudioHop, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, MeshConfig, MeshReplaceable, MeshReplaceUnit, MeshSetting, OneIPStreamSources, DeviceTreeEntry, UnitStatus
-from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat, MESH_REPLACE_NAME_MAX, MESH_REPLACE_UNITS_MAX, MeshReplaceResult, UNIT_MAX_TEMPERATURES
+from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, AudioHop, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, MeshConfig, MeshReplaceable, MeshReplaceUnit, MeshSetting, MeshBay, MeshBays, OneIPStreamSources, DeviceTreeEntry, UnitStatus
+from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat, MESH_REPLACE_NAME_MAX, MESH_REPLACE_UNITS_MAX, MeshReplaceResult, UNIT_MAX_TEMPERATURES, MESH_BAYS_MAX
 from ..proto.FrameDiscover import FrameDiscover, constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
 from ..proto.FrameHello import FrameHello, constructFrameHello
@@ -37,8 +37,8 @@ from ..proto.FrameFactoryReset import FrameFactoryReset
 from ..proto.FrameThirdParty import FrameThirdParty
 from ..proto.FrameMeshOperation import FrameMeshOperation
 from ..proto.FrameMeshReplace import FrameMeshReplace, KIND_QUERY, KIND_UNITS, KIND_REQUEST, KIND_RESULT
-from ..proto.FrameMeshConfig import (FrameMeshConfig, encode_settings, FLAG_COPY, KIND_DUMP, KIND_REQUEST as CONFIG_REQUEST,
-                                     KIND_SET)
+from ..proto.FrameMeshConfig import (FrameMeshConfig, encode_bays, encode_settings, FLAG_COPY, KIND_BAYS,
+                                     KIND_BAYS_REQUEST, KIND_DUMP, KIND_REQUEST as CONFIG_REQUEST, KIND_SET)
 from .Mesh import MeshKeeper
 from ..proto.FrameSetInstaller import FrameSetInstaller
 from ..proto.FrameSetupStatus import FrameSetupStatus
@@ -1145,6 +1145,39 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                                                  encoded=encoded, to=member)
         return bool(frames) and all(self.transmit(f.frame, to=member) == len(f.frame) for f in frames)
 
+    # ---- a controller's numbering (0x57) ----
+
+    def mesh_bays(self, subject:MxrDeviceUid) -> MeshBays|None:
+        '''The numbering of controller subject, as a device last sent it whole,
+        None until one has.'''
+        return self._mesh.bays.get(subject)
+
+    async def request_mesh_bays(self, holder:DeviceBase, subject:MxrDeviceUid) -> bool:
+        '''Ask holder for the numbering of controller subject: which unit owns
+        each of its bays, so a device taking over from it numbers them the
+        same. A controller answers for itself with its own; a member with the
+        copy it keeps of its controller's, also once that controller is
+        offline. True when the request was written; it arrives at
+        MxrCallbacks.on_mesh_bays_received(), and mesh_bays() reads it. A
+        device keeping none, or whose mesh module predates the request,
+        answers nothing.'''
+        frame = FrameMeshConfig.construct_bays_request(mxr=self, subject=subject, to=holder)
+        return (frame is not None) and (self.transmit(frame.frame, to=holder) == len(frame.frame))
+
+    async def send_mesh_bays(self, to:DeviceBase, subject:MxrDeviceUid,
+                             bays:list[MeshBay]|tuple[MeshBay, ...]) -> bool:
+        '''Send to the numbering of controller subject, as the answer to its
+        request: this client's own when subject is this client, otherwise the
+        copy it keeps. True when every frame was written. Refused for more than
+        MESH_BAYS_MAX bays.'''
+        if (len(bays) > MESH_BAYS_MAX):
+            _LOGGER.warning(f"not sending a numbering to {to}: it holds at most {MESH_BAYS_MAX} bays")
+            return False
+        flags = 0 if (subject == self.uid) else FLAG_COPY
+        frames = FrameMeshConfig.construct_pages(mxr=self, kind=KIND_BAYS, flags=flags, subject=subject,
+                                                 encoded=encode_bays(bays), to=to)
+        return bool(frames) and all(self.transmit(f.frame, to=to) == len(f.frame) for f in frames)
+
     async def set_mesh_setup_completed(self, completed:bool) -> bool:
         '''Mark the setup of every unit that hears it completed, or not.
 
@@ -1503,6 +1536,11 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             return
         if (frame.kind == CONFIG_REQUEST):
             self.callbacks.on_mesh_config_requested(dev, frame.subject)
+        elif (frame.kind == KIND_BAYS_REQUEST):
+            self.callbacks.on_mesh_bays_requested(dev, frame.subject)
+        elif (frame.kind == KIND_BAYS):
+            if ((bays := self._mesh.take_bays(dev.remote_id, frame)) is not None):
+                self.callbacks.on_mesh_bays_received(dev, bays)
         elif (frame.kind in (KIND_DUMP, KIND_SET)):
             if ((settings := self._mesh.take_settings(dev.remote_id, frame)) is None):
                 return

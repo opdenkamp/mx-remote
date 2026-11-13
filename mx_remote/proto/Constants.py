@@ -1353,6 +1353,10 @@ MESH_CONFIG_MAX = 1984
 """The most bytes a unit's kept settings take, as they are carried: each setting
 a byte of name length, the name, a byte of value length and the value."""
 
+MESH_BAYS_MAX = 2 * 256
+"""The most entries a controller's numbering holds: up to 256 bays of each mode,
+as a unit walks them."""
+
 class MeshOperation(IntEnum):
 	'''What a mesh operation (0x3B) asks of the mesh.'''
 	REGISTER = 0

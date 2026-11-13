@@ -19,9 +19,10 @@ replaces it. Any device may ask for a unit's settings, from the unit itself or
 from a device keeping a copy.'''
 
 from dataclasses import dataclass, field
-from ..Interface import MeshConfig, MeshReplaceable, MeshReplaceUnit, MeshReplaceUnits, MeshSetting
-from ..proto.Constants import MESH_CONFIG_MAX, MESH_REPLACE_UNITS_MAX
-from ..proto.FrameMeshConfig import FLAG_COPY, KIND_DUMP, FrameMeshConfig, crc32, decode_settings
+from ..Interface import MeshBays, MeshConfig, MeshReplaceable, MeshReplaceUnit, MeshReplaceUnits, MeshSetting
+from ..proto.Constants import MESH_BAYS_MAX, MESH_CONFIG_MAX, MESH_REPLACE_UNITS_MAX
+from ..proto.FrameMeshConfig import (BAYS_ENTRY_SIZE, FLAG_COPY, KIND_BAYS, KIND_DUMP, FrameMeshConfig, crc32,
+                                     decode_bays, decode_settings)
 from ..proto.FrameMeshReplace import KEPT, FrameMeshReplace
 from ..Uid import MxrDeviceUid
 
@@ -48,6 +49,9 @@ class MeshKeeper:
         self.configs:dict[MxrDeviceUid, MeshConfig] = {}
         '''The kept settings of each unit, by that unit, as a device last sent
         them whole.'''
+        self.bays:dict[MxrDeviceUid, MeshBays] = {}
+        '''Each controller's numbering, by controller, as a device last sent it
+        whole.'''
         self.pending:tuple[MxrDeviceUid, MxrDeviceUid]|None = None
         '''The lister and the unit of this client's last request to replace
         one, until it is answered.'''
@@ -106,11 +110,10 @@ class MeshKeeper:
         self.pending = None
         return True
 
-    def take_settings(self, sender:MxrDeviceUid, frame:FrameMeshConfig) -> tuple[MeshSetting, ...]|None:
-        '''Add one frame of settings to what its sender has sent, returning the
-        settings once they are whole, in order and matching their crc32. A dump
-        is then kept as its unit's settings. A frame out of order drops what
-        that sender had sent.'''
+    def _take(self, sender:MxrDeviceUid, frame:FrameMeshConfig) -> bytes|None:
+        '''Add one frame of a dump, set or numbering to what its sender has
+        sent, returning the bytes once they are whole, in order and matching
+        their crc32. A frame out of order drops what that sender had sent.'''
         key = (frame.kind or 0, frame.flags, frame.subject, frame.total, frame.crc)
         earlier = self._transfers.pop(sender, None)
         if (frame.offset == 0):
@@ -119,7 +122,7 @@ class MeshKeeper:
             transfer = earlier
         else:
             return None
-        if (frame.total > MESH_CONFIG_MAX):
+        if (frame.total > ((MESH_BAYS_MAX * BAYS_ENTRY_SIZE) if (frame.kind == KIND_BAYS) else MESH_CONFIG_MAX)):
             return None
         transfer.data += frame.chunk
         if (len(transfer.data) < frame.total):
@@ -128,9 +131,24 @@ class MeshKeeper:
         # Bytes past the length fail the crc32 like any other wrong bytes.
         if (crc32(bytes(transfer.data)) != frame.crc):
             return None
-        if ((settings := decode_settings(bytes(transfer.data))) is None):
+        return bytes(transfer.data)
+
+    def take_settings(self, sender:MxrDeviceUid, frame:FrameMeshConfig) -> tuple[MeshSetting, ...]|None:
+        '''Add one frame of a dump or set, returning the settings once they are
+        whole. A dump is then kept as its unit's settings.'''
+        if ((data := self._take(sender, frame)) is None) or ((settings := decode_settings(data)) is None):
             return None
         if (frame.kind == KIND_DUMP) and (frame.subject is not None):
             self.configs[frame.subject] = MeshConfig(subject=frame.subject, holder=sender,
                                                      copy=bool(frame.flags & FLAG_COPY), settings=settings)
         return settings
+
+    def take_bays(self, sender:MxrDeviceUid, frame:FrameMeshConfig) -> MeshBays|None:
+        '''Add one frame of a numbering, returning it once it is whole, and
+        keeping it as its controller's.'''
+        if ((data := self._take(sender, frame)) is None) or ((entries := decode_bays(data)) is None) \
+                or (frame.subject is None):
+            return None
+        bays = MeshBays(subject=frame.subject, holder=sender, copy=bool(frame.flags & FLAG_COPY), bays=entries)
+        self.bays[frame.subject] = bays
+        return bays
