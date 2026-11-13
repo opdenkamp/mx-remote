@@ -12,9 +12,9 @@ import struct
 from ..compat import override
 from .Constants import UNIT_MAX_TEMPERATURES, UNIT_POWER_SAVE_LEVELS, UnitFlag, UnitPowerSave
 from .FrameBase import FrameBase
-from ..Interface import UnitNetConfig, UnitStatus
+from ..Interface import DeviceRegistry, UnitNetConfig, UnitStatus
 
-# mxr_unit_status, 108 bytes, naturally aligned so without padding:
+# mxr_unit_status, 108 bytes of fields that ALIGN(8) rounds up to 112:
 #     0       u32 flags
 #     4..24   u32 uptime, boot count, reboot count, encoder and decoder health
 #    24..44   IP configuration: address, netmask, gateway, two DNS servers,
@@ -25,12 +25,17 @@ from ..Interface import UnitNetConfig, UnitStatus
 #    50..56   up to six i8 temperatures
 #    56..104  status message
 #   104..108  what the unit offers at each power save level, from REDUCED up
+#   108..112  padding
 #
 # The report grows at the back, so a frame is read as far as it goes and the
 # fields it does not reach read as zero.
 _MESSAGE_AT = 50 + UNIT_MAX_TEMPERATURES
 _POWER_SAVE_AT = _MESSAGE_AT + 48
 UNIT_STATUS_SIZE = _POWER_SAVE_AT + UNIT_POWER_SAVE_LEVELS
+UNIT_STATUS_SENT = 112
+'''Width of the report a unit sends, padding included.'''
+UNIT_STATUS_MESSAGE_LEN = 48
+'''Bytes of the status message, not NUL-terminated when full.'''
 
 def parse_net_config(data:bytes) -> UnitNetConfig:
     '''Five addresses in network byte order, 20 bytes.'''
@@ -38,6 +43,24 @@ def parse_net_config(data:bytes) -> UnitNetConfig:
 
 class FrameUnitStatus(FrameBase):
     '''A unit's report of its own health and IP configuration.'''
+    @staticmethod
+    def construct(mxr:DeviceRegistry, status:UnitStatus) -> FrameBase|None:
+        '''The report a unit sends, to every device: each field at its offset,
+        a boot count or fan speed of None as zero, the message NUL-padded to
+        its 48 bytes and the padding zero. The caller refuses temperatures and
+        a message too long for their fields.'''
+        n = status.network
+        p = struct.pack('<6I', int(status.flags), status.uptime, status.boot_count or 0, status.reboot_count,
+                        status.encoder_health, status.decoder_health)
+        p += b''.join(ipaddress.IPv4Address(a).packed for a in (n.ip, n.netmask, n.gateway, n.dns1, n.dns2))
+        temperatures = status.temperatures
+        p += struct.pack('<HBBBB', status.fan_rpm or 0, status.fan_duty, status.status, status.net_revert_s,
+                         len(temperatures))
+        p += struct.pack(f'<{len(temperatures)}b', *temperatures).ljust(UNIT_MAX_TEMPERATURES, b'\0')
+        p += status.status_message.encode('utf-8').ljust(UNIT_STATUS_MESSAGE_LEN, b'\0')
+        p += bytes(int(level) for level in status.power_save[:UNIT_POWER_SAVE_LEVELS])
+        return FrameBase.construct_base(mxr=mxr, opcode=0x4F, payload=p.ljust(UNIT_STATUS_SENT, b'\0'))
+
     @cached_property
     def status(self) -> UnitStatus:
         '''The report, with what the frame does not reach read as zero.'''

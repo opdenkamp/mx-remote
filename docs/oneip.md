@@ -654,6 +654,20 @@ waits. Each command returns False without sending for a device that is not a
 OneIP unit, one below 0x2C, or an address and netmask a unit cannot hold.
 Nothing acknowledges a command: `unit_status` reads what the unit reports next.
 
+This client reports its own status the way a unit does, to every device:
+
+```python
+from mx_remote import UnitStatus
+
+await mx.send_unit_status(UnitStatus(flags=UnitFlag.FIRMWARE_UPGRADE, uptime=3600))
+```
+
+A mesh controller that runs no update checks of its own passes its members'
+upgrade flags on this way: a member that sees `UnitFlag.FIRMWARE_UPGRADE` or
+`UnitFlag.VIDEO_PROCESSOR_UPGRADE` appear in its controller's report checks
+for the upgrade itself. More than six temperatures, or a status message over
+48 bytes or holding a NUL, is refused before anything is sent.
+
 ## Mesh and firmware
 
 ```python

@@ -26,8 +26,8 @@ from ..const import MXR_HELLO_INTERVAL_MIN, MXR_HELLO_INTERVAL_RAND, __version__
 from .Device import Device
 from .Tree import DeviceTree
 from .AudioRoute import audio_path
-from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, AudioHop, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, MeshConfig, MeshReplaceable, MeshReplaceUnit, MeshSetting, OneIPStreamSources, DeviceTreeEntry
-from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat, MESH_REPLACE_NAME_MAX, MESH_REPLACE_UNITS_MAX, MeshReplaceResult
+from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, AudioHop, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, MeshConfig, MeshReplaceable, MeshReplaceUnit, MeshSetting, OneIPStreamSources, DeviceTreeEntry, UnitStatus
+from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat, MESH_REPLACE_NAME_MAX, MESH_REPLACE_UNITS_MAX, MeshReplaceResult, UNIT_MAX_TEMPERATURES
 from ..proto.FrameDiscover import FrameDiscover, constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
 from ..proto.FrameHello import FrameHello, constructFrameHello
@@ -51,6 +51,7 @@ from ..proto.FrameTime import FrameTime
 from ..proto.FrameTimeZone import FrameTimeZone
 from ..proto.FrameTopology import FrameTopology
 from ..proto.FrameUpgradeFPGA import FrameUpgradeFPGA
+from ..proto.FrameUnitStatus import FrameUnitStatus, UNIT_STATUS_MESSAGE_LEN
 from ..proto.FrameV2IPDetectBays import FrameV2IPDetectBays
 from ..proto.FrameV2IPPowerSave import FrameV2IPPowerSave
 from ..proto.FrameV2IPPrivacy import FrameV2IPPrivacy
@@ -833,6 +834,28 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         image differs: the frame carries no force.
         DeviceBase.upgrade_unit_video_processor() forces one unit.'''
         return self._send_to_all(FrameUpgradeFPGA.construct(mxr=self))
+
+    async def send_unit_status(self, status:UnitStatus) -> bool:
+        '''Report this client's own health and IP configuration to every
+        device, as a unit does in its periodic broadcast and when they change.
+        True when all of it was written.
+
+        A mesh controller that runs no update checks of its own passes its
+        members' upgrade flags on this way: a member acts on
+        UnitFlag.FIRMWARE_UPGRADE and UnitFlag.VIDEO_PROCESSOR_UPGRADE gained in its
+        controller's report by checking for the upgrade itself.
+
+        Refused before anything is sent for more than UNIT_MAX_TEMPERATURES
+        temperatures, and for a status message over 48 bytes or holding a
+        NUL.'''
+        if (len(status.temperatures) > UNIT_MAX_TEMPERATURES):
+            _LOGGER.warning(f"not sending unit status: a unit reports at most {UNIT_MAX_TEMPERATURES} temperatures")
+            return False
+        message = status.status_message.encode('utf-8')
+        if (len(message) > UNIT_STATUS_MESSAGE_LEN) or (b'\0' in message):
+            _LOGGER.warning(f"not sending unit status: a status message is at most {UNIT_STATUS_MESSAGE_LEN} bytes, with no NUL")
+            return False
+        return self._send_to_all(FrameUnitStatus.construct(mxr=self, status=status))
 
     def _send_to_all(self, frame:FrameBase|None) -> bool:
         '''Send a frame to every device, True when all of it was written.'''

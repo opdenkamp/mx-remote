@@ -217,6 +217,50 @@ assert located.unit_status.flags == UnitFlag(int(UnitFlag.LOCATE_SUPPORTED | Uni
     f'a stop clears the flag and nothing else: {located.unit_status.flags!r}'
 print('locate      : timed, until stopped and stop, once the unit says it can be')
 
+# -------------------------------------------------- this client's own report
+
+# This client's own status goes to every device as the 112-byte report a unit
+# sends, stamped 0x2C, each field at its own offset, and a peer reads it back
+# whole.
+from mx_remote import UnitStatus
+own = UnitStatus(flags=UnitFlag.FIRMWARE_UPGRADE | UnitFlag.VIDEO_PROCESSOR_UPGRADE | UnitFlag.BOOT_COUNT
+                 | UnitFlag.FAN_SPEED,
+                 uptime=0x00010203, boot_count=0x00020304, reboot_count=0x00030405,
+                 encoder_health=0x00040506, decoder_health=0x00050607, network=NETWORK,
+                 fan_rpm=0x0A0B, fan_duty=55, status=3, net_revert_s=17, temperatures=(41, -5),
+                 status_message='m' * 48, power_save=tuple(UnitPowerSave(b) for b in (1, 3, 5, 7)))
+assert call(mx.send_unit_status(own)) is True
+out = sent.pop()
+assert out[2] == 0x2C, f'stamped {out[2]:#x}'
+assert int.from_bytes(out[20:22], 'little') == 0x4F, out[20:22].hex()
+p = out[24:]
+assert len(p) == 112, len(p)
+assert p[:4] == struct.pack('<I', (1 << 18) | (1 << 15) | (1 << 14) | (1 << 1)), p[:4].hex()
+assert p[4:24] == struct.pack('<5I', 0x00010203, 0x00020304, 0x00030405, 0x00040506, 0x00050607), p[4:24].hex()
+assert p[24:44] == ADDRESSES, p[24:44].hex()
+assert p[44:50] == bytes([0x0B, 0x0A, 55, 3, 17, 2]), p[44:50].hex()
+assert p[50:56] == bytes([41, 251, 0, 0, 0, 0]), p[50:56].hex()
+assert p[56:104] == b'm' * 48
+assert p[104:] == bytes([1, 3, 5, 7, 0, 0, 0, 0]), p[104:].hex()
+peer = hello(uid(0x25), 0x2C, UNIT)
+rx(uid(0x25), 0x4F, p)
+assert peer.unit_status == own, peer.unit_status
+
+# A boot count or fan speed not reported goes out as zero, and levels past the
+# four a unit reports stay out of the padding.
+assert call(mx.send_unit_status(UnitStatus(power_save=(UnitPowerSave(1),) * 5))) is True
+p = sent.pop()[24:]
+assert p[8:12] == bytes(4) and p[44:46] == bytes(2), p.hex()
+assert p[104:] == bytes([1, 1, 1, 1, 0, 0, 0, 0]), p[104:].hex()
+
+# A status a unit couldn't send is refused before anything is sent.
+refused(mx.send_unit_status(UnitStatus(temperatures=(1,) * 7)), 'seven temperatures')
+refused(mx.send_unit_status(UnitStatus(status_message='m' * 49)), 'a message over 48 bytes')
+refused(mx.send_unit_status(UnitStatus(status_message='m\0')), 'a message holding a NUL')
+assert call(mx.send_unit_status(UnitStatus(temperatures=(1,) * 6))) is True, 'six temperatures fit'
+sent.pop()
+print('own status  : 112 bytes to every device, read back whole; what cannot fit refused')
+
 # -------------------------------------------------- a command seen on the wire
 
 # Decoded for the log; a command too short to hold its fields carries none.
