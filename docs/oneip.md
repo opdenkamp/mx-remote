@@ -533,7 +533,9 @@ Each unit asks for the settings it lacks and takes only those, so this client
 holds the content and answers until it is replaced or cleared, announcing
 itself meanwhile as the mesh's overlay sync manager: a unit waking from power
 save then takes this content rather than the controller's. Logo images are
-served over HTTP from this client, on `logo_port` or a free port. Content a unit
+served over HTTP from this client, on `logo_port` or a free port, at `local_ip`
+when one is given and on every address otherwise; a changed `local_ip` moves
+the server there on the same port. Content a unit
 would refuse is refused before anything is sent; see `send_osd_sync`.
 
 A mesh controller holding the sync its units already took from another source

@@ -187,7 +187,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         :param uid_path: file holding this client's uid, or None for ~/.mxr-uid.
             Give concurrent clients on one host separate paths - see _load_uid
         :param logo_port: TCP port to serve overlay sync logo images on, or None
-            for a free one
+            for a free one. It listens on local_ip, or on every address without
+            one
         :param serial: serial number advertised on the network, at most 15
             bytes
         :param version: firmware version advertised on the network, at most 15
@@ -506,6 +507,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 self._own_controller.sent = None
                 self._endpoints_opened = time.time()
                 await self.conn.start_srv()
+                # The sync units hold names the port, which the move keeps.
+                await self._logos.move_to(self._local_ip or '0.0.0.0')
 
     def has_completed_devices(self) -> bool:
         '''Return True if at least one registered device has completed configuration.'''
@@ -1658,7 +1661,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         http_port = 0
         if (content.images is not None):
             try:
-                await self._logos.start(self._logo_port or 0)
+                await self._logos.start(self._local_ip or '0.0.0.0', self._logo_port or 0)
             except OSError as e:
                 _LOGGER.warning(f"not {what} an overlay sync: the logo server did not start: {e}")
                 await self.clear_osd_sync()

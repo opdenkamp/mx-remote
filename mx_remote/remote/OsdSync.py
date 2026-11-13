@@ -194,12 +194,15 @@ class LogoServer:
     bodies. A 404 fails the unit's sync, so an empty or unknown slot answers
     that.
 
-    It listens on every interface rather than the one the client talks on: a
-    unit fetches from the address the sync came from, which is whichever
-    address the host sent it with.'''
+    A unit fetches from the address the sync came from, which is the selected
+    interface's address when one is selected, so listening there alone keeps
+    every other network away from the images. '0.0.0.0' listens on every
+    interface, for a client with no interface selected.'''
     def __init__(self) -> None:
         self._server:asyncio.base_events.Server|None = None
         self.images:tuple[bytes, ...] = tuple(b'' for _ in range(OSD_SYNC_SLOTS))
+        self.host = '0.0.0.0'
+        '''The address it listens on.'''
 
     @property
     def port(self) -> int:
@@ -207,9 +210,23 @@ class LogoServer:
             return 0
         return int(self._server.sockets[0].getsockname()[1])
 
-    async def start(self, port:int) -> None:
+    async def start(self, host:str, port:int) -> None:
+        '''Listen on host and port, or on a free port when it is zero, unless
+        it listens already.'''
         if (self._server is None):
-            self._server = await asyncio.start_server(self._serve, host='0.0.0.0', port=port)
+            self._server = await asyncio.start_server(self._serve, host=host, port=port)
+            self.host = host
+
+    async def move_to(self, host:str) -> None:
+        '''Listen on host instead, on the same port, when it listens at all.
+        The port is kept because the sync units hold names it. This server is
+        stopped first, since a listener on every address holds the port
+        against one on a single address.'''
+        if (self._server is None) or (host == self.host):
+            return
+        port = self.port
+        await self.stop()
+        await self.start(host, port)
 
     async def stop(self) -> None:
         if (self._server is not None):

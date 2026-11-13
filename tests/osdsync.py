@@ -313,6 +313,56 @@ run(serve_and_fetch())
 assert not mx.osd_sync_held, 'closing kept the sync'
 print('images      : described in the sync, served plainly with their length, 404 otherwise')
 
+# With an interface selected, the images are served on its address alone, and
+# move with it to a new one on the same port.
+def fetch(host, port):
+    try:
+        with urllib.request.urlopen(f'http://{host}:{port}/osd-sync/slot1.png', timeout=2) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except OSError:
+        return None
+others = mx_remote.Interface.mxr_valid_addresses()
+async def served_where():
+    import mx_remote.remote.Remote as module
+    mx, _, sent = client()
+    mx._local_ip = '127.0.0.1'
+    images = (OsdSyncImage(png=png(16, 16), percent=40), OsdSyncImage(), OsdSyncImage(), OsdSyncImage())
+    await mx.send_osd_sync(content(1, images=images))
+    port = u16(sent[-1], 22)
+    loop = asyncio.get_running_loop()
+    on_lo = await loop.run_in_executor(None, fetch, '127.0.0.1', port)
+    on_other = await loop.run_in_executor(None, fetch, others[0], port)
+    server = mx._logos._server
+    await mx._logos.move_to('127.0.0.1')
+    assert mx._logos._server is server, 'restarted on the address it listens on already'
+    class Quiet:
+        def __init__(self, *args, **kw):
+            pass
+        async def start_srv(self):
+            pass
+        def close(self):
+            pass
+    real, module.ConnectionAsync = module.ConnectionAsync, Quiet
+    try:
+        await mx.update_config(local_ip=others[0])
+    finally:
+        module.ConnectionAsync = real
+    moved_port = mx._logos.port
+    moved_lo = await loop.run_in_executor(None, fetch, '127.0.0.1', port)
+    moved_other = await loop.run_in_executor(None, fetch, others[0], port)
+    await mx.close()
+    return port, on_lo, on_other, moved_port, moved_lo, moved_other
+if others:
+    port, on_lo, on_other, moved_port, moved_lo, moved_other = run(served_where())
+    assert (on_lo, on_other) == (200, None), ('served beyond the selected address', on_lo, on_other)
+    assert moved_port == port, 'moved to another port'
+    assert (moved_lo, moved_other) == (None, 200), ('not moved with the address', moved_lo, moved_other)
+    print('images      : on the selected address alone, moved with it on the same port')
+else:
+    print('images      : skipped, the host has no interface besides loopback')
+
 # ----------------------------------------------------- taking a sync as a unit
 from mx_remote import OsdSync
 from mx_remote.proto.Constants import OSD_SETTINGS_ASKED
