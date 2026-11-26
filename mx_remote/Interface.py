@@ -4410,6 +4410,15 @@ class DeviceBase(ABC):
         client, None until it has. A unit reports it only when asked, or when
         this client writes it.'''
 
+    @property
+    @abstractmethod
+    def osd_message_reported(self) -> float|None:
+        '''When this unit last reported its message, None until it has. Every
+        report counts, one repeating the message included, so a report later
+        than a write is the unit's answer to it: a unit's own message read
+        answers Not Ready after a write until it has reported since, and an
+        unchanged message reaches no on_osd_message_changed().'''
+
     @abstractmethod
     async def request_osd_message(self) -> bool:
         '''ask this unit for the message on its output'''

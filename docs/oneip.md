@@ -595,12 +595,15 @@ await sink.show_osd_message('Back at <b>3</b>', logo=-1, priority=OsdMessagePrio
 await sink.request_osd_message()   # the unit answers with what it shows
 await sink.clear_osd_message()
 
-print(sink.osd_message)   # None until the unit has answered
+print(sink.osd_message)            # None until the unit has answered
+print(sink.osd_message_reported)   # when it last answered, a repeat included
 ```
 
 A unit takes a message only from management, which this client announces
 itself as, and answers every write and request with the message it then has;
-`on_osd_message_changed` reports a change. The answer carries
+`on_osd_message_changed` reports a change. A repeated message reports none,
+so `osd_message_reported` later than a write is what says the unit answered
+it. The answer carries
 `OsdMessageFlag.REFUSED` when the unit did not take the write, as when its
 video processor has no message layer. A text, logo or priority a unit would
 refuse is refused before it is sent, as is a device that is not a OneIP output.

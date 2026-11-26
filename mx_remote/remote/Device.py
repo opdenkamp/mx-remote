@@ -112,7 +112,7 @@ from ..proto.FrameUnitCommand import FrameUnitCommand
 from ..proto.FrameV2IPAudio import AUDIO_LAYOUT_SINCE, AUDIO_REPORT_GUARD, AudioEndpointImpl, FrameV2IPAudio
 from ..proto.FrameV2IPDeviceConfiguration import FrameV2IPDeviceConfiguration
 from ..proto.FrameV2IPPowerSave import FrameV2IPPowerSave
-from ..proto.FrameV2IPOsdSync import FrameV2IPOsdSync, OSD_KIND_MESSAGE_REQUEST, OSD_KIND_MESSAGE_SET
+from ..proto.FrameV2IPOsdSync import FrameV2IPOsdSync, OsdMessageReport, OSD_KIND_MESSAGE_REQUEST, OSD_KIND_MESSAGE_SET
 from ..proto.FrameV2IPPrivacy import FrameV2IPPrivacy
 from ..proto.FrameV2IPSinkSdp import (FrameV2IPSinkSdp, SdpDescriptionPage, SDP_DESCRIPTION_PROTOCOL, SDP_PAGE_TIMEOUT,
                                       SDP_REQUEST, SDP_REQUEST_DESCRIPTION, SDP_SCREEN, SDP_STOP)
@@ -233,6 +233,7 @@ class Device(DeviceBase):
 		self._osd_sync:OsdSync|None = None
 		self._osd_sync_report:OsdSyncReport|None = None
 		self._osd_message:OsdMessage|None = None
+		self._osd_message_reported:float|None = None
 		self._time_zone:TimeZone|None = None
 		self._clock:DeviceClock|None = None
 		self._mesh_master_uid:MxrDeviceUid|None = None
@@ -1382,10 +1383,11 @@ class Device(DeviceBase):
 			if (self._osd_sync_report != data):
 				self._osd_sync_report = data
 				self.callbacks.on_osd_sync_report(self, data)
-		elif isinstance(data, OsdMessage):
-			if (self._osd_message != data):
-				self._osd_message = data
-				self.callbacks.on_osd_message_changed(self, data)
+		elif isinstance(data, OsdMessageReport):
+			self._osd_message_reported = data.at
+			if (self._osd_message != data.message):
+				self._osd_message = data.message
+				self.callbacks.on_osd_message_changed(self, data.message)
 				self.call_callbacks()
 		elif isinstance(data, OneIPSinkSdp):
 			changed = (self._v2ip_sink_sdp != data)
@@ -2533,6 +2535,11 @@ class Device(DeviceBase):
 	@override
 	def osd_message(self) -> OsdMessage|None:
 		return self._osd_message
+
+	@property
+	@override
+	def osd_message_reported(self) -> float|None:
+		return self._osd_message_reported
 
 	async def request_osd_message(self) -> bool:
 		'''Ask this unit for the message on its output, which osd_message reads

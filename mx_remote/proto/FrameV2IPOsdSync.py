@@ -17,7 +17,7 @@ sync carries the same seq, which the source numbers on its own.
 from functools import cached_property
 import ipaddress
 import struct
-from typing import Any
+from typing import Any, NamedTuple
 import zlib
 from ..compat import override
 from .Constants import (OSD_SYNC_RECORDS_MAX, OSD_SYNC_SLOTS, DeviceFeature, OsdCaptionAlign,
@@ -87,6 +87,12 @@ def _header(kind:int, seq:int, target:MxrDeviceUid) -> bytes:
 
 def _cstr(data:bytes) -> str:
     return data.split(b'\0', 1)[0].decode('utf-8', errors='replace')
+
+class OsdMessageReport(NamedTuple):
+    '''A unit's report of the message on its own output, and when it
+    arrived.'''
+    message: OsdMessage
+    at: float
 
 class FrameV2IPOsdSync(FrameBase):
     '''An overlay sync, a request for one or its settings, a setting, or a
@@ -296,7 +302,7 @@ class FrameV2IPOsdSync(FrameBase):
         elif ((report := self.report) is not None):
             dev.on_mxr_update(report)
         elif ((message := self.message) is not None):
-            dev.on_mxr_update(message)
+            dev.on_mxr_update(OsdMessageReport(message, self.timestamp))
         elif ((setting := self.setting) is not None):
             dev.callbacks.on_osd_sync_setting(dev, setting)
         elif ((request := self.request) is not None):

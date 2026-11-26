@@ -67,6 +67,13 @@ assert m == OsdMessage(flags=F.SET | F.SHOWN | F.SUPPORTED, logo=-1, priority=P.
 assert seen.messages == [(out, m)], seen.messages
 rx(uid(0x10), 0x53, state)
 assert len(seen.messages) == 1, 'an unchanged message was reported'
+# Every report is stamped with its arrival, one repeating the message too.
+for at in (1000.0, 1003.0):
+    frame = bytearray(create_mxr_frame(uid(0x10), 0x53, state))
+    frame[2] = 0x2F
+    mx.process_frame(at, bytes(frame), ADDR)
+    assert out.osd_message_reported == at, (at, out.osd_message_reported)
+assert len(seen.messages) == 1
 print('decode      :', m)
 
 # A unit answers for its own output only, and with all the text it counts; the
@@ -79,6 +86,7 @@ for what, frame in (('an answer about another unit', message(6, uid(0x10), 1, 0,
                     ('a frame short of its length', message(6, uid(0x11), 1, 0, 0, '')[:25])):
     rx(uid(0x11), 0x53, frame)
     assert other.osd_message is None, f'{what} was kept'
+    assert other.osd_message_reported is None and out.osd_message_reported == 1003.0, f'{what} counted as a report'
 print('ignored     : only a unit\'s answer about itself, with all its text')
 
 # ------------------------------------------------------------------- writing
