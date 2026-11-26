@@ -15,6 +15,11 @@ it is still writing earlier ones, and asks for it again.
 While this client holds a sync it also announces itself as the mesh's overlay
 sync manager. A unit that wakes from power save, or that is told to pull, then
 asks this client for a new sync instead of the controller.
+
+A preview is a sync to one unit that the unit shows without storing, until it
+is committed or reverted. Each previewing unit is answered from its own
+content, beside the held sync, and fetches its images from a server of its
+own, as the path a unit fetches from names no sync.
 '''
 
 from __future__ import annotations
@@ -93,6 +98,25 @@ class _Held:
     http_port:int
     seqs:deque[int]
 
+@dataclass
+class _Preview:
+    '''The preview one unit is sent.'''
+    seq:int
+    entries:tuple[OsdSyncEntry, ...]
+    server:'LogoServer|None'
+    '''The server of its images, when it has any.'''
+
+def slots_of(content:OsdSyncContent) -> tuple[OsdSyncWhat, tuple[OsdSyncSlot, ...]]:
+    '''What a sync of content copies, with LOGO_SLOTS when it has images, and
+    its slots.'''
+    what = content.what & ~OsdSyncWhat.LOGO_SLOTS
+    slots:tuple[OsdSyncSlot, ...] = tuple(OsdSyncSlot() for _ in range(OSD_SYNC_SLOTS))
+    if (content.images is not None):
+        what |= OsdSyncWhat.LOGO_SLOTS
+        slots = tuple(OsdSyncSlot(bytes=len(i.png), crc32=osd_crc32(i.png), percent=i.percent)
+                      for i in content.images)
+    return what, slots
+
 @dataclass(frozen=True)
 class _Pending:
     '''A setting a unit asked for, not yet sent.'''
@@ -109,6 +133,9 @@ class OsdSender:
         self._next_seq = max(int(time.time() * 1000) & 0xFFFF, 1)
         self._held:_Held|None = None
         self._queue:deque[_Pending] = deque()
+        self.previews:dict[MxrDeviceUid, _Preview] = {}
+        '''Each previewing unit's preview, until the unit reports it ended or
+        this client commits, reverts or replaces it.'''
 
     @property
     def holds(self) -> bool:
@@ -121,12 +148,7 @@ class OsdSender:
 
     def hold(self, content:OsdSyncContent, http_port:int) -> None:
         '''Hold content as the sync this client answers for.'''
-        what = content.what & ~OsdSyncWhat.LOGO_SLOTS
-        slots:tuple[OsdSyncSlot, ...] = tuple(OsdSyncSlot() for _ in range(OSD_SYNC_SLOTS))
-        if (content.images is not None):
-            what |= OsdSyncWhat.LOGO_SLOTS
-            slots = tuple(OsdSyncSlot(bytes=len(i.png), crc32=osd_crc32(i.png), percent=i.percent)
-                          for i in content.images)
+        what, slots = slots_of(content)
         self._held = _Held(what=what, entries=tuple(content.entries), slots=slots, http_port=http_port,
                            seqs=deque(maxlen=SEQS_KEPT))
 
@@ -134,8 +156,40 @@ class OsdSender:
         '''Stop holding the sync, True when one was held.'''
         held = self._held is not None
         self._held = None
-        self._queue.clear()
+        self._queue = deque(p for p in self._queue if (self._entries(p.unit, p.seq) is not None))
         return held
+
+    def take_seq(self) -> int:
+        '''The next sync's number. Zero means "no sync", so the count skips
+        it.'''
+        seq = self._next_seq
+        self._next_seq = max((seq + 1) & 0xFFFF, 1)
+        return seq
+
+    def preview(self, unit:MxrDeviceUid, content:OsdSyncContent, server:LogoServer|None) -> tuple[int, _Preview|None]:
+        '''Number a preview of content for unit, its images served by server,
+        returning its number and the preview it replaced.'''
+        seq = self.take_seq()
+        replaced = self.previews.get(unit)
+        self.previews[unit] = _Preview(seq=seq, entries=tuple(content.entries), server=server)
+        return seq, replaced
+
+    def drop_preview(self, unit:MxrDeviceUid, seq:int|None=None) -> _Preview|None:
+        '''Drop unit's preview, only that of sync seq when one is given,
+        returning it, so its server can be stopped.'''
+        p = self.previews.get(unit)
+        if (p is None) or ((seq is not None) and (p.seq != seq)):
+            return None
+        return self.previews.pop(unit)
+
+    def _entries(self, unit:MxrDeviceUid, seq:int) -> tuple[OsdSyncEntry, ...]|None:
+        '''The settings of unit's sync seq: its preview's, or the held
+        content's while a request may still name that sync.'''
+        if ((p := self.previews.get(unit)) is not None) and (p.seq == seq):
+            return p.entries
+        if ((held := self._held) is not None) and (seq in held.seqs):
+            return held.entries
+        return None
 
     def new_sync(self, what:OsdSyncWhat|None=None) -> tuple[int, OsdSyncWhat, int, int, tuple[OsdSyncSlot, ...]]|None:
         '''Number a new sync of the held content, copying what, which is some
@@ -143,24 +197,24 @@ class OsdSender:
         count skips it. None while nothing is held.'''
         if ((held := self._held) is None):
             return None
-        seq = self._next_seq
-        self._next_seq = max((seq + 1) & 0xFFFF, 1)
+        seq = self.take_seq()
         held.seqs.append(seq)
         return (seq, held.what if (what is None) else what, held.http_port, len(held.entries), held.slots)
 
     def answer(self, request:OsdSyncRequest) -> OsdSyncWhat|None:
-        '''Take a request: queue the settings it lacks of a sync of the held
-        content, in place of what was still queued for its unit, and return
-        None; or return what a new sync for its unit should copy, when it asks
-        for one or names another sync of this client's. None as well for a
-        request this client leaves alone.'''
-        if ((held := self._held) is None):
-            return None
-        if (request.seq != 0) and (request.seq in held.seqs):
+        '''Take a request: queue the settings it lacks of its unit's preview or
+        a sync of the held content, in place of what was still queued for its
+        unit, and return None; or return what a new sync for its unit should
+        copy, when it asks for one or names another sync of this client's. None
+        as well for a request this client leaves alone.'''
+        entries = self._entries(request.target, request.seq) if (request.seq != 0) else None
+        if (entries is not None):
             self._queue = deque(p for p in self._queue if (p.unit != request.target))
-            for index in range(len(held.entries)):
+            for index in range(len(entries)):
                 if request.is_missing(index):
                     self._queue.append(_Pending(unit=request.target, seq=request.seq, index=index))
+            return None
+        if ((held := self._held) is None):
             return None
         # A new sync copies what the request asks for, of what is held; a
         # request asking for none of it gets none.
@@ -174,15 +228,16 @@ class OsdSender:
         each time one of its own is taken, so one asking for many does not hold
         the rest past the time a unit allows a sync.'''
         out:list[tuple[MxrDeviceUid, int, int, int, OsdSyncEntry]] = []
-        while (len(out) < SETTINGS_PER_PASS) and self._queue and ((held := self._held) is not None):
+        while (len(out) < SETTINGS_PER_PASS) and self._queue:
             p = self._queue.popleft()
             theirs = [q for q in self._queue if (q.unit == p.unit)]
             self._queue = deque([q for q in self._queue if (q.unit != p.unit)] + theirs)
             # A request for a sync since replaced, or aged out, is answered no
             # further: the unit asks again and gets a new sync.
-            if (p.index >= len(held.entries)) or (p.seq not in held.seqs):
+            entries = self._entries(p.unit, p.seq)
+            if (entries is None) or (p.index >= len(entries)):
                 continue
-            out.append((p.unit, p.seq, p.index, len(held.entries), held.entries[p.index]))
+            out.append((p.unit, p.seq, p.index, len(entries), entries[p.index]))
         return out
 
 class LogoServer:
@@ -227,6 +282,13 @@ class LogoServer:
         port = self.port
         await self.stop()
         await self.start(host, port)
+
+    def close(self) -> None:
+        '''Stop listening at once, without waiting for the server to wind
+        down.'''
+        if (self._server is not None):
+            self._server.close()
+            self._server = None
 
     async def stop(self) -> None:
         if (self._server is not None):

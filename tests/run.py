@@ -71,6 +71,7 @@ SUITES = [
     'connect',      # the Pulse-Eight device a connect frame names on a bay
     'baycontent',   # what the source on an input is showing
     'osdsync',      # overlay sync, watched and sent
+    'osdpreview',   # an overlay sync previewed on one unit, held, committed or reverted
     'osdmessage',   # the message on a unit's output, read and written
     'downmix',      # how a OneIP output mixes down to stereo, read and written
     'controllerset', # what a mesh controller sets on a OneIP unit

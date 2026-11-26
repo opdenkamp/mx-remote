@@ -488,6 +488,20 @@ class OsdSyncState(IntEnum):
 	'''Failed, for the reason the report gives.'''
 	DEFERRED = 3
 	'''Kept for later, as the unit's video processor is off in power save.'''
+	PREVIEWING = 4
+	'''A preview sync's settings are all written and shown, not stored.'''
+	REVERTED = 5
+	'''A preview sync's settings were put back, for the reason the report
+	gives.'''
+
+class OsdPreviewAction(IntEnum):
+	'''What a preview command (0x53 kind 7) does with a unit's preview.'''
+	HOLD   = 1
+	'''Shows a layer and restarts the timeout.'''
+	COMMIT = 2
+	'''Stores the previewed settings.'''
+	REVERT = 3
+	'''Puts the stored settings back.'''
 
 class OsdSyncSize(IntEnum):
 	'''The output size an overlay setting applies at.'''
@@ -563,6 +577,10 @@ OSD_SYNC_IMAGE_HEIGHT_MAX = 1080
 
 OSD_SYNC_PERCENT_MAX = 100
 """The largest size a logo is shown at, in percent."""
+
+OSD_PREVIEW_TIMEOUT_MAX = 3600
+"""The longest a unit holds an overlay preview before it reverts it on its
+own, in seconds. A timeout of 0 stands for 300."""
 
 ONEIP_SDP_MAX = 2048
 """The longest session description a OneIP output takes, in bytes."""

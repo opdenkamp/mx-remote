@@ -27,7 +27,7 @@ from .Device import Device
 from .Tree import DeviceTree
 from .AudioRoute import audio_path
 from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, AudioHop, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncReport, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, MeshConfig, MeshReplaceable, MeshReplaceUnit, MeshSetting, MeshBay, MeshBays, MeshPort, PortMetadata, PortMetadataField, PortMetadataStore, OneIPStreamSources, DeviceTreeEntry, UnitStatus
-from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat, MESH_REPLACE_NAME_MAX, MESH_REPLACE_UNITS_MAX, MeshReplaceResult, UNIT_MAX_TEMPERATURES, MESH_BAYS_MAX, ControllerRole, CONTROLLER_PARTS_MAX, OSD_SETTINGS_ASKED, OSD_SYNC_RECORDS_MAX
+from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat, MESH_REPLACE_NAME_MAX, MESH_REPLACE_UNITS_MAX, MeshReplaceResult, UNIT_MAX_TEMPERATURES, MESH_BAYS_MAX, ControllerRole, CONTROLLER_PARTS_MAX, OSD_SETTINGS_ASKED, OSD_SYNC_RECORDS_MAX, OSD_PREVIEW_TIMEOUT_MAX, OsdPreviewAction, OsdSyncState
 from ..proto.FrameDiscover import FrameDiscover, constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
 from ..proto.FrameHello import FrameHello, constructFrameHello
@@ -61,8 +61,8 @@ from ..proto.FrameV2IPDetectBays import FrameV2IPDetectBays
 from ..proto.FrameV2IPPowerSave import FrameV2IPPowerSave
 from ..proto.FrameV2IPPrivacy import FrameV2IPPrivacy
 from ..proto.FrameV2IPSettingsAll import FrameV2IPSettingsAll
-from ..proto.FrameV2IPOsdSync import FrameV2IPOsdSync
-from .OsdSync import LogoServer, OsdSender, OSD_SYNC_ASK_WINDOW, PASS_GAP, osd_content_refusal
+from ..proto.FrameV2IPOsdSync import FrameV2IPOsdSync, OsdReportFrom
+from .OsdSync import LogoServer, OsdSender, OSD_SYNC_ASK_WINDOW, PASS_GAP, osd_content_refusal, slots_of
 from ..proto.Constants import (ONEIP_DEVICE_SETTINGS_REPORTED_ONLY, ONEIP_DSCP_MAX, ONEIP_IR_PROFILE_MAX, ONEIP_PTP_DOMAIN_MAX, ONEIP_SINK_ROTATION_MAX,
                                OneIPPowerSaveLevel, OneIPPtpMode,
                                ONEIP_IR_PROFILE_NOT_SET, OneIPDeviceSetting)
@@ -541,6 +541,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 await self.conn.start_srv()
                 # The sync units hold names the port, which the move keeps.
                 await self._logos.move_to(self._local_ip or '0.0.0.0')
+                await self._move_preview_servers(self._local_ip or '0.0.0.0')
 
     def has_completed_devices(self) -> bool:
         '''Return True if at least one registered device has completed configuration.'''
@@ -665,6 +666,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._tasks.clear()
         self._osd.drop()
         await self._logos.stop()
+        for unit in list(self._osd.previews):
+            if ((p := self._osd.drop_preview(unit)) is not None) and (p.server is not None):
+                await p.server.stop()
         if self.conn is not None:
             self.conn.close()
         self._close_announcers()
@@ -1927,13 +1931,155 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
 
         Refused while no sync is held, and for a unit that does not announce
         DeviceFeature.OSD_SYNC, as one that does not take overlay syncs.'''
-        if (device.features is None) or (DeviceFeature.OSD_SYNC not in device.features):
-            _LOGGER.warning(f"not resending an overlay sync to {device}: it takes none")
+        if not self._takes_sync(device, 'resending an overlay sync'):
             return None
         if not self._osd.holds:
             _LOGGER.warning(f"not resending an overlay sync to {device}: none is held")
             return None
         return self._tx_osd_sync(device.remote_id, None, device)
+
+    def _takes_sync(self, device:DeviceBase, what:str) -> bool:
+        '''Whether device announces DeviceFeature.OSD_SYNC, as one that takes
+        overlay syncs, warning about what when it does not.'''
+        if (device.features is None) or (DeviceFeature.OSD_SYNC not in device.features):
+            _LOGGER.warning(f"not {what} to {device}: it takes no overlay sync")
+            return False
+        return True
+
+    @staticmethod
+    def _preview_refusal(layer:int, timeout:int) -> str|None:
+        if not (0 <= timeout <= OSD_PREVIEW_TIMEOUT_MAX):
+            return f'an overlay preview of at most {OSD_PREVIEW_TIMEOUT_MAX} s'
+        if not (0 <= layer <= 0xFF):
+            return 'a layer of 0 to 255'
+        return None
+
+    async def send_osd_preview(self, device:DeviceBase, content:OsdSyncContent, layer:int, timeout:int=0) -> int|None:
+        '''Have one unit show content in a preview, without storing it,
+        returning the preview sync's number, or None when it was refused or did
+        not go out.
+
+        The unit takes it as it takes send_osd_sync(): it fetches the images,
+        from a server of the preview's own on a free port, and asks for the
+        settings, which this client answers from content. The sync held for the
+        mesh, and what other units fetch, stay as they are. The unit shows
+        overlay layer in place of video from the start, 0 leaving its output
+        alone, and once it has every setting it reports
+        OsdSyncState.PREVIEWING in its osd_sync_report. It reverts on its own
+        after timeout seconds, 0 standing for 300, unless hold_osd_preview()
+        restarts that. commit_osd_preview() stores the settings and
+        revert_osd_preview() puts the stored ones back. A logo is stored as it
+        is uploaded, so a revert does not take it back.
+
+        A unit whose overlay module predates previews drops the sync and
+        answers nothing, so it never stores content no one approved: a TAKING
+        report is the sign the unit previews. One whose video processor is off
+        reports FAILED rather than deferring, as does one that cannot compose
+        layer.
+
+        The unit's preview is answered until it reports it stored, failed or
+        put back, or until this client commits, reverts or replaces it.
+
+        Provisional: the layout follows the Rust crate, and the firmware has not
+        confirmed it, nor that a unit fetches a preview's images from a port of
+        their own.
+
+        Refused as send_osd_sync() is, for a timeout over
+        OSD_PREVIEW_TIMEOUT_MAX, and as resend_osd_sync() is for the unit.
+        Content that fails to go out leaves no preview.'''
+        why = osd_content_refusal(content) or self._preview_refusal(layer, timeout)
+        if (why is not None):
+            _LOGGER.warning(f"not sending an overlay preview to {device}: {why}")
+            return None
+        if not self._takes_sync(device, 'sending an overlay preview'):
+            return None
+        server:LogoServer|None = None
+        if (content.images is not None):
+            server = LogoServer()
+            try:
+                await server.start(self._local_ip or '0.0.0.0', 0)
+            except OSError as e:
+                _LOGGER.warning(f"not sending an overlay preview to {device}: the logo server did not start: {e}")
+                return None
+            server.images = tuple(image.png for image in content.images)
+        unit = device.remote_id
+        seq, replaced = self._osd.preview(unit, content, server)
+        if (replaced is not None) and (replaced.server is not None):
+            await replaced.server.stop()
+        what, slots = slots_of(content)
+        frame = FrameV2IPOsdSync.construct_preview_sync(mxr=self, target=unit, seq=seq, what=what,
+                                                        http_port=0 if (server is None) else server.port,
+                                                        records=len(content.entries), slots=slots, layer=layer,
+                                                        timeout=timeout, to=device)
+        if (frame is None) or (self.transmit(frame.frame, to=device) != len(frame.frame)):
+            if ((dropped := self._osd.drop_preview(unit, seq)) is not None) and (dropped.server is not None):
+                await dropped.server.stop()
+            return None
+        return seq
+
+    async def hold_osd_preview(self, device:DeviceBase, seq:int, layer:int, timeout:int=0) -> bool:
+        '''Have a unit previewing sync seq show overlay layer, 0 leaving its
+        output alone, and restart its timeout at timeout seconds from now, 0
+        standing for 300. A unit still taking the sync does so once it holds
+        the preview. Its next report, previewing again, answers it. True when
+        it was written.
+
+        Refused for a timeout over OSD_PREVIEW_TIMEOUT_MAX, and as
+        resend_osd_sync() is for the unit.'''
+        if ((why := self._preview_refusal(layer, timeout)) is not None):
+            _LOGGER.warning(f"not holding the overlay preview of {device}: {why}")
+            return False
+        return self._send_preview(device, seq, OsdPreviewAction.HOLD, layer, timeout)
+
+    async def commit_osd_preview(self, device:DeviceBase, seq:int) -> bool:
+        '''Have a unit store the settings of preview sync seq, which it takes
+        only while it holds the preview; it reports OsdSyncState.DONE. The
+        preview is answered no further. True when it was written. Refused as
+        resend_osd_sync() is for the unit.'''
+        return await self._end_preview(device, seq, OsdPreviewAction.COMMIT)
+
+    async def revert_osd_preview(self, device:DeviceBase, seq:int) -> bool:
+        '''Have a unit put its stored settings back in place of preview sync
+        seq, at any time during that sync: one that has not begun the preview
+        yet ends the sync without writing a setting. It reports
+        OsdSyncState.REVERTED. The preview is answered no further. True when it
+        was written. Refused as resend_osd_sync() is for the unit.'''
+        return await self._end_preview(device, seq, OsdPreviewAction.REVERT)
+
+    def _send_preview(self, device:DeviceBase, seq:int, action:OsdPreviewAction, layer:int=0, timeout:int=0) -> bool:
+        if not self._takes_sync(device, f'sending an overlay preview {action.name.lower()}'):
+            return False
+        frame = FrameV2IPOsdSync.construct_preview(mxr=self, target=device.remote_id, seq=seq, action=action,
+                                                   layer=layer, timeout=timeout, to=device)
+        return (frame is not None) and (self.transmit(frame.frame, to=device) == len(frame.frame))
+
+    async def _end_preview(self, device:DeviceBase, seq:int, action:OsdPreviewAction) -> bool:
+        if not self._send_preview(device, seq, action):
+            return False
+        if ((p := self._osd.drop_preview(device.remote_id, seq)) is not None) and (p.server is not None):
+            await p.server.stop()
+        return True
+
+    def _end_reported_preview(self, reported:OsdReportFrom) -> None:
+        '''Drop a preview whose unit reported it ended: stored, failed or put
+        back.'''
+        if (reported.report.state not in (OsdSyncState.DONE, OsdSyncState.FAILED, OsdSyncState.REVERTED)):
+            return
+        if ((p := self._osd.drop_preview(reported.unit, reported.report.seq)) is not None) and (p.server is not None):
+            p.server.close()
+
+    async def _move_preview_servers(self, host:str) -> None:
+        '''Have each preview's image server listen on host. One that cannot is
+        stopped, so its unit's fetch fails and it reports the preview
+        failed.'''
+        for p in list(self._osd.previews.values()):
+            if (p.server is None):
+                continue
+            try:
+                await p.server.move_to(host)
+            except OSError as e:
+                _LOGGER.warning(f"an overlay preview's logo server did not move to {host}: {e}")
+                await p.server.stop()
 
     async def clear_osd_sync(self) -> None:
         '''Stop holding the sync this client sent, and hand the overlay sync
@@ -1994,6 +2140,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
     def on_mxr_update(self, data:Any) -> None:
         if isinstance(data, OsdSyncRequest):
             self._answer_osd_request(data)
+        elif isinstance(data, OsdReportFrom):
+            self._end_reported_preview(data)
         elif isinstance(data, FrameMeshReplace):
             self._on_mesh_replace(data)
         elif isinstance(data, FrameMeshConfig):

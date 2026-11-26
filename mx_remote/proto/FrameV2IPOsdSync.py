@@ -12,6 +12,11 @@ The source sends a sync naming what it copies and how many settings follow.
 Each unit asks the source for the settings it lacks, takes them, and reports
 taking, then done or failed, or deferred while in power save. Every frame of a
 sync carries the same seq, which the source numbers on its own.
+
+A preview sync, to one unit, is shown without being stored until a preview
+command commits or reverts it, and reported previewing, then done or reverted.
+Its layout is provisional: it follows the Rust crate, and the firmware has not
+confirmed it yet.
 '''
 
 from functools import cached_property
@@ -22,7 +27,7 @@ import zlib
 from ..compat import override
 from .Constants import (OSD_SYNC_RECORDS_MAX, OSD_SYNC_SLOTS, DeviceFeature, OsdCaptionAlign,
                         OsdCaptionFormat, OsdMessageFlag, OsdMessagePriority, OsdSyncSize, OsdSyncState,
-                        OsdSyncWhat)
+                        OsdSyncWhat, OsdPreviewAction)
 from .FrameBase import FrameBase
 from ..Interface import (DeviceRegistry, OsdCaption, OsdLogo, OsdMessage, OsdSync, OsdSyncEntry, OsdSyncReport,
                          OsdSyncRequest, OsdSyncSetting, OsdSyncSlot, OsdSyncValue, _wire_enum)
@@ -44,8 +49,17 @@ from ..Uid import MxrDeviceUid
 #            length at 24, then the text, unterminated, with a seq of 0: a
 #            request for the message on the unit's output, a write of one, or
 #            the unit's answer to either
+#   preview sync
+#            a sync at version 3, flags at 21 (bit 0 PREVIEW), then u16
+#            timeout at 80, the layer shown at 82 and a reserved byte: 84 bytes
+#   preview  version 3: the action at 20, the layer shown at 21, u16 timeout at
+#            22: 24 bytes
 OSD_SYNC_VERSION = 2
-'''The payload version every frame opens with; a unit drops any other.'''
+'''The payload version every frame opens with but the two of a preview; a unit
+drops any other.'''
+OSD_SYNC_VERSION_PREVIEW = 3
+'''The payload version of a preview sync and of a preview command. A unit whose
+overlay module predates previews drops it, and answers nothing.'''
 _HEADER_SIZE = 20
 
 OSD_KIND_SYNC = 0
@@ -55,8 +69,12 @@ OSD_KIND_REPORT = 3
 OSD_KIND_MESSAGE_REQUEST = 4
 OSD_KIND_MESSAGE_SET = 5
 OSD_KIND_MESSAGE_STATE = 6
+OSD_KIND_PREVIEW = 7
 
 _SYNC_SIZE = 80
+_SYNC_FLAGS_AT = 21
+_SYNC_FLAG_PREVIEW = 1
+_PREVIEW_SYNC_SIZE = 84
 _SLOTS_AT = 32
 _SLOT_SIZE = 12
 _REQUEST_SIZE = 54
@@ -88,6 +106,12 @@ def _header(kind:int, seq:int, target:MxrDeviceUid) -> bytes:
 def _cstr(data:bytes) -> str:
     return data.split(b'\0', 1)[0].decode('utf-8', errors='replace')
 
+class OsdReportFrom(NamedTuple):
+    '''A unit's report on taking a sync, for the registry, which ends a
+    preview it reports ended.'''
+    unit: MxrDeviceUid
+    report: OsdSyncReport
+
 class OsdMessageReport(NamedTuple):
     '''A unit's report of the message on its own output, and when it
     arrived.'''
@@ -108,6 +132,33 @@ class FrameV2IPOsdSync(FrameBase):
         if (OsdSyncWhat.LOGO_SLOTS in what):
             p += b''.join(struct.pack('<IIB3x', s.bytes, s.crc32, s.percent) for s in slots)
         return FrameBase.construct_base(mxr=mxr, opcode=0x53, payload=p.ljust(_SYNC_SIZE, b'\0'), target=to)
+
+    @staticmethod
+    def construct_preview_sync(mxr:DeviceRegistry, target:MxrDeviceUid, seq:int, what:OsdSyncWhat, http_port:int,
+                               records:int, slots:tuple[OsdSyncSlot, ...], layer:int, timeout:int,
+                               to:object=None) -> FrameBase|None:
+        '''A preview sync for target alone, as construct_sync(), which the unit
+        holds in a preview showing layer until a command or timeout seconds end
+        it.'''
+        frame = FrameV2IPOsdSync.construct_sync(mxr=mxr, target=target, seq=seq, what=what, http_port=http_port,
+                                                records=records, slots=slots, to=to)
+        if (frame is None):
+            return None
+        p = bytearray(frame.payload or b'')
+        p[0] = OSD_SYNC_VERSION_PREVIEW
+        p[_SYNC_FLAGS_AT] = _SYNC_FLAG_PREVIEW
+        p += struct.pack('<HB', timeout, layer)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x53, payload=bytes(p).ljust(_PREVIEW_SYNC_SIZE, b'\0'),
+                                        target=to)
+
+    @staticmethod
+    def construct_preview(mxr:DeviceRegistry, target:MxrDeviceUid, seq:int, action:OsdPreviewAction, layer:int=0,
+                          timeout:int=0, to:object=None) -> FrameBase|None:
+        '''A preview command of action for target's preview of sync seq. layer
+        and timeout are a HOLD's, and zero for any other.'''
+        p = bytes([OSD_SYNC_VERSION_PREVIEW, OSD_KIND_PREVIEW]) + struct.pack('<H', seq) + target.byte_value \
+            + struct.pack('<BBH', int(action), layer, timeout)
+        return FrameBase.construct_base(mxr=mxr, opcode=0x53, payload=p, target=to)
 
     @staticmethod
     def construct_request(mxr:DeviceRegistry, target:MxrDeviceUid, seq:int, what:OsdSyncWhat, missing:bytes,
@@ -301,6 +352,7 @@ class FrameV2IPOsdSync(FrameBase):
             dev.on_mxr_update(sync)
         elif ((report := self.report) is not None):
             dev.on_mxr_update(report)
+            self.mxr.on_mxr_update(OsdReportFrom(self.remote_id, report))
         elif ((message := self.message) is not None):
             dev.on_mxr_update(OsdMessageReport(message, self.timestamp))
         elif ((setting := self.setting) is not None):

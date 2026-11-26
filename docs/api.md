@@ -87,6 +87,11 @@ place, backgrounds and logo images.
 .. autodata:: mx_remote.proto.Constants.OSD_SYNC_IMAGE_HEIGHT_MAX
 
 .. autodata:: mx_remote.proto.Constants.OSD_SYNC_PERCENT_MAX
+
+.. autoclass:: mx_remote.proto.Constants.OsdPreviewAction
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.OSD_PREVIEW_TIMEOUT_MAX
 ```
 
 ## Overlay messages

@@ -546,6 +546,24 @@ await mx.keep_osd_sync(content)    # held and served, sent to no unit
 await mx.resend_osd_sync(joined)
 ```
 
+A management application editing a layout shows it live on one unit before the
+unit stores it. The preview is answered from its own content, beside the sync
+held for the mesh, and its images come from a server of its own:
+
+```python
+seq = await mx.send_osd_preview(unit, content, layer=1, timeout=600)   # 0 stands for 300 s
+await mx.hold_osd_preview(unit, seq, layer=2, timeout=600)   # another layer, the timeout restarted
+await mx.commit_osd_preview(unit, seq)    # the unit stores it, reporting DONE
+await mx.revert_osd_preview(unit, seq)    # or puts its stored settings back, reporting REVERTED
+```
+
+The unit reports `OsdSyncState.PREVIEWING` once it shows every setting, and
+reverts on its own when the timeout runs out. A unit whose overlay module
+predates previews drops the sync and answers nothing, so a `TAKING` report is
+the sign the unit previews. A logo is stored as it is uploaded, so a revert
+does not take it back. The preview layout is provisional: it follows the Rust
+crate, and the firmware has not confirmed it yet.
+
 A client made with `Remote(osd_sync=True)` takes a sync the way a unit does,
 which a dedicated controller needs to hold the mesh's overlays. Its hello
 announces `DeviceFeature.OSD_SYNC`, so a source sends it a sync of its own:
