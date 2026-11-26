@@ -408,8 +408,12 @@ async def announced(later):
     seen = {}
     deadline = time.time() + 2
     try:
-        wanted = {(0x00, True), (0x00, False), (0x58, False)}
-        while (time.time() < deadline) and not wanted.issubset(seen):
+        # The announcing socket would send its copy of a frame right after the
+        # endpoint's, so once the endpoint's arrived, a short wait settles it.
+        wanted = {(0x00, True), (0x00, False), (0x58, True)}
+        while (time.time() < deadline):
+            if wanted.issubset(seen):
+                deadline = min(deadline, time.time() + 0.3)
             try:
                 frame, (_, port) = listener.recvfrom(2048)
             except socket.timeout:
@@ -433,9 +437,12 @@ if mx_remote.Interface.mxr_valid_addresses():
         only = DeviceFeature(struct.unpack_from('<I', seen[(0x00, False)], 24 + 50)[0])
         assert DeviceFeature.OSD_SYNC not in only and DeviceFeature.MANAGER not in only, repr(only)
         assert DeviceFeature.CONFIG_INITIALISED in only, repr(only)
-        assert (0x58, False) in seen, f'no CONTROLLER_STATE hello from the announcing socket (named later: {later})'
+        assert (0x58, True) in seen, f'no CONTROLLER_STATE hello from the endpoint (named later: {later})'
+        assert (0x58, False) not in seen, \
+            f'a CONTROLLER_STATE hello from the announcing socket, which keeps a unit there from taking another ' \
+            f'controller (named later: {later})'
     else:
-        print('announce  : the hellos alone on an interface only announced on, from the start or named later')
+        print('announce  : the hello alone on an interface only announced on, from the start or named later')
 
 # A socket bound to an address the interface no longer holds is rebound.
 if mx_remote.Interface.mxr_valid_addresses():

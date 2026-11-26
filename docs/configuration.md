@@ -31,8 +31,10 @@ mx = mx_remote.Remote(mesh_device=True, serial="P9SN66660600", version="1.2.3")
 A client confined to one interface is invisible on every other, so a dedicated
 controller speaking the protocol on its mesh link alone is not listed by the
 units on its uplink LAN. `announce_interfaces` names interfaces that get each
-hello, and a dedicated controller's `CONTROLLER_STATE` hello, from a send-only
-socket bound to the interface's current address:
+hello from a send-only socket bound to the interface's current address. A
+dedicated controller's `CONTROLLER_STATE` hello stays off them: a unit hearing
+it refuses every other controller's promotion, and this client cannot answer
+that unit there.
 
 ```python
 mx = mx_remote.Remote(local_ip="10.8.80.30", dedicated_controller=True, announce_interfaces=["eth1"])

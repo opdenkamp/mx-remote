@@ -234,11 +234,14 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             setting at on_osd_sync_setting(). Fetching the logos is the
             caller's, from OsdSync.logo_url().
         :param announce_interfaces: interfaces, by name, this client only
-            announces itself on: each hello, and the CONTROLLER_STATE hello of a
-            dedicated controller, goes there to both endpoints a unit has, from
-            a socket that is never read, so nothing arriving there is taken.
-            The hello there leaves out what invites a unit to act on this
-            client: MANAGER, MESH_MASTER and OSD_SYNC. Each follows its
+            announces itself on: each hello goes there to both endpoints a unit
+            has, from a socket that is never read, so nothing arriving there is
+            taken. The hello there leaves out what invites a unit to act on
+            this client: MANAGER, MESH_MASTER and OSD_SYNC. A dedicated
+            controller's CONTROLLER_STATE hello does not go there: a unit
+            hearing it takes this controller as online and refuses every other
+            controller's promotion, though this client can never answer it
+            there. Each follows its
             interface's current address and is skipped while it has none.
             set_announce_interfaces() changes them while running.
         '''
@@ -1539,10 +1542,10 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         if not now_due and not self._own_controller.due(now):
             return
         self._own_controller.sent = now
-        frame = FrameControllerState.construct_hello(mxr=self, hello=self._own_controller.hello())
-        self._send_to_all(frame)
-        if (frame is not None):
-            self._announce(frame.frame)
+        # Not to the interfaces only announced on: a unit hearing it takes this
+        # controller as online and refuses every other controller's promotion,
+        # and this client never hears that unit there to answer it.
+        self._send_to_all(FrameControllerState.construct_hello(mxr=self, hello=self._own_controller.hello()))
 
     def set_controller_role(self, role:ControllerRole|int, primary:MxrDeviceUid|None=None) -> bool:
         '''Set the role and the primary this client's CONTROLLER_STATE hello
