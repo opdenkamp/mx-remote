@@ -2849,6 +2849,11 @@ class ThirdPartyVendor:
             return f"vendor {self.id!r}"
         return f"vendor OUI {self.id.hex(':')}"
 
+def _u32(value:int) -> int:
+    if not (0 <= value <= 0xFFFFFFFF):
+        raise ValueError(f"{value} does not fit 32 bits")
+    return value
+
 @dataclass(frozen=True)
 class MeshOperationMessage:
     """
@@ -2856,9 +2861,15 @@ class MeshOperationMessage:
     its parameter.
 
     The parameter is a uid for every operation but
-    MeshOperation.REPORT_CONTROLLER, where it carries two 32-bit words instead,
-    which priority and installer read. The class methods build each operation
-    a mesh controller sends.
+    MeshOperation.REPORT_CONTROLLER and MeshOperation.REPORT_MEMBERSHIP, where
+    it carries 32-bit words instead, which priority, installer,
+    membership_lost and membership_token read. The class methods build each
+    operation a mesh controller sends.
+
+    A unit from protocol 0x35 (MESH_TOKEN_PROTOCOL) holds a membership token,
+    given it by its controller on a REGISTER or PROMOTE_CONTROLLER and reported
+    back in its membership reports, so a controller can tell its own member
+    from one another controller took.
     """
     operation: MeshOperation|int
     """What the operation asks; a raw int for one this library does not name."""
@@ -2866,11 +2877,23 @@ class MeshOperationMessage:
     """The device it concerns."""
     param: MxrDeviceUid
     """Its parameter."""
+    token: int = 0
+    """The membership token a register or promotion gives the unit, 0 for
+    none."""
+    flags: MeshOperationFlag = MeshOperationFlag(0)
+    """The flags of a promotion."""
 
     @classmethod
     def register(cls, unit:MxrDeviceUid, controller:MxrDeviceUid) -> 'MeshOperationMessage':
         """unit joins the mesh of controller."""
         return cls(MeshOperation.REGISTER, unit, controller)
+
+    @classmethod
+    def register_with_token(cls, unit:MxrDeviceUid, controller:MxrDeviceUid, token:int) -> 'MeshOperationMessage':
+        """unit joins the mesh of controller, holding token as its membership
+        token. A unit already in that mesh takes it as a repeat and holds the
+        token."""
+        return cls(MeshOperation.REGISTER, unit, controller, token=_u32(token))
 
     @classmethod
     def unregister(cls, unit:MxrDeviceUid, controller:MxrDeviceUid) -> 'MeshOperationMessage':
@@ -2909,9 +2932,24 @@ class MeshOperationMessage:
         return cls(MeshOperation.PROMOTE_CONTROLLER, controller, previous)
 
     @classmethod
+    def promote_controller_with_token(cls, controller:MxrDeviceUid, previous:MxrDeviceUid, token:int,
+                                      flags:MeshOperationFlag=MeshOperationFlag(0)) -> 'MeshOperationMessage':
+        """promote_controller(), giving the units that follow controller token
+        as their membership token, with flags."""
+        return cls(MeshOperation.PROMOTE_CONTROLLER, controller, previous, token=_u32(token),
+                   flags=MeshOperationFlag(_u32(int(flags))))
+
+    @classmethod
     def report_membership(cls, controller:MxrDeviceUid|None) -> 'MeshOperationMessage':
         """The sender reports controller as its mesh controller, None for none."""
         return cls(MeshOperation.REPORT_MEMBERSHIP, MxrDeviceUid(controller), MxrDeviceUid(None))
+
+    @classmethod
+    def report_membership_with_token(cls, controller:MxrDeviceUid|None, token:int) -> 'MeshOperationMessage':
+        """report_membership(), carrying the sender's membership token, 0 for
+        none, in the parameter's second 32-bit word."""
+        return cls(MeshOperation.REPORT_MEMBERSHIP, MxrDeviceUid(controller),
+                   MxrDeviceUid(bytes(4) + _u32(token).to_bytes(4, 'little') + bytes(8)))
 
     @property
     def priority(self) -> int:
@@ -2930,6 +2968,13 @@ class MeshOperationMessage:
         parameter's first 32-bit word. Senders that predate the flag leave it
         clear."""
         return bool(int.from_bytes(self.param.byte_value[0:4], 'little') & 1)
+
+    @property
+    def membership_token(self) -> int:
+        """The membership token a membership report carries: the parameter's
+        second 32-bit word, 0 for none. Senders before protocol 0x35 leave it
+        0."""
+        return int.from_bytes(self.param.byte_value[4:8], 'little')
 
     def __str__(self) -> str:
         return f"{self.operation} target={self.target} param={self.param}"

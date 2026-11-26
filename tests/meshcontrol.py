@@ -192,6 +192,40 @@ for bad in ((0x10000, 0), (0, 0x10000), (-1, 0)):
     raise AssertionError(f'a controller report of {bad} was built')
 print('operations  : each kind, its target and its parameter at their offsets')
 
+# A register or promotion carrying a membership token or flags goes out as 48
+# bytes, the token at 40 and the flags at 44; with neither it stays at 40. A
+# membership report carries the token in its parameter's second word.
+from mx_remote import MeshOperationFlag
+for message, kind, tail in (
+        (MeshOperationMessage.register_with_token(previous, controller, 0xA1B2C3D4), 0,
+         struct.pack('<II', 0xA1B2C3D4, 0)),
+        (MeshOperationMessage.promote_controller_with_token(controller, previous, 0x01020304,
+                                                            MeshOperationFlag.PROMOTE_CORRECTIVE), 5,
+         struct.pack('<II', 0x01020304, 1)),
+        (MeshOperationMessage.promote_controller_with_token(controller, previous, 0,
+                                                            MeshOperationFlag.PROMOTE_CORRECTIVE), 5,
+         struct.pack('<II', 0, 1)),
+        (MeshOperationMessage.register_with_token(previous, controller, 0), 0, b'')):
+    mx.sent.clear()
+    assert call(mx.send_mesh_operation(message)) is True
+    f = mx.sent[-1]
+    p = f[24:]
+    assert f[2] == 0x1D, f'MESH_OPERATION stamped {f[2]:#04x}'
+    assert len(p) == 40 + len(tail), (kind, len(p))
+    assert p[0] == kind and p[36:40] == bytes(4) and p[40:] == tail, (kind, p[36:].hex())
+mx.sent.clear()
+assert call(mx.send_mesh_operation(MeshOperationMessage.report_membership_with_token(controller, 0x0A0B0C0D))) is True
+p = mx.sent[-1][24:]
+assert len(p) == 40 and p[20:36] == bytes(4) + struct.pack('<I', 0x0A0B0C0D) + bytes(8), p[20:36].hex()
+assert MeshOperationMessage.report_membership_with_token(controller, 0x0A0B0C0D).membership_token == 0x0A0B0C0D
+for bad in (-1, 1 << 32):
+    try:
+        MeshOperationMessage.register_with_token(previous, controller, bad)
+    except ValueError:
+        continue
+    raise AssertionError(f'a token of {bad} was built')
+print('token       : 48 bytes with a token or flags, 40 with neither; reported in the second word')
+
 # Every operation but the two reports reaches the caller as it arrived, an
 # unnamed one with its raw value, and none names the sender's mesh master.
 def poisoned(kind, target, param):
@@ -221,6 +255,26 @@ assert changes, 'lost settings flagged without a change reported'
 changes.clear()
 rx(uid(0x50), 0x3B, bytes([0xFF, 0, 0, 0]) + uid(0x41) + struct.pack('<I', 0xA5A5A5A4) + bytes(12) + bytes(4))
 assert not member.mesh_membership_lost and changes, 'the flag clearing'
+# The membership token is the parameter's second word, and a change of it alone
+# is reported.
+changes.clear()
+rx(uid(0x50), 0x3B, bytes([0xFF, 0, 0, 0]) + uid(0x41) + struct.pack('<II', 0xA5A5A5A4, 0x11223344) + bytes(8)
+                    + bytes(4))
+assert member.mesh_membership_token == 0x11223344 and changes, 'the token'
+changes.clear()
+rx(uid(0x50), 0x3B, bytes([0xFF, 0, 0, 0]) + uid(0x41) + struct.pack('<II', 0xA5A5A5A4, 0x11223344) + bytes(8)
+                    + bytes(4))
+assert not changes, 'an unchanged token was reported'
+rx(uid(0x50), 0x3B, bytes([0xFF, 0, 0, 0]) + uid(0x41) + struct.pack('<II', 0xA5A5A5A4, 0) + bytes(8) + bytes(4))
+assert member.mesh_membership_token == 0 and changes, 'the token clearing'
+# A received operation reads its token and flags only from a payload carrying
+# both.
+seen.operations.clear()
+rx(uid(0x50), 0x3B, poisoned(5, uid(0x41), uid(0x42)) + struct.pack('<II', 0xCAFEF00D, 1))
+rx(uid(0x50), 0x3B, poisoned(5, uid(0x41), uid(0x42)) + struct.pack('<I', 0xCAFEF00D))
+(_, full), (_, part) = seen.operations
+assert (full.token, full.flags) == (0xCAFEF00D, MeshOperationFlag.PROMOTE_CORRECTIVE), full
+assert (part.token, part.flags) == (0, 0), part
 print('received    : every other operation reaches the caller, an unnamed one raw')
 
 # A controller report is the sender's own: priority and installer each the low

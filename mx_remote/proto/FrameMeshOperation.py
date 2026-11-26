@@ -7,8 +7,9 @@
 '''Protocol frame for mesh network operations (register, unregister, promote, etc.).'''
 
 from functools import cached_property
+import struct
 from .FrameBase import FrameBase
-from .Constants import MeshOperation, decode_enum
+from .Constants import MeshOperation, MeshOperationFlag, decode_enum
 from ..Interface import DeviceRegistry, DeviceBase, MeshControllerReport, MeshOperationMessage, MxrDeviceUid
 import logging
 
@@ -16,8 +17,11 @@ _LOGGER = logging.getLogger(__name__)
 
 # mxr_mesh_operation is ALIGN(8): u8 operation at 0, three bytes of padding to
 # the uid alignment, target uid at 4, parameter uid at 20, and four bytes of
-# tail padding out to 40.
+# tail padding out to 40. From protocol 0x35 an operation carrying a membership
+# token or flags appends the u32 token at 40 and the u32 flags at 44; one with
+# neither stays at the 40 bytes every unit takes.
 _WIRE_SIZE = 40
+_TOKEN_SIZE = 48
 
 # Two protocol versions do different jobs on this opcode.
 #
@@ -63,8 +67,11 @@ class FrameMeshOperation(FrameBase):
     @staticmethod
     def construct_message(mxr:DeviceRegistry, message:MeshOperationMessage) -> FrameBase|None:
         '''Build a mesh operation addressed to every device, from its uids.'''
-        payload = bytes([int(message.operation), 0, 0, 0]) + message.target.byte_value + message.param.byte_value
-        return FrameBase.construct_base(mxr=mxr, opcode=0x3B, payload=payload, size=_WIRE_SIZE)
+        payload = bytes([int(message.operation), 0, 0, 0]) + message.target.byte_value + message.param.byte_value \
+            + bytes(4)
+        if message.token or message.flags:
+            payload += struct.pack('<II', message.token, int(message.flags))
+        return FrameBase.construct_base(mxr=mxr, opcode=0x3B, payload=payload)
 
     @cached_property
     def acceptable(self) -> bool:
@@ -116,7 +123,10 @@ class FrameMeshOperation(FrameBase):
             operation:MeshOperation|int = MeshOperation(kind)
         except ValueError:
             operation = kind
-        return MeshOperationMessage(operation, target, param)
+        # A unit reads the token and flags only from a payload carrying both.
+        token, flags = struct.unpack_from('<II', self.payload or b'', 40) \
+            if (len(self.payload or b'') >= _TOKEN_SIZE) else (0, 0)
+        return MeshOperationMessage(operation, target, param, token=token, flags=MeshOperationFlag(flags))
 
     @cached_property
     def controller_report(self) -> MeshControllerReport|None:

@@ -404,6 +404,11 @@ The operations a mesh controller sends, and what a controller announces.
 .. autoclass:: mx_remote.proto.Constants.MeshOperation
    :members:
 
+.. autoclass:: mx_remote.proto.Constants.MeshOperationFlag
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.MESH_TOKEN_PROTOCOL
+
 .. autodata:: mx_remote.proto.Constants.ONEIP_SOURCE_FILTER_MAX
 
 .. autodata:: mx_remote.proto.Constants.MXR_RC_STATUS_MAX

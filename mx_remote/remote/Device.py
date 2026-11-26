@@ -237,6 +237,7 @@ class Device(DeviceBase):
 		self._clock:DeviceClock|None = None
 		self._mesh_master_uid:MxrDeviceUid|None = None
 		self._mesh_membership_lost = False
+		self._mesh_membership_token = 0
 		self._first_heard = hello.timestamp
 		self._mesh_controller_report:MeshControllerReport|None = None
 		# The source device behind each OneIP bay, by bay mode and number. Held
@@ -938,6 +939,13 @@ class Device(DeviceBase):
 		return self._mesh_membership_lost
 
 	@property
+	def mesh_membership_token(self) -> int:
+		'''The membership token the device's last membership report carries,
+		0 for none: the one its controller gave it. A device before protocol
+		0x35 reports none.'''
+		return self._mesh_membership_token
+
+	@property
 	def first_heard(self) -> float:
 		'''When this client first heard the device.'''
 		return self._first_heard
@@ -1142,8 +1150,10 @@ class Device(DeviceBase):
 		if ((message := frame.message) is None):
 			return
 		if (message.operation == MeshOperation.REPORT_MEMBERSHIP):
-			if (self._mesh_membership_lost != message.membership_lost):
+			if (self._mesh_membership_lost != message.membership_lost) \
+					or (self._mesh_membership_token != message.membership_token):
 				self._mesh_membership_lost = message.membership_lost
+				self._mesh_membership_token = message.membership_token
 				self.call_callbacks()
 			self.mesh_master = message.target
 		elif (message.operation == MeshOperation.REPORT_CONTROLLER):

@@ -1395,6 +1395,18 @@ PORT_METADATA_KEY_MAX = 31
 PORT_METADATA_VALUE_MAX = 255
 """The longest value of a port's metadata, in bytes of UTF-8."""
 
+MESH_TOKEN_PROTOCOL = 0x35
+'''The protocol version from which a unit holds a membership token: it reads
+one on a register or promotion and reports it in its membership reports.
+MESH_OPERATION itself stays stamped 0x1D.'''
+
+class MeshOperationFlag(IntFlag):
+	'''The flags of a mesh operation (0x3B), sent on a PROMOTE_CONTROLLER
+	alone.'''
+	PROMOTE_CORRECTIVE = 1 << 0
+	'''The promotion corrects a member that reports another controller,
+	rather than taking over a mesh.'''
+
 class MeshOperation(IntEnum):
 	'''What a mesh operation (0x3B) asks of the mesh.'''
 	REGISTER = 0

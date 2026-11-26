@@ -826,9 +826,26 @@ input of its own or has not reported its stream addresses, or the other unit has
 not reported a usable audio return group.
 
 A unit's controller report is kept as `device.mesh_controller_report`, and its
-membership report as `mesh_master` and `mesh_membership_lost`. Every other mesh operation a device sends
+membership report as `mesh_master`, `mesh_membership_lost` and
+`mesh_membership_token`. Every other mesh operation a device sends
 arrives at `MxrCallbacks.on_mesh_operation()`, one this library has no name for
 with its raw value.
+
+From protocol 0x35 a controller gives each unit a membership token on a
+register or promotion, and the unit reports it back, so a controller can tell
+its own member from one another controller took:
+
+```python
+await mx.send_mesh_operation(MeshOperationMessage.register_with_token(unit.remote_id, mx.uid, token))
+await mx.send_mesh_operation(MeshOperationMessage.promote_controller_with_token(
+    mx.uid, previous, token, MeshOperationFlag.PROMOTE_CORRECTIVE))
+unit.mesh_membership_token          # 0 until the unit reports one
+```
+
+An operation with a token or flags goes out as 48 bytes; one with neither
+stays at the 40 every unit takes. `PROMOTE_CORRECTIVE` marks a promotion
+correcting a member that reports another controller, rather than taking over
+a mesh.
 
 ### Replacing a unit, and kept settings
 
