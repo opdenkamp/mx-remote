@@ -1382,6 +1382,19 @@ MESH_BAYS_MAX = 2 * 256
 """The most entries a controller's numbering holds: up to 256 bays of each mode,
 as a unit walks them."""
 
+PORT_METADATA_FIELDS_MAX = 16
+"""The most fields a port's metadata holds."""
+
+PORT_METADATA_MAX = 1024
+"""The most bytes a port's metadata takes, as it is carried: each field its key,
+a NUL, its value and a NUL."""
+
+PORT_METADATA_KEY_MAX = 31
+"""The longest key of a port's metadata, in characters."""
+
+PORT_METADATA_VALUE_MAX = 255
+"""The longest value of a port's metadata, in bytes of UTF-8."""
+
 class MeshOperation(IntEnum):
 	'''What a mesh operation (0x3B) asks of the mesh.'''
 	REGISTER = 0

@@ -26,7 +26,7 @@ from ..const import MXR_HELLO_INTERVAL_MIN, MXR_HELLO_INTERVAL_RAND, __version__
 from .Device import Device
 from .Tree import DeviceTree
 from .AudioRoute import audio_path
-from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, AudioHop, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncReport, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, MeshConfig, MeshReplaceable, MeshReplaceUnit, MeshSetting, MeshBay, MeshBays, OneIPStreamSources, DeviceTreeEntry, UnitStatus
+from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, AudioHop, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncReport, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, MeshConfig, MeshReplaceable, MeshReplaceUnit, MeshSetting, MeshBay, MeshBays, MeshPort, PortMetadata, PortMetadataField, PortMetadataStore, OneIPStreamSources, DeviceTreeEntry, UnitStatus
 from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat, MESH_REPLACE_NAME_MAX, MESH_REPLACE_UNITS_MAX, MeshReplaceResult, UNIT_MAX_TEMPERATURES, MESH_BAYS_MAX, ControllerRole, CONTROLLER_PARTS_MAX, OSD_SETTINGS_ASKED, OSD_SYNC_RECORDS_MAX
 from ..proto.FrameDiscover import FrameDiscover, constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
@@ -38,8 +38,11 @@ from ..proto.FrameThirdParty import FrameThirdParty
 from ..proto.FrameMeshOperation import FrameMeshOperation
 from ..proto.FrameMeshReplace import FrameMeshReplace, KIND_QUERY, KIND_UNITS, KIND_REQUEST, KIND_RESULT
 from ..proto.FrameMeshConfig import (FrameMeshConfig, crc32, encode_bays, encode_settings, FLAG_COPY, KIND_BAYS,
-                                     KIND_BAYS_REQUEST, KIND_DUMP, KIND_REQUEST as CONFIG_REQUEST, KIND_SET)
+                                     KIND_BAYS_REQUEST, KIND_DUMP, KIND_REQUEST as CONFIG_REQUEST, KIND_SET,
+                                     KIND_METADATA, KIND_METADATA_INDEX, KIND_METADATA_REQUEST,
+                                     port_metadata_request_payload)
 from .Mesh import MeshKeeper
+from .Metadata import MetadataKeeper, MetadataRefused, next_index_interval
 from .Controller import ControllerPull, OwnController
 from ..proto.FrameControllerState import FrameControllerState, KIND_DATA as STATE_DATA, KIND_REQUEST as STATE_REQUEST, StateHeader
 from ..proto.FrameSetInstaller import FrameSetInstaller
@@ -283,6 +286,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         self._svd = SvdMap()
         self._osd = OsdSender()
         self._mesh = MeshKeeper()
+        self._metadata = MetadataKeeper()
         self._osd_queued = asyncio.Event()
         self._logos = LogoServer()
         self._logo_port = logo_port
@@ -601,6 +605,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             elif device.online:
                 self._reask(uid)
         self._check_controller_pulls(time.time())
+        self._metadata.check_index(self.uid, self._controls_mesh, time.time(), next_index_interval)
+        self._send_metadata()
         self._forget_silent()
         if (len(self.remotes) == 0) and ((time.time() - self._discover_timeout) >= _DISCOVER_COVERS):
             self.tx_discover()
@@ -1302,6 +1308,106 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         frame = FrameMeshConfig.construct_setup(mxr=self, member=member.remote_id, completed=completed, to=member)
         return (frame is not None) and (self.transmit(frame.frame, to=member) == len(frame.frame))
 
+    # ---- the port metadata a mesh keeps (0x57) ----
+
+    @property
+    def _controls_mesh(self) -> bool:
+        '''Whether this client is the controller of a mesh: its own.'''
+        return (self._mesh_controller is not None) and (self._mesh_controller == self.uid)
+
+    def port_metadata(self, port:MeshPort) -> tuple[PortMetadataField, ...]|None:
+        '''The metadata of port this client holds, None when it holds none.
+
+        An installer records fields about the device on a port, such as
+        device_type and logo, on the mesh controller; every unit holds them and
+        returns them with its ports, and this client takes part as a unit
+        does. As a member it follows its controller's index, as controller it
+        sends its own, and it answers every request for a port's metadata.'''
+        return self._metadata.get(port)
+
+    def port_metadata_store(self) -> PortMetadataStore:
+        '''All the port metadata this client holds, with its generation: what a
+        controller persists, and restores with restore_port_metadata().'''
+        return self._metadata.store()
+
+    def restore_port_metadata(self, store:PortMetadataStore) -> bool:
+        '''Replace all the port metadata this client holds with store, as a unit
+        loads what it persisted; best before start_async(). Nothing is reported
+        or sent for it, but as controller this client sends its index within
+        1 s. A port of no fields is left out.
+
+        Refused, returning False and holding what it held, for a port listed
+        twice or a field set_port_metadata() refuses.'''
+        try:
+            self._metadata.restore(store)
+        except MetadataRefused as e:
+            _LOGGER.warning(f"not restoring port metadata: {e}")
+            return False
+        if self._controls_mesh:
+            self._metadata.index_due = time.time() + 1.0
+        return True
+
+    async def set_port_metadata(self, port:MeshPort, fields:list[PortMetadataField]|tuple[PortMetadataField, ...]) -> bool:
+        '''Set the metadata of port, as the API of the unit serving it does:
+        fields in the order given, none removing the port's metadata. True when
+        it was taken and every frame it sends was written.
+
+        When that changes what this client holds, the generation goes up by one
+        and both are reported to this client's own callbacks; as controller it
+        also sends the port's metadata to every unit at once and its index 1 s
+        later, and its members take them. A unit in no mesh keeps it alone.
+
+        Refused while this client follows another unit as its controller,
+        whose API it is, and for metadata no unit takes: more than 16 fields or
+        1024 bytes as carried, a key other than 1 to 31 characters of A-Z,
+        a-z, 0-9, _ and -, a value other than 1 to 255 bytes without control
+        characters, " or \\, or a key set twice. (Metadata received with a
+        repeated key is taken as it is, as a unit takes it, and
+        restore_port_metadata() takes it back.)'''
+        if (self._mesh_controller is not None) and not self._controls_mesh:
+            _LOGGER.warning("not setting port metadata: a mesh member's port metadata is set on its controller")
+            return False
+        try:
+            self._metadata.set(self.uid, self._controls_mesh, port, tuple(fields), time.time())
+        except MetadataRefused as e:
+            _LOGGER.warning(f"not setting port metadata: {e}")
+            return False
+        return self._send_metadata()
+
+    async def request_port_metadata(self, holder:DeviceBase, port:MeshPort) -> bool:
+        '''Ask holder for the metadata of port. True when it was written. Every
+        unit answers with what it holds, no fields when none, and the answer is
+        taken from holder for 30 s: it arrives at
+        MxrCallbacks.on_port_metadata_changed() when it differs from what this
+        client holds, and port_metadata() reads it.'''
+        frame = FrameMeshConfig.construct_payload(mxr=self, payload=port_metadata_request_payload(port), to=holder)
+        if (frame is None) or (self.transmit(frame.frame, to=holder) != len(frame.frame)):
+            return False
+        self._metadata.asked_now(holder.remote_id, time.time())
+        return True
+
+    def _send_metadata(self) -> bool:
+        '''Report the metadata changes the keeper queued, and send the frames it
+        queued: each to every unit, or to the device it names. True when every
+        frame was written.'''
+        keeper = self._metadata
+        changes, keeper.changes = keeper.changes, []
+        generations, keeper.generations = keeper.generations, []
+        for source, metadata in changes:
+            self.callbacks.on_port_metadata_changed(source, metadata)
+        for source, generation in generations:
+            self.callbacks.on_port_metadata_generation_changed(source, generation)
+        outbox, keeper.outbox = keeper.outbox, []
+        ok = True
+        for to, payload in outbox:
+            dev = None if (to is None) else self.remotes.get(to)
+            if (to is not None) and (dev is None):
+                ok = False
+                continue
+            frame = FrameMeshConfig.construct_payload(mxr=self, payload=payload, to=dev)
+            ok = (frame is not None) and (self.transmit(frame.frame, to=dev) == len(frame.frame)) and ok
+        return ok
+
     async def set_mesh_installer(self, installer:int) -> bool:
         '''Set the installer id of every unit that hears it, 16 bits.
 
@@ -1928,7 +2034,9 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         sender a unit takes it from.'''
         if ((dev := self.remotes.get(frame.remote_id)) is None) or (frame.subject is None):
             return
-        if (frame.kind == CONFIG_REQUEST):
+        if (frame.kind in (KIND_METADATA, KIND_METADATA_INDEX, KIND_METADATA_REQUEST)):
+            self._on_port_metadata(dev, frame)
+        elif (frame.kind == CONFIG_REQUEST):
             self.callbacks.on_mesh_config_requested(dev, frame.subject)
         elif (frame.kind == KIND_BAYS_REQUEST):
             self.callbacks.on_mesh_bays_requested(dev, frame.subject)
@@ -1943,6 +2051,24 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             elif (frame.kind == KIND_SET) and (frame.subject == self.uid) \
                     and (dev.remote_id == self._mesh_controller):
                 self.callbacks.on_mesh_config_set_requested(dev, settings)
+
+    def _on_port_metadata(self, dev:DeviceBase, frame:FrameMeshConfig) -> None:
+        '''Hand port metadata, its index and requests for it to the metadata
+        this client keeps, which judges each by its sender, then report and
+        send what that queued.'''
+        keeper, sender, now = self._metadata, dev.remote_id, frame.timestamp
+        if (frame.kind == KIND_METADATA) and (frame.port is not None):
+            keeper.on_metadata(sender, self.uid, self._mesh_controller, frame.port, frame.total, frame.crc,
+                               frame.chunk, now)
+        elif (frame.kind == KIND_METADATA_INDEX):
+            def is_member(uid:MxrDeviceUid) -> bool:
+                d = self.remotes.get(uid)
+                return (d is not None) and (d.mesh_master_uid == self.uid)
+            keeper.on_index(sender, self.uid, self._mesh_controller, is_member, frame.offset, frame.total, frame.crc,
+                            frame.chunk, now)
+        elif (frame.kind == KIND_METADATA_REQUEST) and (frame.port is not None):
+            keeper.on_request(sender, frame.port)
+        self._send_metadata()
 
     def _on_mxr_hello(self, hello_frame:FrameHello) -> None:
         '''Hello frame received. Register or update the local device cache.'''

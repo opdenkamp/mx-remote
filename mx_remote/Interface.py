@@ -3053,6 +3053,57 @@ class MeshBays:
     naming none is left out."""
 
 @dataclass(frozen=True)
+class MeshPort:
+    """A port of a mesh unit, as port metadata names it: the unit's input or
+    its output."""
+    unit: MxrDeviceUid
+    """The unit."""
+    input: bool
+    """The unit's input, or else its output."""
+
+    @classmethod
+    def input_of(cls, unit:MxrDeviceUid) -> 'MeshPort':
+        """The input of unit."""
+        return cls(MxrDeviceUid(unit), True)
+
+    @classmethod
+    def output_of(cls, unit:MxrDeviceUid) -> 'MeshPort':
+        """The output of unit."""
+        return cls(MxrDeviceUid(unit), False)
+
+@dataclass(frozen=True)
+class PortMetadataField:
+    """One field an installer recorded about the device on a port, such as
+    device_type set to Sony PlayStation 4.
+
+    A key is 1 to PORT_METADATA_KEY_MAX characters of A-Z, a-z, 0-9, _ and -.
+    A value is 1 to PORT_METADATA_VALUE_MAX bytes of UTF-8, with no control
+    character, " or \\."""
+    key: str
+    """The key."""
+    value: str
+    """The value."""
+
+@dataclass(frozen=True)
+class PortMetadata:
+    """The metadata of one port, its fields in the order they were set. No
+    fields means the port has none."""
+    port: MeshPort
+    """The port."""
+    fields: tuple[PortMetadataField, ...]
+    """The fields, in order; a key may repeat, as a unit carries it."""
+
+@dataclass(frozen=True)
+class PortMetadataStore:
+    """All the port metadata this client holds, with the generation it holds it
+    at: what a controller persists and restores."""
+    generation: int
+    """The generation, which a controller raises by one on every change, and a
+    unit takes from the index it last took whole."""
+    ports: tuple[PortMetadata, ...]
+    """Every port holding metadata, each with at least one field, by port."""
+
+@dataclass(frozen=True)
 class ControllerPart:
     """One part of a dedicated controller's state, as its hello lists it."""
     part: int
@@ -5153,6 +5204,20 @@ class MxrCallbacks:
     def on_mesh_bays_received(self, dev:DeviceBase, bays:MeshBays) -> None:
         ''' called when 'dev' sent a controller's numbering whole, which
         Remote.mesh_bays() also reads. '''
+        pass
+
+    def on_port_metadata_changed(self, source:MxrDeviceUid, metadata:PortMetadata) -> None:
+        ''' called when the port metadata this client holds changed: 'source'
+        sent it, or an index from 'source' dropped a port it no longer names,
+        or this client set it itself, when 'source' is its own uid. No fields
+        means the port's was removed. Remote.port_metadata() also reads it. '''
+        pass
+
+    def on_port_metadata_generation_changed(self, source:MxrDeviceUid, generation:int) -> None:
+        ''' called when the generation of the port metadata this client holds
+        changed: it took the index of 'source' whole, or set metadata itself,
+        when 'source' is its own uid. What a controller persists, with
+        Remote.port_metadata_store(). '''
         pass
 
     def on_controller_part_received(self, dev:DeviceBase, part:int, generation:int, data:bytes) -> None:

@@ -905,6 +905,33 @@ A numbering arrives at `on_mesh_bays_received()`, put together as a dump is;
 bay 0 is the controller's own. It is asked only of a unit at 0x33 or later,
 and holds at most `MESH_BAYS_MAX` (512) bays.
 
+### Port metadata
+
+An installer records fields about the device on a port, such as `device_type`
+and `logo`, on the mesh controller. Every unit holds every port's, and this
+client takes part as a unit does: as a member it follows its controller's
+index, asking for each port it lacks; as controller it sends a changed port to
+every unit at once, and its index 1 s later and every 45 to 60 s; and it
+answers every request for a port's metadata.
+
+```python
+port = MeshPort.input_of(source.remote_id)
+await mx.set_port_metadata(port, [PortMetadataField('device_type', 'Sony PlayStation 4')])
+mx.port_metadata(port)                  # the fields, None when it holds none
+await mx.request_port_metadata(unit, port)   # taken from unit for 30 s
+
+store = mx.port_metadata_store()        # persist it as a controller does
+mx.restore_port_metadata(store)         # and load it back, before start_async()
+```
+
+A change arrives at `on_port_metadata_changed(source, metadata)`, no fields
+meaning the port's was removed, and the generation at
+`on_port_metadata_generation_changed(source, generation)`. A member's
+metadata is set on its controller, so `set_port_metadata()` is refused while
+this client follows another unit. A key is 1 to 31 characters of `A-Z`,
+`a-z`, `0-9`, `_` and `-`; a value 1 to 255 bytes without control characters,
+`"` or `\`; at most 16 fields and 1024 bytes as carried.
+
 ### Dedicated controllers
 
 A mesh controller without bays of its own, such as a router, marks itself as

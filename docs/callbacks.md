@@ -70,6 +70,8 @@ Available callback methods:
 | `on_amp_dolby_settings_changed` | amplifier Dolby settings changed |
 | `on_third_party_message` | another application sent a message under its vendor id |
 | `on_mesh_operation` | a device sent a mesh operation other than a membership or controller report |
+| `on_port_metadata_changed` | the port metadata this client holds changed |
+| `on_port_metadata_generation_changed` | the generation of that port metadata changed |
 
 You can also register per-device and per-bay callbacks:
 

@@ -451,6 +451,26 @@ and the numbering of a controller's bays.
    :members:
 
 .. autodata:: mx_remote.proto.Constants.MESH_BAYS_MAX
+
+.. autoclass:: mx_remote.MeshPort
+   :members:
+
+.. autoclass:: mx_remote.PortMetadataField
+   :members:
+
+.. autoclass:: mx_remote.PortMetadata
+   :members:
+
+.. autoclass:: mx_remote.PortMetadataStore
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.PORT_METADATA_FIELDS_MAX
+
+.. autodata:: mx_remote.proto.Constants.PORT_METADATA_MAX
+
+.. autodata:: mx_remote.proto.Constants.PORT_METADATA_KEY_MAX
+
+.. autodata:: mx_remote.proto.Constants.PORT_METADATA_VALUE_MAX
 ```
 
 ## Dedicated controllers
