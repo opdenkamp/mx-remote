@@ -27,6 +27,7 @@ See README.md for full usage documentation.
 """
 
 from .remote.Remote import Remote
+from .remote.Proxy import ProxyConfig
 from .Interface import *
 from .const import VERSION
 from .proto.Constants import MXR_PROTOCOL_VERSION, RCKey, RCAction, RCType

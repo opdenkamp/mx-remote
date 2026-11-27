@@ -126,19 +126,31 @@ assert len(builders) == 1 and builders[0].startswith('FrameBase.py:'), \
     f'a frame header is built outside construct_base: {builders}'
 print(f'builders       : 1 ({builders[0]})')
 
-# Two writes, both in the transport: an endpoint's, and an announcer's, which
-# sends only the hellos to interfaces this client announces itself on alone.
+# Three writes, all in a transport: an endpoint's; an announcer's, which sends
+# only the hellos to interfaces this client announces itself on alone; and the
+# driver proxy's, which sends only sealed DATA and its own join frames to the
+# controller. Every mesh frame reaching that one went through construct_base
+# first and is sealed whole.
 writers = sites(r'\.sendto\(|\.send\(')
-transport = (lib / 'remote' / 'ConnectionAsync.py').read_text(encoding='utf-8').splitlines()
-def within(site, cls):
+def within(site, module, cls):
+    lines = (lib / 'remote' / module).read_text(encoding='utf-8').splitlines()
     line = int(site.split(':')[1])
-    owner = next((l for l in reversed(transport[:line]) if l.startswith('class ')), '')
-    return owner.startswith(f'class {cls}')
-assert len(writers) == 2 and all(w.startswith('ConnectionAsync.py:') for w in writers), \
-    f'the socket is written outside the transport: {writers}'
-assert sorted(c for c in ('_Endpoint', 'Announcer') for w in writers if within(w, c)) == ['Announcer', '_Endpoint'], \
-    f'a socket write outside an endpoint and the announcer: {writers}'
-print(f'socket writes  : 2 ({", ".join(writers)})')
+    owner = next((l for l in reversed(lines[:line]) if l.startswith('class ')), '')
+    return site.startswith(f'{module}:') and owner.startswith(f'class {cls}')
+owners = sorted(f'{m}:{c}' for m, c in (('ConnectionAsync.py', '_Endpoint'), ('ConnectionAsync.py', 'Announcer'),
+                                         ('Proxy.py', 'ProxyConnection'))
+                for w in writers if within(w, m, c))
+assert len(writers) == 3 and owners == ['ConnectionAsync.py:Announcer', 'ConnectionAsync.py:_Endpoint',
+                                        'Proxy.py:ProxyConnection'], \
+    f'a socket write outside an endpoint, the announcer and the proxy transport: {writers}'
+print(f'socket writes  : 3 ({", ".join(writers)})')
+
+# The PROXY envelope is the one header built outside construct_base, and it
+# stamps from the same table.
+from mx_remote.proto.FrameProxy import proxy_frame
+from mx_remote.proto.Constants import MXR_OPCODE_VERSIONS
+assert proxy_frame(bytes(16), b'\x00\x01')[2] == MXR_OPCODE_VERSIONS[0x59] == 0x36
+print('proxy envelope : stamped 0x36 from the table')
 
 # Asserting an empty result is vacuous if the name has been renamed, so confirm
 # the symbol still exists before concluding nothing calls it.

@@ -42,7 +42,8 @@ jobs:
       - name: Install
         # Installs the declared dependencies and exercises the stub-generating
         # build hook, both of which can break per version on their own.
-        run: pip install .
+        # The proxy extra too, which tests/proxy.py needs.
+        run: pip install '.[proxy]'
 
       - name: Run the protocol suites
         run: python tests/run.py

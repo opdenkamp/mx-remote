@@ -5317,6 +5317,13 @@ class MxrCallbacks:
         announces again. '''
         pass
 
+    def on_proxy_join_status(self, status:'ProxyStatus', lease:int|None) -> None:
+        ''' called, with Remote(proxy=...), on every answer a join gets from
+        the controller and when the session ends without one: 'status'
+        JOINED with the lease in seconds, or why this client is not joined,
+        with lease None. It joins again by itself; BAD_PROOF wants a new key. '''
+        pass
+
     def on_controller_hello_changed(self, dev:DeviceBase, hello:ControllerHello) -> None:
         ''' called when 'dev' sent a CONTROLLER_STATE hello other than its last:
         it is a dedicated controller, such as a router, which

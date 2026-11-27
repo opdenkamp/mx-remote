@@ -76,6 +76,71 @@ addressing is by uid in the payload, and a frame carrying our own uid is dropped
 an echo. Two clients sharing a uid are one peer to every device and each silently
 discards everything the other sends, so give concurrent clients separate paths.
 
+### Behind a OneIP controller
+
+A OneIP controller can relay the mesh behind it to one client on its uplink,
+its driver proxy, so that no mx_remote multicast or broadcast reaches that
+network. The client joins with the driver key the controller's web interface
+shows, and every frame between the two then goes sealed (AES-256-GCM), by
+unicast on UDP 8813. That needs the `proxy` extra:
+
+```sh
+pip install 'mx_remote[proxy]'
+```
+
+On the uplink, a client on the local network finds the controller: a hello and
+a `PROXY ANNOUNCE` under one uid make `dev.proxy_controller` true and call
+`on_proxy_found`. That device counts as configured with no bays, so skip it
+where units are offered. The mark lapses 30 s after the last ANNOUNCE, and
+`on_proxy_controller_changed` reports both edges. Anyone can send an ANNOUNCE,
+so the mark is for discovery only; trust starts at a join.
+
+```python
+class Found(mx_remote.MxrCallbacks):
+    def on_proxy_found(self, uid, address, name, serial, version):
+        print(f"driver proxy {name} {serial} at {address}, uid {uid}")
+
+config = mx_remote.ProxyConfig(controller="192.168.1.20", key="<64 hex characters>", uplink_uid=uid)
+mx = mx_remote.Remote(proxy=config, callbacks=MyCallbacks())
+await mx.start_async()
+```
+
+```python
+class MyCallbacks(mx_remote.MxrCallbacks):
+    def on_proxy_join_status(self, status, lease):
+        if status == mx_remote.ProxyStatus.BAD_PROOF:
+            ...   # the key is wrong or was renewed: ask for the new one
+```
+
+- The client joins, and joins again by itself: after a refusal (10, 20, 40,
+  then 60 s later), when the controller restarted, and when no valid frame
+  came from it for the length of the lease. `on_proxy_join_status` reports each
+  answer and each end, `mx.proxy` holds the session.
+- The controller proves the key back. A join is taken only with that proof, so
+  a host posing as the controller gets nothing.
+- The mesh endpoints are opened to listen only, for the controller's own
+  uplink hello under the pinned `uplink_uid`. One from a new address, as after
+  a new DHCP lease, starts a join there; the session moves only once the
+  controller proved the key at that address.
+- `mx.proxy.mesh_uid` names the controller among the mesh's devices, where it
+  is a dedicated controller (`dev.dedicated_controller`).
+
+Behind a controller:
+
+- every unit's `Device.address` is the controller's address; a unit's own is in
+  its unit status (`UnitStatus`);
+- overlay syncs and previews are refused, since units fetch a sync's images
+  from its sender over HTTP; overlay messages pass;
+- `Device.get_api()` and `Device.get_log()` are refused: the controller
+  forwards no HTTP;
+- the controller relays only what a driver may send, and drops mesh operations,
+  factory resets and the reports units send about themselves;
+- only the mesh behind the controller is heard, not units on the client's own
+  network.
+
+`target_ip`, `mesh_device`, `dedicated_controller`, `osd_sync` and
+`announce_interfaces` cannot be combined with `proxy`.
+
 ### Device
 
 A `DeviceBase` represents a physical device on the network (a Pulse-Eight neo matrix, OneIP unit, or ProAmp8 amplifier). Devices are automatically registered when they respond to discovery requests.

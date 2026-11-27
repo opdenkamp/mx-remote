@@ -1558,8 +1558,19 @@ class Device(DeviceBase):
 			self._igmp_querier = status.querier
 		self.call_callbacks()
 
+	def _http_refused(self, what:str) -> bool:
+		'''Whether HTTP to the device is refused: behind a controller's driver
+		proxy its address is the controller's, which forwards no HTTP.'''
+		if (getattr(self.registry, '_proxy', None) is None):
+			return False
+		_LOGGER.warning(f"not {what} of {self}: HTTP does not pass a controller's driver proxy")
+		return True
+
 	async def get_api(self, uri:str) -> dict[str, Any]|None:
-		'''Perform an HTTP GET request against the device API.'''
+		'''Perform an HTTP GET request against the device API. None behind a
+		controller's driver proxy.'''
+		if self._http_refused(f"requesting {uri}"):
+			return None
 		cmd = f"http://{self.address}/{uri}"
 		_LOGGER.debug(f"tx: {cmd}")
 		try:
@@ -1572,7 +1583,10 @@ class Device(DeviceBase):
 		return None
 
 	async def get_log(self) -> str|None:
-		'''Retrieve the system log from the device.'''
+		'''Retrieve the system log from the device. None behind a controller's
+		driver proxy.'''
+		if self._http_refused("fetching the log"):
+			return None
 		cmd = f"http://{self.address}/system/log"
 		_LOGGER.debug(f"tx: {cmd}")
 		try:

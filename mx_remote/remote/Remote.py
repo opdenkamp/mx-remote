@@ -6,7 +6,7 @@
 ######################################################
 '''Remote device discovery and management over UDP, by the multicast group and the subnet broadcast.'''
 
-from functools import cached_property
+from functools import cached_property, wraps
 import logging
 import asyncio
 from typing import Any
@@ -22,12 +22,13 @@ import warnings
 from datetime import datetime, timezone
 
 from .ConnectionAsync import Announcer, ConnectionAsync
+from .Proxy import ProxyConfig, ProxyConnection, ProxyLink, proxy_available
 from ..const import MXR_HELLO_INTERVAL_MIN, MXR_HELLO_INTERVAL_RAND, __version__
 from .Device import Device
 from .Tree import DeviceTree
 from .AudioRoute import audio_path
 from ..Interface import ConnectionCallbacks, DeviceRegistry, MxrDeviceUid, BayLinks, BayBase, DeviceBase, MxrCallbacks, AudioEndpoint, AudioHop, OneIPDeviceSettings, OneIPPowerSaveSchedule, OneIPPtpMessages, OsdSyncContent, OsdSyncReport, OsdSyncRequest, ThirdPartyVendor, MeshOperationMessage, MeshConfig, MeshReplaceable, MeshReplaceUnit, MeshSetting, MeshBay, MeshBays, MeshPort, PortMetadata, PortMetadataField, PortMetadataStore, OneIPStreamSources, DeviceTreeEntry, UnitStatus
-from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat, MESH_REPLACE_NAME_MAX, MESH_REPLACE_UNITS_MAX, MeshReplaceResult, UNIT_MAX_TEMPERATURES, MESH_BAYS_MAX, ControllerRole, CONTROLLER_PARTS_MAX, OSD_SETTINGS_ASKED, OSD_SYNC_RECORDS_MAX, OSD_PREVIEW_TIMEOUT_MAX, OsdPreviewAction, OsdSyncState
+from ..proto.Constants import MXR_PROTOCOL_VERSION, THIRD_PARTY_PAYLOAD_MAX, DeviceFeature, Endpoints, OsdSyncWhat, MESH_REPLACE_NAME_MAX, MESH_REPLACE_UNITS_MAX, MeshReplaceResult, UNIT_MAX_TEMPERATURES, MESH_BAYS_MAX, ControllerRole, CONTROLLER_PARTS_MAX, OSD_SETTINGS_ASKED, OSD_SYNC_RECORDS_MAX, OSD_PREVIEW_TIMEOUT_MAX, OsdPreviewAction, OsdSyncState, ProxyStatus
 from ..proto.FrameDiscover import FrameDiscover, constructFrameDiscover
 from ..proto.Factory import process_mxr_frame
 from ..proto.FrameHello import FrameHello, constructFrameHello
@@ -80,6 +81,21 @@ _LOGGER = logging.getLogger(__name__)
 # The opcodes a device accepts from a sender it has no record of: the
 # announcement itself, and the discover asking for one. A unit drops a
 # stranger's ping.
+def _not_through_proxy(refused:Any) -> Any:
+    '''Refuse an overlay sync call on a client joined to a controller's driver
+    proxy, returning refused. The controller is the mesh's overlay sync
+    source and drops a client's syncs, and units fetch a sync's images from
+    its sender over HTTP, which the controller does not forward.'''
+    def wrap(fn:Any) -> Any:
+        @wraps(fn)
+        async def refuse(self:'Remote', *args:Any, **kwargs:Any) -> Any:
+            if (self._proxy is not None):
+                _LOGGER.warning(f"not running {fn.__name__}(): overlay syncs do not pass a controller's driver proxy")
+                return refused
+            return await fn(self, *args, **kwargs)
+        return refuse
+    return wrap
+
 _ACCEPT_UNANNOUNCED = (0x00, 0x01)
 
 def announced_only(features:DeviceFeature) -> DeviceFeature:
@@ -184,7 +200,7 @@ def _missed_state(before:_Heard|None, device:DeviceBase) -> bool:
 class Remote(DeviceRegistry, ConnectionCallbacks):
     ''' Main component that handles the network connections and registration of remote devices '''
 
-    def __init__(self, target_ip:str|None=None, port:int|None=None, http_session:aiohttp.ClientSession|None=None, open_connection:bool=True, callbacks:MxrCallbacks|None=None, name:str="MXR Python", local_ip:str|None=None, broadcast:bool|None=None, addr_filter:str|None=None, uid_path:str|None=None, logo_port:int|None=None, serial:str=CLIENT_SERIAL, version:str|None=None, mesh_device:bool=False, dedicated_controller:bool=False, osd_sync:bool=False, announce_interfaces:list[str]|None=None) -> None:
+    def __init__(self, target_ip:str|None=None, port:int|None=None, http_session:aiohttp.ClientSession|None=None, open_connection:bool=True, callbacks:MxrCallbacks|None=None, name:str="MXR Python", local_ip:str|None=None, broadcast:bool|None=None, addr_filter:str|None=None, uid_path:str|None=None, logo_port:int|None=None, serial:str=CLIENT_SERIAL, version:str|None=None, mesh_device:bool=False, dedicated_controller:bool=False, osd_sync:bool=False, announce_interfaces:list[str]|None=None, proxy:ProxyConfig|None=None) -> None:
         '''Initialise the remote controller.
 
         :param target_ip: for tests and development only: replaces both
@@ -245,9 +261,32 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             there. Each follows its
             interface's current address and is skipped while it has none.
             set_announce_interfaces() changes them while running.
+        :param proxy: drive the mesh behind a OneIP controller's driver proxy
+            rather than the local network: join it with its driver key, and
+            send and take every frame sealed, by unicast on PROXY_PORT (8813),
+            to and from the controller alone. Nothing goes to the mesh
+            endpoints; they are opened to listen for the controller's uplink
+            hello only, whose address a new join follows. Needs the
+            mx_remote[proxy] extra. MxrCallbacks.on_proxy_join_status() reports
+            how the join stands, and Remote.proxy holds the session.
+
+            Behind a controller, every unit's Device.address is the
+            controller's; UnitStatus carries a unit's own. Overlay syncs and
+            previews, Device.get_api() and Device.get_log() are refused. Refuses
+            target_ip, mesh_device, dedicated_controller, osd_sync and
+            announce_interfaces.
         '''
         DeviceRegistry.__init__(self)
         ConnectionCallbacks.__init__(self)
+        if (proxy is not None):
+            clash = [name for name, on in (('target_ip', target_ip is not None), ('mesh_device', mesh_device),
+                                           ('dedicated_controller', dedicated_controller), ('osd_sync', osd_sync),
+                                           ('announce_interfaces', bool(announce_interfaces))) if on]
+            if clash:
+                raise ValueError(f"a driver proxy client cannot be run with {', '.join(clash)}")
+            if not proxy_available():
+                raise ImportError("a driver proxy client needs the mx_remote[proxy] extra (cryptography)")
+        self._proxy = proxy
         if (broadcast is not None):
             warnings.warn("Remote(broadcast=...) is deprecated and ignored: both endpoints a unit has always run",
                           DeprecationWarning, stacklevel=2)
@@ -304,10 +343,35 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         # The digest and arrival time of each recent datagram.
         self._recent:deque[tuple[int, float]] = deque()
         if open_connection:
-            self.conn:ConnectionAsync|None = ConnectionAsync(callbacks=self, local_ip=self._local_ip,
-                                                             target_ip=self._target_ip, port=self._port)
+            self.conn:ConnectionAsync|ProxyConnection|None = self._connection()
         else:
             self.conn = None
+
+    def _connection(self) -> ConnectionAsync|ProxyConnection:
+        '''A new transport: the controller's driver proxy, or the endpoints
+        a unit has.'''
+        if (self._proxy is not None):
+            return ProxyConnection(callbacks=self, config=self._proxy, local_ip=self._local_ip)
+        return ConnectionAsync(callbacks=self, local_ip=self._local_ip, target_ip=self._target_ip, port=self._port)
+
+    @property
+    def proxy(self) -> ProxyLink|None:
+        '''The session with a controller's driver proxy, None unless running
+        with Remote(proxy=...): its status and lease, the controller's
+        address, uplink uid and mesh_uid, and its name, serial and version
+        once its uplink hello was heard.'''
+        conn = self.conn
+        return conn.link if isinstance(conn, ProxyConnection) else None
+
+    def on_proxy_status(self, status:ProxyStatus, lease:int|None) -> None:
+        '''Called by the proxy connection on every change of the join.'''
+        self.callbacks.on_proxy_join_status(status, lease)
+
+    def on_proxy_joined(self) -> None:
+        '''Called by the proxy connection after every join: announce, and ask
+        the mesh behind the controller for its state.'''
+        self.tx_hello()
+        self.tx_discover()
 
     @property
     def library_version(self) -> str:
@@ -533,7 +597,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                     _LOGGER.debug(f"closing connection")
                     self.conn.close()
                 _LOGGER.debug(f"opening new mx_remote listener on {self._local_ip}")
-                self.conn = ConnectionAsync(callbacks=self, local_ip=self._local_ip, target_ip=self._target_ip, port=self._port)
+                self.conn = self._connection()
                 # The first hello on new sockets goes to both endpoints.
                 self._hello_on_broadcast = None
                 self._own_controller.sent = None
@@ -598,6 +662,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         if fault_changed or (time.time() >= self._hello_due):
             self.tx_hello()
         self._lapse_proxies(time.time())
+        if isinstance(self.conn, ProxyConnection):
+            self.conn.tick()
         # Every registered device, whatever any of them has finished. A device
         # stops pinging whether or not it ever described itself, and this is the
         # only thing that notices: nothing arrives to mark a device gone, so a
@@ -1531,7 +1597,11 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
 
     def set_announce_interfaces(self, interfaces:list[str]) -> None:
         '''Replace the interfaces this client only announces itself on,
-        announcing on the new ones at once when running.'''
+        announcing on the new ones at once when running. Ignored behind a
+        controller's driver proxy, which announces nothing elsewhere.'''
+        if (self._proxy is not None):
+            _LOGGER.warning("not announcing on other interfaces behind a controller's driver proxy")
+            return
         self._announce_interfaces = list(interfaces)
         if (self.conn is None) or not self.conn.is_open:
             return
@@ -1798,6 +1868,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         the mesh's overlay sync manager.'''
         return self._osd.holds
 
+    @_not_through_proxy(None)
     async def send_osd_sync(self, content:OsdSyncContent) -> int|None:
         '''Have every unit copy content, and keep it in place, returning the
         sync's number, or None when it was refused or did not go out.
@@ -1826,6 +1897,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             await self.clear_osd_sync()
         return seq
 
+    @_not_through_proxy(False)
     async def keep_osd_sync(self, content:OsdSyncContent) -> bool:
         '''Keep content in place as send_osd_sync() does, serving its images
         and answering units' requests for its settings, without having any
@@ -1867,6 +1939,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         always.'''
         return self._osd_sync
 
+    @_not_through_proxy(False)
     async def request_osd_sync(self, what:OsdSyncWhat) -> bool:
         '''Ask for an overlay sync of this client's own, copying what, as a unit
         does once it can take one: the controller, or a management application
@@ -1882,6 +1955,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         return self._send_to_all(FrameV2IPOsdSync.construct_request(
             mxr=self, target=self.uid, seq=0, what=what, missing=bytes(16), source=MxrDeviceUid(bytes(16))))
 
+    @_not_through_proxy(False)
     async def request_osd_settings(self, source:DeviceBase, seq:int, what:OsdSyncWhat, missing:list[int]) -> bool:
         '''Ask source for settings missing, each below the sync's records, of
         its sync seq, as a unit taking that sync does. The source answers each
@@ -1911,6 +1985,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                                                    source=source.remote_id, to=source)
         return (frame is not None) and (self.transmit(frame.frame, to=source) == len(frame.frame))
 
+    @_not_through_proxy(False)
     async def send_osd_report(self, source:DeviceBase, report:OsdSyncReport) -> bool:
         '''Report to source how this client gets on with taking its sync
         report.seq, as a unit does at each stage: taking, done or failed. The
@@ -1927,6 +2002,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
     def osd_settings_asked(self, source:MxrDeviceUid, seq:int) -> bool:
         return (source, seq) in self._osd_settings_asked
 
+    @_not_through_proxy(None)
     async def resend_osd_sync(self, device:DeviceBase) -> int|None:
         '''Have one unit copy the held sync again, returning the new sync's
         number. As send_osd_sync().
@@ -1956,6 +2032,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             return 'a layer of 0 to 255'
         return None
 
+    @_not_through_proxy(None)
     async def send_osd_preview(self, device:DeviceBase, content:OsdSyncContent, layer:int, timeout:int=0) -> int|None:
         '''Have one unit show content in a preview, without storing it,
         returning the preview sync's number, or None when it was refused or did
@@ -2019,6 +2096,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             return None
         return seq
 
+    @_not_through_proxy(False)
     async def hold_osd_preview(self, device:DeviceBase, seq:int, layer:int, timeout:int=0) -> bool:
         '''Have a unit previewing sync seq show overlay layer, 0 leaving its
         output alone, and restart its timeout at timeout seconds from now, 0
@@ -2033,6 +2111,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             return False
         return self._send_preview(device, seq, OsdPreviewAction.HOLD, layer, timeout)
 
+    @_not_through_proxy(False)
     async def commit_osd_preview(self, device:DeviceBase, seq:int) -> bool:
         '''Have a unit store the settings of preview sync seq, which it takes
         only while it holds the preview; it reports OsdSyncState.DONE. The
@@ -2040,6 +2119,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         resend_osd_sync() is for the unit.'''
         return await self._end_preview(device, seq, OsdPreviewAction.COMMIT)
 
+    @_not_through_proxy(False)
     async def revert_osd_preview(self, device:DeviceBase, seq:int) -> bool:
         '''Have a unit put its stored settings back in place of preview sync
         seq, at any time during that sync: one that has not begun the preview
@@ -2083,6 +2163,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
                 _LOGGER.warning(f"an overlay preview's logo server did not move to {host}: {e}")
                 await p.server.stop()
 
+    @_not_through_proxy(None)
     async def clear_osd_sync(self) -> None:
         '''Stop holding the sync this client sent, and hand the overlay sync
         manager's part back to the controller. Units keep what they took; one

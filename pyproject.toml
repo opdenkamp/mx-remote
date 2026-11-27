@@ -31,6 +31,11 @@ classifiers = [
   "Topic :: System :: Networking :: Monitoring",
 ]
 
+[project.optional-dependencies]
+# A client joined to a OneIP controller's driver proxy seals its traffic with
+# AES-256-GCM. Home Assistant ships it already.
+proxy = ["cryptography>=42"]
+
 [tool.hatch.build.targets.sdist]
 # Allowlist, not an ignore list: the working tree also holds an unrelated git
 # repository and machine-local tool config, and a default sdist sweeps in every

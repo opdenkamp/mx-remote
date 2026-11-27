@@ -501,6 +501,26 @@ state.
 .. autodata:: mx_remote.proto.Constants.CONTROLLER_PARTS_MAX
 ```
 
+## Driver proxy
+
+A OneIP controller's driver proxy, which relays the mesh behind it to one client
+on its uplink: how a client finds one, joins it, and what the session holds.
+See [Behind a OneIP controller](configuration.md#behind-a-oneip-controller).
+
+```{eval-rst}
+.. autoclass:: mx_remote.ProxyConfig
+
+.. autoclass:: mx_remote.remote.Proxy.ProxyLink
+   :members: address, uplink_uid, status, lease, joined, mesh_uid, name, serial, version
+
+.. autoclass:: mx_remote.proto.Constants.ProxyStatus
+   :members:
+
+.. autodata:: mx_remote.proto.Constants.PROXY_PORT
+
+.. autodata:: mx_remote.proto.Constants.PROXY_ANNOUNCE_WINDOW
+```
+
 ## Names from before OneIP
 
 Releases up to 5.11 used the firmware's internal names in the public API: V2IP

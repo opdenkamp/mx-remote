@@ -58,6 +58,9 @@ Available callback methods:
 | `on_status_signal_type_changed` | signal type changed |
 | `on_status_hpd_detected_changed` | hotplug detect changed |
 | `on_status_cec_detected_changed` | CEC device detected/lost |
+| `on_proxy_found` | a OneIP controller's driver proxy was found, by its hello and `PROXY ANNOUNCE` |
+| `on_proxy_controller_changed` | a device became a driver proxy, or stopped announcing as one |
+| `on_proxy_join_status` | with `Remote(proxy=...)`: a join was answered, or the session ended |
 | `on_status_arc_changed` | audio return channel status changed |
 | `on_key_pressed` | remote control key press received |
 | `on_action_received` | remote control action received |

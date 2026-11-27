@@ -534,6 +534,26 @@ class ProxySubOp(IntEnum):
 	INFO      = 7
 	'''The controller's mesh uid; sent inside DATA only.'''
 
+class ProxyStatus(IntEnum):
+	'''How a join to a controller's driver proxy stands. 0 to 5 are what the
+	controller answers in PROXY RESULT; the rest are what this client concludes
+	by itself.'''
+	JOINED          = 0
+	BAD_PROOF       = 1
+	'''The key is wrong, or the controller has a new one.'''
+	PROXY_OFF       = 2
+	UID_REFUSED     = 3
+	'''This client's uid is the controller's own, a unit's, or another driver's.'''
+	NOT_JOINED      = 4
+	'''The controller holds no session for this client, as after a restart.'''
+	UNKNOWN_VERSION = 5
+	LEASE_EXPIRED   = 0x100
+	'''No valid frame came from the controller for the length of the lease.'''
+	NO_ANSWER       = 0x101
+	'''A join went 10 s without an answer from the controller.'''
+	LEFT            = 0x102
+	'''The controller ended the session.'''
+
 class OsdPreviewAction(IntEnum):
 	'''What a preview command (0x53 kind 7) does with a unit's preview.'''
 	HOLD   = 1

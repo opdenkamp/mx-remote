@@ -73,6 +73,7 @@ SUITES = [
     'osdsync',      # overlay sync, watched and sent
     'osdpreview',   # an overlay sync previewed on one unit, held, committed or reverted
     'proxyfound',   # a controller's driver proxy, found by its PROXY ANNOUNCE
+    'proxy',        # a client joined to a controller's driver proxy (needs mx_remote[proxy])
     'osdmessage',   # the message on a unit's output, read and written
     'downmix',      # how a OneIP output mixes down to stereo, read and written
     'controllerset', # what a mesh controller sets on a OneIP unit
