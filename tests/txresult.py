@@ -141,11 +141,12 @@ assert play[20:22] == b'\x0c\x00' and play[2] == 0x0C, 'TX_RC_KEY, stamped 0x0C'
 assert play[24:] == UID + struct.pack('<HH', 0, 20), play[24:].hex()
 assert raw[42:] == struct.pack('<H', 0x0800), raw[24:].hex()
 print('send_key    : 0x0C to the unit, uid + u16 port + u16 key')
-# A key for an output is for the device routed to it, on its input.
+# A key for an output routed to an input of its own unit goes to the output:
+# the unit keys it with the input's remote type, on the output's device.
 out.video_source = inp
 heard.clear()
 assert asyncio.run(out.send_key(mx_remote.RCKey.KEY_PLAY)) is True
-assert heard[0][0][24:] == UID + struct.pack('<HH', 0, 20), 'a key for an output did not go to its source'
+assert heard[0][0][24:] == UID + struct.pack('<HH', 1, 20), 'a key for a locally routed output did not go to it'
 heard.clear()
 for bad in (-1, 0x10000):
     assert asyncio.run(inp.send_key(bad)) is False, f'key {bad} is no u16'

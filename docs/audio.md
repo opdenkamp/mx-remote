@@ -93,10 +93,17 @@ await bay.tx_action(RCAction.ACTION_VOLUME_UP)
 await bay.tx_action(RCAction.ACTION_VOLUME_DOWN)
 ```
 
-A key goes to the source device: the one on an input, or on the input routed
-to an output. Its unit emits it by whatever that input is set up for, CEC, IR
-or IP, and answers nothing, so success shows only at the device. An output with
-nothing routed to it takes no key.
+A key goes where a unit's own web API sends it, and the unit answers nothing,
+so success shows only at the device:
+
+- for an input, to the device on it;
+- for an output routed to an input of the same unit, as on a matrix, to the
+  device on the output, keyed with the input's remote type;
+- for an output routed to another unit, as a OneIP receiver's is, to the
+  source device on that unit's input.
+
+An output with nothing routed to it takes no key. An action (`tx_action`) for
+an output always drives the device on the output, such as powering the display.
 
 ---
 

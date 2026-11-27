@@ -292,4 +292,17 @@ assert int.from_bytes(sent[-1][20:22], 'little') == 0x1F and p[:16] == uid(0x52)
 assert p[16:20] == bytes([239, 2, 2, 1]), 'the source was not the listing unit\'s port 1: %s' % p[16:20].hex()
 print('commands    : sent to the unit a mesh bay stands for, refused before it is known')
 
+# A key for a receiver's own output, routed to a mesh input, goes to the unit
+# that input stands for, for its input: the receiver drops a 0x0C for its
+# output on firmware up to 10.12.242. As the live mesh numbers it, the route
+# names the receiver's own mesh bay.
+rx(uid(0x50), 0x08, route(127, 1, 1))
+own_out = r.get_by_portnum(127)
+assert own_out.video_source is mesh_in and mesh_in.device is r, 'the route is not to the receiver\'s mesh bay'
+sent.clear()
+assert asyncio.run(own_out.send_key(mx_remote.RCKey.KEY_PLAY)) is True
+assert sent[-1][20] == 0x0C and sent[-1][24:] == uid(0x51) + struct.pack('<HH', 0, 20), \
+    'a key for a receiver\'s output did not go to its source unit: %s' % sent[-1][24:].hex()
+print('key         : for a receiver\'s output, 0x0C to the unit its routed mesh input stands for')
+
 print('ALL OK')

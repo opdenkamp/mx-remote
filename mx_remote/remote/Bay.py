@@ -1289,17 +1289,21 @@ class Bay(BayBase):
 
     @override
     async def send_key(self, key:int) -> bool:
-        '''Send key to the source device: the one on this input, or on the input
-        routed to this output. Its unit emits it by whatever that input is set
-        up for: CEC, IR or IP. True when it was written; False for an output
-        with nothing routed to it. key is an RCKey or any other u16 key code.
+        '''Send key as a unit's own web API sends it, by whatever the bay is
+        set up for: CEC, IR or IP. True when it was written; False for an output
+        with nothing routed to it. key is an RCKey or any other u16 key code,
+        the custom CEC and Sky ranges included, which take the same path.
 
-        Sent as 0x0C TX_RC_KEY to the unit holding that input, which emits the
-        key on the bay its port names. A key for an output goes to its source
-        directly, as a unit's own web API passes it on: OneIP receivers on
-        firmware up to 10.12.242 drop a 0x0C for an output, as one that came from
-        mx_remote, and every firmware takes one for an input. A unit sends
-        nothing back for it.'''
+        Sent as 0x0C TX_RC_KEY, which a unit takes from any known sender and
+        answers nothing for:
+        - For an input, to its unit, which keys the device on that input.
+        - For an output routed to an input of its own unit, to that unit, which
+          keys with the input's remote type the device on the output.
+        - For an output routed to another unit, as a OneIP receiver's is, to
+          the unit holding that input, for that input: the source device.
+          Receivers on firmware up to 10.12.242 drop a 0x0C for such an output,
+          as one that came from mx_remote, where their web API passed the key
+          on to the source.'''
         if self.is_oneip_remote:
             owner = self._acted_on('a key')
             return (await owner.send_key(key)) if (owner is not None) else False
@@ -1307,7 +1311,8 @@ class Bay(BayBase):
             if ((source := self.video_source) is None):
                 _LOGGER.warning(f"not sending key {key} to {self}: no source is routed to it")
                 return False
-            return await source.send_key(key)
+            if source.is_oneip_remote or (source.device is not self.device):
+                return await source.send_key(key)
         if not (0 <= int(key) <= 0xFFFF):
             _LOGGER.warning(f"not sending key {key} to {self}: a key code is a u16")
             return False
