@@ -15,6 +15,12 @@ _ROUTE_NONE = 0xFFFE
 '''The port a OneIP reports for no source: as the video port, an output that
 shows nothing; as the audio port, audio that follows the video.'''
 
+_FLAGS_AT = 9
+_FLAG_OWN = 1
+'''Units from protocol 0x36 append a flags byte to the 9 bytes earlier ones
+send: bit 0 for a route made on the output's own unit, by its API, IR, CEC or a
+unit other than the mesh controller.'''
+
 class FrameRoutingChange(FrameBase):
     '''Routing change information frame.'''
     @cached_property
@@ -38,6 +44,13 @@ class FrameRoutingChange(FrameBase):
         return self.payload_bay(device=self.remote_device, idx=7, u16=True)
 
     @cached_property
+    def own(self) -> bool:
+        '''Whether the route was made on the output's own unit, rather than by
+        the mesh controller or restored by the unit itself.'''
+        flags = self.payload_u8(_FLAGS_AT)
+        return (flags is not None) and bool(flags & _FLAG_OWN)
+
+    @cached_property
     def scrambled(self) -> bool|None:
         '''Whether the signal is scrambled.'''
         return self.payload_bool(6)
@@ -56,6 +69,11 @@ class FrameRoutingChange(FrameBase):
             sink_bay.on_mxr_update(SelectedBays(routed(4), routed(7),
                                                 clear_video=(self.payload_u16(4) == _ROUTE_NONE),
                                                 audio_follows=(self.payload_u16(7) == _ROUTE_NONE)))
+            # Reported for every such route, the same one again included: a
+            # unit routes a linked output it holds already, and the outputs
+            # linked to it follow it all the same.
+            if self.own and sink_bay.is_output:
+                dev.callbacks.on_own_route_reported(sink_bay)
 
     def __str__(self) -> str:
         return f"routing change {self.sink_bay} to {self.video_bay}"

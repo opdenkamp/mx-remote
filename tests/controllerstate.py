@@ -72,9 +72,8 @@ def sent(mx, opcode):
             out.append(f[24:])
     return out
 
-assert MXR_PROTOCOL_VERSION == 0x34, hex(MXR_PROTOCOL_VERSION)
 assert MXR_OPCODE_VERSIONS[0x58] == 0x34
-print('versions    : 0x58 stamped 0x34, announced 0x34')
+print('versions    : 0x58 stamped 0x34')
 
 # ------------------------------------------------------------------ the hello
 

@@ -10,7 +10,7 @@
 from enum import IntEnum, IntFlag
 from typing import TypeVar
 
-MXR_PROTOCOL_VERSION = 0x34
+MXR_PROTOCOL_VERSION = 0x36
 """Highest mx_remote protocol version this library understands.
 
 Mirrors the firmware's own protocol version. Bump
@@ -35,8 +35,16 @@ arrives stamped 0x2E, 0x2F the row of V2IP_OSD_SYNC and 0x30 the row of
 V2IP_PRIVACY.
 
 0x32 and 0x33 are the rows of MESH_REPLACE and MESH_CONFIG, which a unit stamps
-on them, and 0x34 the row of CONTROLLER_STATE; this client announces the newest
-stamp it sends."""
+on them, and 0x34 the row of CONTROLLER_STATE.
+
+This client announces the newest stamp it sends, or the newest version that
+changed what a frame carries where that is newer, as such a version stamps no
+opcode of its own: 0x35 (MESH_TOKEN_PROTOCOL) and 0x36 (ROUTE_OWN_PROTOCOL).
+Announcing one claims everything up to it."""
+
+ROUTE_OWN_PROTOCOL = 0x36
+"""The protocol version from which a unit flags a route made on the output's
+own unit in MX_ROUTE (0x08), which stays stamped 0x01."""
 
 MXR_PROTOCOL_VERSION_SLOW_HELLO = 0x2A
 """First protocol version whose devices may hello only every 20-30s."""

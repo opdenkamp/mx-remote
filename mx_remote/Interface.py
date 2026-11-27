@@ -5157,6 +5157,15 @@ class MxrCallbacks:
         _LOGGER.debug(f"{bay} video routed to {video_source}")
         self.on_bay_update(bay)
 
+    def on_own_route_reported(self, bay:BayBase) -> None:
+        ''' called when output 'bay' was routed on its own unit, by the unit's
+        API, IR, CEC or a unit other than the mesh controller, rather than by
+        the controller or a route the unit restored itself. Called for every
+        such route, after the sources it names are applied, even when they are
+        the sources the output had: a mesh controller keeping linked outputs on
+        one route follows each. Units before protocol 0x36 flag no route. '''
+        pass
+
     def on_audio_source_changed(self, bay:BayBase, audio_source:BayBase|None) -> None:
         ''' called when an audio source changed was detected on 'bay' '''
         _LOGGER.debug(f"{bay} audio routed to {audio_source}")

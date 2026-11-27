@@ -22,7 +22,9 @@ ADDR = ('192.0.2.9', 8812)
 
 class Watching(mx_remote.MxrCallbacks):
     def __init__(self):
-        self.video, self.audio = [], []
+        self.video, self.audio, self.own = [], [], []
+    def on_own_route_reported(self, bay):
+        self.own.append((bay, bay.video_source))
     def on_video_source_changed(self, bay, video_source):
         self.video.append(video_source)
     def on_audio_source_changed(self, bay, audio_source):
@@ -133,6 +135,29 @@ assert out.video_source is A, out.video_source
 assert out.audio_source is A, 'a separate audio source outlived audio port 0xFFFE'
 assert seen.audio == [A], 'the audio rejoining the video was not reported: %s' % seen.audio
 print('routing     : audio port 0xFFFE has the audio follow the video, 0xFFFF leaves it')
+
+# A route flagged as made on the output's own unit is reported each time, the
+# same route again included, and after its sources are applied; an unflagged
+# one, one from a unit before the flag, and one for an input are not.
+both = hello(uid(0x18), 0x36, DeviceFeature.ONEIP_SINK | DeviceFeature.VIDEO_ROUTING)
+rx(uid(0x18), 0x02, bay_rec(0, 0, 0, 'Input 1', int(BayFeaturesMask.HDMI_IN)) + bay_rec(16, 1, 0, 'Output 1', SINK_LOCAL))
+local_in, local_out = both.get_by_portnum(0), both.get_by_portnum(16)
+assert local_in.is_input and local_out.is_output
+def own_route(port, video, flags):
+    rx(uid(0x18), 0x08, struct.pack('<HHH', port, video, video) + bytes([0]) + struct.pack('<H', 0xFFFE)
+                        + (b'' if flags is None else bytes([flags])))
+own_route(16, 0xFFFE, None)
+seen.own.clear()
+own_route(16, 0, 1)
+assert seen.own == [(local_out, local_in)], 'not reported, or before its sources were applied: %s' % seen.own
+own_route(16, 0, 1)
+assert seen.own == [(local_out, local_in)] * 2, 'the same route again was not reported'
+for what, flags in (('an unflagged route', 0), ('other flags', 0xFE), ('a 9-byte route', None)):
+    own_route(16, 0, flags)
+    assert len(seen.own) == 2, f'{what} was reported'
+own_route(0, 0, 1)
+assert len(seen.own) == 2, 'an input was reported'
+print('own route   : flagged on its own unit, reported every time, after its sources')
 
 # ----------------------------------------------- what this client asks for
 # From 0x27 a video route names no audio, so the audio follows it. Below 0x27

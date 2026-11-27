@@ -8,8 +8,12 @@ from mx_remote.Interface import DeviceOneIPDetails, OneIPDscpConfig
 
 print('version', mx_remote.const.VERSION, 'proto', hex(MXR_PROTOCOL_VERSION))
 # This client announces, and takes up to, the newest version any opcode it
-# handles is stamped at.
-assert MXR_PROTOCOL_VERSION == max(MXR_OPCODE_VERSIONS.values()), hex(MXR_PROTOCOL_VERSION)
+# handles is stamped at, or the newest that changed what a frame carries where
+# that is newer.
+from mx_remote.proto.Constants import MESH_TOKEN_PROTOCOL, ROUTE_OWN_PROTOCOL
+assert MXR_PROTOCOL_VERSION == max(max(MXR_OPCODE_VERSIONS.values()), MESH_TOKEN_PROTOCOL, ROUTE_OWN_PROTOCOL), \
+    hex(MXR_PROTOCOL_VERSION)
+assert (MESH_TOKEN_PROTOCOL, ROUTE_OWN_PROTOCOL, MXR_PROTOCOL_VERSION) == (0x35, 0x36, 0x36)
 assert MXR_OPCODE_VERSIONS[0x52] == 0x2E and MXR_OPCODE_VERSIONS[0x53] == 0x2F  # V2IP_SINK_SDP, V2IP_OSD_SYNC
 assert MXR_OPCODE_VERSIONS[0x54] == 0x30  # V2IP_PRIVACY
 assert MXR_OPCODE_VERSIONS[0x55] == 0x01  # THIRD_PARTY

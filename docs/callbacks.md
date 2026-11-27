@@ -46,6 +46,7 @@ Available callback methods:
 | `on_bay_registered` | new bay discovered |
 | `on_video_source_changed` | video routing changed |
 | `on_audio_source_changed` | audio routing changed |
+| `on_own_route_reported` | an output was routed on its own unit, reported every time (protocol 0x36) |
 | `on_volume_changed` | volume or mute status changed |
 | `on_power_changed` | CEC power status changed |
 | `on_name_changed` | user-assigned bay name changed |
