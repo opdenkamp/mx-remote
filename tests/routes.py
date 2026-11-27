@@ -136,6 +136,20 @@ assert out.audio_source is A, 'a separate audio source outlived audio port 0xFFF
 assert seen.audio == [A], 'the audio rejoining the video was not reported: %s' % seen.audio
 print('routing     : audio port 0xFFFE has the audio follow the video, 0xFFFF leaves it')
 
+# A key for a OneIP output goes to its source: 0x0C to the transmitter, for its
+# input. A receiver given 0x0C for its output drops it, as one from mx_remote.
+switch(uid(0x10), '239.2.2.1', '0.0.0.0')
+assert out.video_source is B
+sent.clear()
+assert call(out.send_key(mx_remote.RCKey.KEY_PLAY)) is True
+(key,) = sent
+assert key[20] == 0x0C and key[24:] == uid(0x02) + struct.pack('<HH', 0, 20), key[24:].hex()
+rx(uid(0x10), 0x08, struct.pack('<HHH', 16, 0xFFFE, 0xFFFE) + bytes([0]) + struct.pack('<H', 0xFFFE))
+assert out.video_source is None
+sent.clear()
+assert call(out.send_key(mx_remote.RCKey.KEY_PLAY)) is False and sent == [], 'a key for an output showing nothing was sent'
+print('key         : for an output, 0x0C to its source\'s unit; none while nothing is routed')
+
 # A route flagged as made on the output's own unit is reported each time, the
 # same route again included, and after its sources are applied; an unflagged
 # one, one from a unit before the flag, and one for an input are not.

@@ -93,6 +93,11 @@ await bay.tx_action(RCAction.ACTION_VOLUME_UP)
 await bay.tx_action(RCAction.ACTION_VOLUME_DOWN)
 ```
 
+A key goes to the source device: the one on an input, or on the input routed
+to an output. Its unit emits it by whatever that input is set up for, CEC, IR
+or IP, and answers nothing, so success shows only at the device. An output with
+nothing routed to it takes no key.
+
 ---
 
 [Documentation index](README.md) | [Project README](https://github.com/opdenkamp/mx-remote#readme)

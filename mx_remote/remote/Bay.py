@@ -1289,14 +1289,25 @@ class Bay(BayBase):
 
     @override
     async def send_key(self, key:int) -> bool:
-        '''Have the bay's unit send key to the connected device, by whatever
-        the bay is set up for: CEC, IR or IP. True when it was written.
+        '''Send key to the source device: the one on this input, or on the input
+        routed to this output. Its unit emits it by whatever that input is set
+        up for: CEC, IR or IP. True when it was written; False for an output
+        with nothing routed to it. key is an RCKey or any other u16 key code.
 
-        Sent as 0x0C TX_RC_KEY to the unit itself, which emits the key on the
-        bay its port names. key is an RCKey or any other u16 key code.'''
+        Sent as 0x0C TX_RC_KEY to the unit holding that input, which emits the
+        key on the bay its port names. A key for an output goes to its source
+        directly, as a unit's own web API passes it on: OneIP receivers on
+        firmware up to 10.12.242 drop a 0x0C for an output, as one that came from
+        mx_remote, and every firmware takes one for an input. A unit sends
+        nothing back for it.'''
         if self.is_oneip_remote:
             owner = self._acted_on('a key')
             return (await owner.send_key(key)) if (owner is not None) else False
+        if self.is_output:
+            if ((source := self.video_source) is None):
+                _LOGGER.warning(f"not sending key {key} to {self}: no source is routed to it")
+                return False
+            return await source.send_key(key)
         if not (0 <= int(key) <= 0xFFFF):
             _LOGGER.warning(f"not sending key {key} to {self}: a key code is a u16")
             return False
