@@ -4089,6 +4089,15 @@ class DeviceBase(ABC):
 
     @property
     @abstractmethod
+    def proxy_controller(self) -> bool:
+        '''This device is a OneIP controller's driver proxy, which a client
+        joins to drive the mesh behind it rather than a unit to offer: it sent
+        PROXY ANNOUNCE (0x59) under the uid of its hello within the last
+        PROXY_ANNOUNCE_WINDOW seconds. Anyone can send one, so it marks the
+        device for discovery only; trust starts at a join.'''
+
+    @property
+    @abstractmethod
     def is_mesh_master(self) -> bool:
         '''True if this device is the master device of a OneIP mesh'''
 
@@ -5293,6 +5302,19 @@ class MxrCallbacks:
         ''' called when a pull of a part from 'dev' ended without it: the
         generation is no longer held, the part is not the one its hello
         described, 'dev' went offline, or ten asks went without progress. '''
+        pass
+
+    def on_proxy_controller_changed(self, dev:DeviceBase, announced:bool) -> None:
+        ''' called when 'dev' became a driver proxy, by its first PROXY
+        ANNOUNCE, or stopped being one, PROXY_ANNOUNCE_WINDOW seconds after its
+        last; DeviceBase.proxy_controller says which from then on. '''
+        pass
+
+    def on_proxy_found(self, uid:MxrDeviceUid, address:str, name:str, serial:str, version:str) -> None:
+        ''' called when a device became a driver proxy: a OneIP controller at
+        'address' relaying the mesh behind it, which a client joins with
+        Remote(proxy=...). Called again when one that stopped announcing
+        announces again. '''
         pass
 
     def on_controller_hello_changed(self, dev:DeviceBase, hello:ControllerHello) -> None:

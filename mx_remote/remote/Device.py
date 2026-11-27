@@ -97,7 +97,7 @@ import time
 
 from ..Interface import DeviceBase, BayBase, DeviceRegistry
 from ..proto.FrameBase import FrameBase
-from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, ONEIP_DOWNMIX_LFE_MAX, ONEIP_LOCALE_MAX, ONEIP_TILING_MIN, ONEIP_TILING_WIDTH_STEP, ONEIP_TILING_X_STEP, OSD_MESSAGE_TEXT_MAX, OsdMessageFlag, OsdMessagePriority, BayFeaturesMask, DeviceFeature, Endpoints, MxrSignalType, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag,
+from ..proto.Constants import (MXR_PROTOCOL_VERSION_SLOW_HELLO, PROXY_ANNOUNCE_WINDOW, ONEIP_DOWNMIX_LFE_MAX, ONEIP_LOCALE_MAX, ONEIP_TILING_MIN, ONEIP_TILING_WIDTH_STEP, ONEIP_TILING_X_STEP, OSD_MESSAGE_TEXT_MAX, OsdMessageFlag, OsdMessagePriority, BayFeaturesMask, DeviceFeature, Endpoints, MxrSignalType, OneIPDeviceSetting, OneIPVideoProcessorFeature, OneIPVlanFlag,
                               OneIPTestPattern, OneIPToneMode,
                               MXR_SCALING_FLAG_AUTO_SCALING, MXR_SCALING_FLAG_MODE_VALID,
                               MXR_SCALING_FLAG_OPTIONS_VALID, MXR_SCALING_FLAG_OPTIONS2_VALID,
@@ -198,6 +198,10 @@ class Device(DeviceBase):
 		# broadcast, as time.time().
 		self._heard_multicast:float|None = None
 		self._heard_broadcast:float|None = None
+		# When it last sent PROXY ANNOUNCE, as time.time(), None while it is no
+		# driver proxy; and whether it ever was one, which leaves it configured.
+		self._proxy_announced:float|None = None
+		self._proxy_seen = False
 		self._online = True
 		self._have_config = False
 		self._dolby_settings:AmpDolbySettings|None = None
@@ -675,6 +679,11 @@ class Device(DeviceBase):
 		if (self.features is not None) and (DeviceFeature.MANAGER in self.features):
 			# a management client has no bays or links to send
 			return True
+		if self._proxy_seen:
+			# nor has a controller's driver proxy, whose uplink hello names
+			# no mesh, and which answers nothing on the uplink; one that
+			# stopped announcing stays configured
+			return True
 		if not self.has_bays:
 			return False
 		if self.is_oneip and (self.oneip_sources is None):
@@ -973,6 +982,27 @@ class Device(DeviceBase):
 	@override
 	def controller_hello(self) -> ControllerHello|None:
 		return self._controller_hello
+
+	@property
+	@override
+	def proxy_controller(self) -> bool:
+		return (self._proxy_announced is not None)
+
+	def note_proxy_announce(self, at:float) -> bool:
+		'''Note a PROXY ANNOUNCE sent at 'at', returning whether the device
+		became a driver proxy by it.'''
+		became = (self._proxy_announced is None)
+		self._proxy_announced = at
+		self._proxy_seen = True
+		return became
+
+	def proxy_lapsed(self, now:float) -> bool:
+		'''Drop the driver proxy mark once PROXY_ANNOUNCE_WINDOW seconds have
+		passed without an ANNOUNCE, returning whether it was dropped now.'''
+		if (self._proxy_announced is None) or ((now - self._proxy_announced) < PROXY_ANNOUNCE_WINDOW):
+			return False
+		self._proxy_announced = None
+		return True
 
 	@property
 	@override

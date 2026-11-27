@@ -46,6 +46,21 @@ ROUTE_OWN_PROTOCOL = 0x36
 """The protocol version from which a unit flags a route made on the output's
 own unit in MX_ROUTE (0x08), which stays stamped 0x01."""
 
+PROXY_OPCODE = 0x59
+"""PROXY: a OneIP controller's driver proxy, which relays a mesh to one client
+on its uplink. Units drop it unread: it is the first opcode past their table."""
+
+PROXY_PORT = 8813
+"""The UDP port a controller's driver proxy, and a client joined to it, send
+from and listen on."""
+
+PROXY_VERSION = 1
+"""The version byte of PROXY ANNOUNCE, JOIN and INFO this library speaks."""
+
+PROXY_ANNOUNCE_WINDOW = 30
+"""How long a device stays a proxy controller after its last PROXY ANNOUNCE, in
+seconds: three of the 10 s periods it announces at."""
+
 MXR_PROTOCOL_VERSION_SLOW_HELLO = 0x2A
 """First protocol version whose devices may hello only every 20-30s."""
 
@@ -141,6 +156,8 @@ MXR_OPCODE_VERSIONS: dict[int, int] = {
     0x56: 0x32,  # MESH_REPLACE (owned by the v2ipmesh module)
     0x57: 0x33,  # MESH_CONFIG (owned by the v2ipmesh module)
     0x58: 0x34,  # CONTROLLER_STATE (only dedicated controllers send or take it)
+    # No unit decodes it; a controller's driver proxy stamps it 0x36.
+    0x59: 0x36,  # PROXY
 }
 """Per-opcode minimum compatible protocol version, mirroring the firmware's
 own opcode table. Transmitters stamp the
@@ -501,6 +518,21 @@ class OsdSyncState(IntEnum):
 	REVERTED = 5
 	'''A preview sync's settings were put back, for the reason the report
 	gives.'''
+
+class ProxySubOp(IntEnum):
+	'''What a PROXY (0x59) frame is, by its first payload byte.'''
+	ANNOUNCE  = 0
+	'''A controller takes drivers on PROXY_PORT; sent on its uplink, unprotected.'''
+	JOIN      = 1
+	CHALLENGE = 2
+	PROOF     = 3
+	RESULT    = 4
+	LEAVE     = 5
+	'''Sent inside DATA only.'''
+	DATA      = 6
+	'''One mx_remote frame, sealed.'''
+	INFO      = 7
+	'''The controller's mesh uid; sent inside DATA only.'''
 
 class OsdPreviewAction(IntEnum):
 	'''What a preview command (0x53 kind 7) does with a unit's preview.'''

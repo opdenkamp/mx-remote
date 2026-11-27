@@ -62,6 +62,7 @@ from ..proto.FrameV2IPPowerSave import FrameV2IPPowerSave
 from ..proto.FrameV2IPPrivacy import FrameV2IPPrivacy
 from ..proto.FrameV2IPSettingsAll import FrameV2IPSettingsAll
 from ..proto.FrameV2IPOsdSync import FrameV2IPOsdSync, OsdReportFrom
+from ..proto.FrameProxy import FrameProxy
 from .OsdSync import LogoServer, OsdSender, OSD_SYNC_ASK_WINDOW, PASS_GAP, osd_content_refusal, slots_of
 from ..proto.Constants import (ONEIP_DEVICE_SETTINGS_REPORTED_ONLY, ONEIP_DSCP_MAX, ONEIP_IR_PROFILE_MAX, ONEIP_PTP_DOMAIN_MAX, ONEIP_SINK_ROTATION_MAX,
                                OneIPPowerSaveLevel, OneIPPtpMode,
@@ -596,6 +597,7 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
         fault_changed = self._judge_paths(time.time())
         if fault_changed or (time.time() >= self._hello_due):
             self.tx_hello()
+        self._lapse_proxies(time.time())
         # Every registered device, whatever any of them has finished. A device
         # stops pinging whether or not it ever described itself, and this is the
         # only thing that notices: nothing arrives to mark a device gone, so a
@@ -2150,6 +2152,8 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             self._on_controller_state(data)
         elif isinstance(data, FrameHello):
             self._on_mxr_hello(data)
+        elif isinstance(data, FrameProxy):
+            self._on_proxy_announce(data)
         elif isinstance(data, FrameTopology):
             self._on_mxr_topology(data)
         elif isinstance(data, (FramePing, FrameDiscover)):
@@ -2229,6 +2233,25 @@ class Remote(DeviceRegistry, ConnectionCallbacks):
             self.remotes[hello_frame.remote_id] = d
             self._tree.add(hello_frame.remote_id)
         d.on_mxr_update(hello_frame)
+
+    def _on_proxy_announce(self, frame:FrameProxy) -> None:
+        '''Note a PROXY ANNOUNCE from a registered device: one that makes it a
+        driver proxy reports it, then completes its configuration, as it has
+        no bays to wait for. One from a sender not yet heard is dropped like
+        any frame but a hello; the next, 10 s on, marks it.'''
+        if ((d := self.remotes.get(frame.remote_id)) is None) or not d.note_proxy_announce(frame.timestamp):
+            return
+        self.callbacks.on_proxy_controller_changed(d, True)
+        self.callbacks.on_proxy_found(d.remote_id, d.address, d.name, d.serial, d.version)
+        d.check_configuration_complete_timeout()
+        d.call_callbacks()
+
+    def _lapse_proxies(self, now:float) -> None:
+        '''Drop the driver proxy mark of each device that stopped announcing.'''
+        for d in list(self.remotes.values()):
+            if d.proxy_lapsed(now):
+                self.callbacks.on_proxy_controller_changed(d, False)
+                d.call_callbacks()
 
     def _on_mxr_topology(self, frame:FrameTopology) -> None:
         '''Reshape the device tree by a topology list, as a unit does with one
