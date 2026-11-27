@@ -353,6 +353,13 @@ for bad in ({'key': K[:31]}, {'key': 'zz' * 32}, {'uplink_uid': bytes(16)}):
         continue
     raise AssertionError(f'{bad} was taken')
 assert mx_remote.Remote(open_connection=False).proxy is None
+# The uplink uid as the controller keeps it: 32 hex characters, its wire bytes.
+assert ProxyConfig(controller=CTRL, key=K, uplink_uid=UC.hex() + '\n').uplink_uid == MxrDeviceUid(UC)
+assert ProxyConfig(controller=CTRL, key=K, uplink_uid=str(MxrDeviceUid(UC))).uplink_uid == MxrDeviceUid(UC)
+# A live pair from a 1.0.12 controller: its uplink-uid file, and the uid its
+# hello carried, as this library writes it. A join under it succeeded.
+assert ProxyConfig(controller=CTRL, key=K, uplink_uid='e8cd652b23e8635a3b715073efc8e055').uplink_uid \
+    == MxrDeviceUid('2b65cde8.5a63e823.7350713b.55e0c8ef')
 print('refused     : overlay syncs, HTTP and the options a proxy rules out')
 
 # The probe loop runs the session's clock: this one was last heard at 1.0.

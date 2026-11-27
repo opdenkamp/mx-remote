@@ -144,8 +144,9 @@ class ProxyConfig:
     controller is its uplink address, as on_proxy_found reported it or as
     configured; key the driver key its web interface shows, as 32 bytes or 64
     hex characters; uplink_uid the uid it announces on the uplink, which this
-    client pins: only frames under it are taken. port is the proxy's UDP port
-    at both ends, PROXY_PORT unless testing.'''
+    client pins: only frames under it are taken, as an MxrDeviceUid, 16 bytes,
+    or 32 hex characters as the controller keeps it in /data/uplink-uid. port
+    is the proxy's UDP port at both ends, PROXY_PORT unless testing.'''
     controller:str
     key:bytes|str = field(repr=False)
     uplink_uid:MxrDeviceUid|bytes|str
@@ -155,7 +156,10 @@ class ProxyConfig:
         key = bytes.fromhex(self.key) if isinstance(self.key, str) else bytes(self.key)
         if (len(key) != KEY_SIZE):
             raise ValueError(f'a driver key is {KEY_SIZE} bytes, or {2 * KEY_SIZE} hex characters')
-        uid = self.uplink_uid if isinstance(self.uplink_uid, MxrDeviceUid) else MxrDeviceUid(self.uplink_uid)
+        raw = self.uplink_uid
+        if isinstance(raw, str) and (len(raw.strip()) == 32) and ('.' not in raw):
+            raw = bytes.fromhex(raw.strip())
+        uid = raw if isinstance(raw, MxrDeviceUid) else MxrDeviceUid(raw)
         if uid.empty:
             raise ValueError('a controller uplink uid is required')
         object.__setattr__(self, 'key', key)
