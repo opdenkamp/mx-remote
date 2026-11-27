@@ -157,9 +157,18 @@ class ProxyConfig:
         if (len(key) != KEY_SIZE):
             raise ValueError(f'a driver key is {KEY_SIZE} bytes, or {2 * KEY_SIZE} hex characters')
         raw = self.uplink_uid
-        if isinstance(raw, str) and (len(raw.strip()) == 32) and ('.' not in raw):
-            raw = bytes.fromhex(raw.strip())
-        uid = raw if isinstance(raw, MxrDeviceUid) else MxrDeviceUid(raw)
+        if isinstance(raw, str) and ('.' not in raw):
+            # Exactly 32 hex digits, around which a line read from the file
+            # may leave whitespace. bytes.fromhex() refuses anything but hex
+            # and spaces; the length refuses the spaces, and a longer uid.
+            text = raw.strip()
+            if (len(text) != 32):
+                raise ValueError(f'an uplink uid is 32 hex digits or the dotted form, not {raw!r}')
+            raw = bytes.fromhex(text)
+        try:
+            uid = raw if isinstance(raw, MxrDeviceUid) else MxrDeviceUid(raw)
+        except Exception as e:
+            raise ValueError(f'invalid uplink uid {raw!r}: {e}') from None
         if uid.empty:
             raise ValueError('a controller uplink uid is required')
         object.__setattr__(self, 'key', key)

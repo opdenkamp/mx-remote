@@ -360,6 +360,14 @@ assert ProxyConfig(controller=CTRL, key=K, uplink_uid=str(MxrDeviceUid(UC))).upl
 # hello carried, as this library writes it. A join under it succeeded.
 assert ProxyConfig(controller=CTRL, key=K, uplink_uid='e8cd652b23e8635a3b715073efc8e055').uplink_uid \
     == MxrDeviceUid('2b65cde8.5a63e823.7350713b.55e0c8ef')
+LIVE = 'e8cd652b23e8635a3b715073efc8e055'
+for bad in (LIVE[:31], LIVE + '0', LIVE + '00', LIVE[:31] + 'g', '+' + LIVE[1:], ' '.join(LIVE[i:i + 2] for i in range(0, 32, 2)),
+            '2b65cde8.5a63e823'):
+    try:
+        ProxyConfig(controller=CTRL, key=K, uplink_uid=bad)
+    except ValueError:
+        continue
+    raise AssertionError(f'uplink uid {bad!r} was taken')
 print('refused     : overlay syncs, HTTP and the options a proxy rules out')
 
 # The probe loop runs the session's clock: this one was last heard at 1.0.
