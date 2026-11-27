@@ -120,6 +120,34 @@ wire(False)
 assert asyncio.run(out.tx_action(mx_remote.RCAction.ACTION_POWER_ON)) is False
 print('tx_action   : False on a failed send')
 
+# A key goes to the bay's unit as 0x0C TX_RC_KEY - the unit's uid, the bay's
+# u16 port, the u16 key - by the endpoint that unit is heard on, never over HTTP.
+async def no_http(uri):
+    raise AssertionError(f'send_key went over HTTP: {uri}')
+dev.get_api = no_http
+heard = []
+def keyed(ok):
+    def tx(data, to=None):
+        heard.append((bytes(data), to))
+        return len(data) if ok else 0
+    mx.transmit = tx
+keyed(True)
+assert asyncio.run(out.send_key(mx_remote.RCKey.KEY_PLAY)) is True, 'send_key must report a full write'
+assert asyncio.run(out.send_key(0x0800)) is True, 'a key code outside RCKey is still a u16'
+(play, to), (raw, _) = heard
+assert to is dev, 'a key must go by the endpoint its unit is heard on'
+assert play[20:22] == b'\x0c\x00' and play[2] == 0x0C, 'TX_RC_KEY, stamped 0x0C'
+assert play[24:] == UID + struct.pack('<HH', 1, 20), play[24:].hex()
+assert raw[42:] == struct.pack('<H', 0x0800), raw[24:].hex()
+print('send_key    : 0x0C to the unit, uid + u16 port + u16 key')
+heard.clear()
+for bad in (-1, 0x10000):
+    assert asyncio.run(out.send_key(bad)) is False, f'key {bad} is no u16'
+assert heard == [], 'a key that is no u16 must not be sent'
+keyed(False)
+assert asyncio.run(out.send_key(mx_remote.RCKey.KEY_STOP)) is False
+print('send_key    : False on a failed send or a key that is no u16')
+
 # ---- Device-level commands take the same path, and hold most of the call sites
 # (19 of the 25), so a Bay-only suite would leave them unguarded.
 assert dev.rebooting is False, 'device must not start out rebooting'

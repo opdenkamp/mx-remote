@@ -25,11 +25,11 @@ from ..Uid import MxrDeviceUid
 class FrameTXRCKey(FrameBase):
     '''A request for a specific bay on a target device to emit a key.'''
     @staticmethod
-    def construct(mxr:DeviceRegistry, target:BayBase, key:RCKey) -> FrameBase|None:
+    def construct(mxr:DeviceRegistry, target:BayBase, key:RCKey|int) -> FrameBase|None:
         '''Build an RC key frame for transmission to the target bay.'''
         payload = target.device.remote_id.byte_value
         payload += bytes([(target.port & 0xFF), ((target.port >> 8) & 0xFF),
-                          (int(key.value) & 0xFF), ((int(key.value) >> 8) & 0xFF)])
+                          (int(key) & 0xFF), ((int(key) >> 8) & 0xFF)])
         return FrameBase.construct_base(target=target, mxr=mxr, opcode=0x0C, payload=payload)
 
     @cached_property

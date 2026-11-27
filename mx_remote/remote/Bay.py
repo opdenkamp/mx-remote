@@ -22,6 +22,7 @@ from ..proto.FrameEDIDProfile import FrameEDIDProfile
 from ..proto.FrameBayHide import FrameBayHide
 from ..proto.FrameSetName import FrameSetName, stored_name
 from ..proto.FrameRCAction import FrameRCAction
+from ..proto.FrameTXRCKey import FrameTXRCKey
 from ..proto.FrameVolumeSet import FrameVolumeSet
 from ..proto.FrameAmpZoneSettings import FrameAmpZoneSettings
 from ..Interface import (
@@ -1288,13 +1289,21 @@ class Bay(BayBase):
 
     @override
     async def send_key(self, key:int) -> bool:
-        '''Send a key press to the connected device.'''
+        '''Have the bay's unit send key to the connected device, by whatever
+        the bay is set up for: CEC, IR or IP. True when it was written.
+
+        Sent as 0x0C TX_RC_KEY to the unit itself, which emits the key on the
+        bay its port names. key is an RCKey or any other u16 key code.'''
         if self.is_oneip_remote:
             owner = self._acted_on('a key')
             return (await owner.send_key(key)) if (owner is not None) else False
-        cmd = f"key/sendkey/{str(key)}/{self.mode}/{self.bay}"
-        _LOGGER.debug(cmd)
-        return await self.device.get_api(cmd) is not None
+        if not (0 <= int(key) <= 0xFFFF):
+            _LOGGER.warning(f"not sending key {key} to {self}: a key code is a u16")
+            return False
+        pkt = FrameTXRCKey.construct(mxr=self.device.registry, target=self, key=key)
+        if pkt is None:
+            return False
+        return self.device.registry.transmit(pkt.frame, to=self.device) == len(pkt.frame)
 
     @property
     @override

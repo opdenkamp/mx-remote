@@ -1562,7 +1562,8 @@ class BayBase(ABC):
 
     @abstractmethod
     async def send_key(self, key:int) -> bool:
-        '''send a remote control key press to the device'''
+        '''send a remote control key press to the device connected to the
+        bay, by 0x0C TX_RC_KEY to the bay's unit'''
 
     @abstractmethod
     def register_callback(self, callback:'Callable[[BayBase], None]') -> None:
